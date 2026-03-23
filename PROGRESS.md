@@ -30,7 +30,7 @@
   - Shader fix: `uAtlasCols`+`uAtlasGrid` → `uAtlasGridW`+`uAtlasGridH` in `makeUniforms`, `buildGlyphMaterial` destructuring, `sampleGlyph` (4 refs), and `matrix-rain-webgpu.js` constants
   - Runtime API: `CHAR_SETS` table, `charSet` init opt, `handle.setCharSet(name)` (async material rebuild on atlas load)
   - `demo.html`: Char set dropdown wired to `setCharSet()`
-  - **Pending**: Run `tools/gen-atlas.html` to generate and commit `data/matrix1999_msdf.png`, `data/matrix1999_bitmap.png`, `data/latin_msdf.png`, `data/latin_bitmap.png`, `data/ascii_msdf.png`, `data/ascii_bitmap.png`
+  - Atlas PNGs generated via `tools/gen-atlas.html` (Playwright automation) and committed: `matrix1999_msdf.png` (21K), `matrix1999_bitmap.png` (14K), `latin_msdf.png` / `latin_bitmap.png` (7K each), `ascii_msdf.png` / `ascii_bitmap.png` (11K each)
 
 ## Backlog
 
