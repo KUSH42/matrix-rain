@@ -1,0 +1,42 @@
+{
+  "name": "matrix-rain-webgpu",
+  "version": "0.1.0",
+  "description": "Three.js WebGPU matrix rain — Katakana glyphs, MSDF atlas, TSL shaders, full post-processing",
+  "type": "module",
+  "main": "./matrix-rain-webgpu.js",
+  "module": "./matrix-rain-webgpu.js",
+  "exports": {
+    ".": "./matrix-rain-webgpu.js",
+    "./tsl": "./matrix-rain-tsl.js",
+    "./passes": "./matrix-rain-passes-tsl.js"
+  },
+  "files": [
+    "matrix-rain-webgpu.js",
+    "matrix-rain-tsl.js",
+    "matrix-rain-passes-tsl.js",
+    "data/matrixcode_msdf.png"
+  ],
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
+  },
+  "peerDependencies": {
+    "three": ">=0.171.0"
+  },
+  "devDependencies": {
+    "vitest": "^3.0.0"
+  },
+  "keywords": [
+    "three.js",
+    "webgpu",
+    "matrix",
+    "rain",
+    "tsl",
+    "shader",
+    "katakana",
+    "msdf",
+    "effect"
+  ],
+  "license": "MIT"
+}

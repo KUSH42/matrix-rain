@@ -1,0 +1,472 @@
+/**
+ * matrix-rain-webgpu.js  —  Katakana matrix rain in true 3D space, WebGPU edition.
+ *
+ * Columns are scattered in a spherical shell around the origin. Each column
+ * has randomised position, trail length, brightness, glyph scale, and speed.
+ * Billboarded quads always face the camera; depth-scaled for consistent screen
+ * presence.  Uses Three.js WebGPU renderer + TSL shaders throughout.
+ *
+ * Public API
+ *   initMatrixRain(element, opts) → handle
+ *   destroyMatrixRain(element)
+ *
+ * Handle methods
+ *   destroy(), setColor(hex), setOpacity(v), setDepth(v),
+ *   setNormalStrength(v), setSoften(on, strength), setHeat(on, amt),
+ *   setStreaks(on, amt), setBurstBloom(on), setGlobeInteract(on),
+ *   setGlyphChroma(on, scale),
+ *   setGodRays(enabled, lightX, lightY, density, decay, weight, exposure)
+ */
+
+import * as THREE from 'three/webgpu';
+import { pass, rtt, screenUV, texture, uniform } from 'three/tsl';
+import { bloom } from 'three/addons/tsl/display/BloomNode.js';
+import { fxaa } from 'three/addons/tsl/display/FXAANode.js';
+import { makeUniforms, buildGlyphMaterial } from './matrix-rain-tsl.js';
+import {
+  buildHeatPass,
+  buildPhosphorPass,
+  buildSoftenPass,
+  buildStreakPass,
+  buildHoloPass,
+  buildGodRaysPass,
+} from './matrix-rain-passes-tsl.js';
+
+// ── Glyph set (Matrix-Code.ttf — Rezmason/matrix, MIT) ────────────────────
+const GLYPHS = [
+  ...'アウエオカキケコサシスセソタツテナニヌネ',
+  ...'ハヒホマミムメモヤヨラリワー',
+  ...'012345789z',
+  ...':."*+<>|¦╌▪꞊',
+];
+const ATLAS_COLS = 8;
+const ATLAS_GRID = 8;
+
+// ── Scene constants ────────────────────────────────────────────────────────
+const N_COLS  = 600;
+const N_ROWS  = 120;
+const CELL_W  = 0.12;
+const CELL_H  = 0.08;
+const WORLD_H = 16;
+const R_MIN   = 3.5;
+const R_MAX   = 8.0;
+
+// ── MSDF atlas ────────────────────────────────────────────────────────────
+function loadMSDF(path) {
+  const tex = new THREE.TextureLoader().load(path);
+  tex.flipY           = false;
+  tex.minFilter       = THREE.LinearMipMapLinearFilter;
+  tex.magFilter       = THREE.LinearFilter;
+  tex.colorSpace      = THREE.LinearSRGBColorSpace;
+  tex.generateMipmaps = true;
+  return tex;
+}
+
+// ── Instanced buffer geometry ─────────────────────────────────────────────
+function buildGeometry() {
+  const geom = new THREE.InstancedBufferGeometry();
+  const base = new THREE.PlaneGeometry(1, 1);
+  geom.index = base.index.clone();
+  geom.setAttribute('position', base.getAttribute('position').clone());
+  geom.setAttribute('uv',       base.getAttribute('uv').clone());
+  base.dispose();
+
+  const total   = N_COLS * N_ROWS;
+  const colBuf  = new Float32Array(total);
+  const rowBuf  = new Float32Array(total);
+  const colABuf = new Float32Array(total * 4);  // wx, wz, speed, seed
+  const colBBuf = new Float32Array(total * 4);  // yOff, scale, alpha, trail
+
+  for (let c = 0; c < N_COLS; c++) {
+    const theta = Math.random() * Math.PI * 2;
+    const cosP  = 1 - 2 * Math.random();
+    const sinP  = Math.sqrt(1 - cosP * cosP);
+    const t     = Math.pow(Math.random(), 0.12);
+    const r     = R_MIN + t * (R_MAX - R_MIN);
+    const wx    = sinP * Math.cos(theta) * r;
+    const wz    = sinP * Math.sin(theta) * r;
+    const yBase = cosP * r;
+    const yOff  = yBase + (Math.random() - 0.5) * 2.0;
+    const speed = 0.4 + Math.random() * 1.87;
+    const seed  = Math.random();
+    const scale = 0.5 + Math.random() * 1.0;
+    const alpha = 0.18 + Math.random() * 0.72;
+    const trail = 0.015 + Math.random() * 0.035;
+
+    for (let row = 0; row < N_ROWS; row++) {
+      const idx = c * N_ROWS + row;
+      colBuf[idx] = c;
+      rowBuf[idx] = row;
+      const i4 = idx * 4;
+      colABuf[i4]     = wx;
+      colABuf[i4 + 1] = wz;
+      colABuf[i4 + 2] = speed;
+      colABuf[i4 + 3] = seed;
+      colBBuf[i4]     = yOff;
+      colBBuf[i4 + 1] = scale;
+      colBBuf[i4 + 2] = alpha;
+      colBBuf[i4 + 3] = trail;
+    }
+  }
+
+  geom.setAttribute('aColIdx', new THREE.InstancedBufferAttribute(colBuf,  1));
+  geom.setAttribute('aRowIdx', new THREE.InstancedBufferAttribute(rowBuf,  1));
+  geom.setAttribute('aColA',   new THREE.InstancedBufferAttribute(colABuf, 4));
+  geom.setAttribute('aColB',   new THREE.InstancedBufferAttribute(colBBuf, 4));
+  geom.instanceCount = total;
+  return geom;
+}
+
+// ── Post-processing pipeline builder ─────────────────────────────────────
+function buildPostProcessing(renderer, scene, camera, phosphorPrevTexNode, phosphorDecay, uAspect) {
+  const pp = new THREE.RenderPipeline(renderer);
+
+  const scenePass  = pass(scene, camera);
+  const sceneColor = scenePass.getTextureNode('output');
+
+  // ── Bloom ──────────────────────────────────────────────────────────
+  const bloomNode = bloom(sceneColor, 1.15, 0.45);
+  bloomNode.threshold.value = 0.20;
+  const afterBloomRtt = rtt(sceneColor.add(bloomNode));
+
+  // ── Heat distortion ────────────────────────────────────────────────
+  const heatBuild  = buildHeatPass(afterBloomRtt);
+  const afterHeatRtt = rtt(heatBuild.outputNode);
+
+  // ── Phosphor persistence ───────────────────────────────────────────
+  const phosphorBuild = buildPhosphorPass(afterHeatRtt, phosphorPrevTexNode, phosphorDecay);
+  const rttPhosphor   = rtt(phosphorBuild.outputNode);
+
+  // ── Soften (radial blur) ───────────────────────────────────────────
+  const softenBuild = buildSoftenPass(rttPhosphor);
+  const afterSoftenRtt = rtt(softenBuild.outputNode);
+
+  // ── Lens rain streaks ──────────────────────────────────────────────
+  const streakBuild = buildStreakPass(afterSoftenRtt, uAspect);
+
+  // ── Holo (chromatic aberration + scanlines + vignette) ────────────
+  const rttPreHolo  = rtt(streakBuild.outputNode);
+  const holoBuild   = buildHoloPass(rttPreHolo);
+
+  // ── God rays ───────────────────────────────────────────────────────
+  const rttPreGodRays = rtt(holoBuild.outputNode);
+  const godRaysBuild  = buildGodRaysPass(rttPreGodRays);
+  godRaysBuild.uEnabled.value = 1.0;
+
+  // ── FXAA ──────────────────────────────────────────────────────────
+  const rttPreFxaa = rtt(godRaysBuild.outputNode);
+  pp.outputNode = fxaa(rttPreFxaa);
+
+  // Expose internal nodes for the render loop
+  pp._rttPhosphor = rttPhosphor;
+  pp._bloomNode   = bloomNode;
+  pp._heatBuild   = heatBuild;
+  pp._softenBuild = softenBuild;
+  pp._streakBuild = streakBuild;
+  pp._holoBuild   = holoBuild;
+  pp._godRaysBuild = godRaysBuild;
+
+  return pp;
+}
+
+// ── Instance registry ─────────────────────────────────────────────────────
+const _state = new Map();
+
+// ═════════════════════════════════════════════════════════════════════════
+// PUBLIC API
+// ═════════════════════════════════════════════════════════════════════════
+
+/**
+ * Initialise matrix rain on an HTML element.
+ *
+ * @param {HTMLElement} element   host element — canvas is appended inside it
+ * @param {object}  [opts]
+ * @param {string}  [opts.color='#00ff70']   glyph tint (hex)
+ * @param {number}  [opts.opacity=0.82]      global alpha 0–1
+ * @param {string}  [opts.atlasPath='/data/matrixcode_msdf.png']
+ * @param {object|null} [opts.syncCamera=null]  THREE.Camera to mirror
+ * @returns {object}  control handle
+ */
+export function initMatrixRain(element, opts = {}) {
+  if (_state.has(element)) destroyMatrixRain(element);
+  const stale = element.querySelector('canvas[data-matrix-rain]');
+  if (stale) stale.remove();
+
+  const {
+    color      = '#00ff70',
+    opacity    = 0.82,
+    atlasPath  = '/data/matrixcode_msdf.png',
+    syncCamera = null,
+  } = opts;
+
+  // ── Renderer ─────────────────────────────────────────────────────────
+  const renderer = new THREE.WebGPURenderer({ antialias: false, alpha: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setSize(element.clientWidth || 1, element.clientHeight || 1);
+
+  const canvas = renderer.domElement;
+  canvas.dataset.matrixRain = '1';
+  canvas.style.cssText =
+    'position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:0;';
+  element.appendChild(canvas);
+
+  // ── Scene ─────────────────────────────────────────────────────────────
+  const scene  = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(
+    45,
+    (element.clientWidth || 1) / (element.clientHeight || 1),
+    0.1, 60
+  );
+  camera.position.set(0, 0, 3);
+  camera.lookAt(0, 0, 0);
+
+  // ── Atlas & material ──────────────────────────────────────────────────
+  const atlasTex = loadMSDF(atlasPath);
+  const uniforms = makeUniforms(GLYPHS.length);
+
+  // Apply opts
+  const rgb = new THREE.Color(color);
+  uniforms.uColor.value.set(rgb.r, rgb.g, rgb.b);
+  uniforms.uGlobalAlpha.value = opacity;
+  uniforms.uCellW.value       = CELL_W;
+  uniforms.uCellH.value       = CELL_H;
+  uniforms.uWorldH.value      = WORLD_H;
+  uniforms.uNRows.value       = N_ROWS;
+  uniforms.uAtlasCols.value   = ATLAS_COLS;
+  uniforms.uAtlasGrid.value   = ATLAS_GRID;
+
+  const material = buildGlyphMaterial(uniforms, atlasTex);
+  const geom     = buildGeometry();
+  const mesh     = new THREE.Mesh(geom, material);
+  mesh.frustumCulled = false;
+  mesh.renderOrder   = 1;
+  scene.add(mesh);
+
+  // ── Phosphor persistence ──────────────────────────────────────────────
+  // prevRT is lazily created at full renderer resolution on first use.
+  const phosphorDecay = uniform(0.88);
+  let prevRT     = null;
+  let prevW      = 0;
+  let prevH      = 0;
+
+  // Dummy 1×1 target to satisfy the texture node before the first real RT is created.
+  const dummyRT        = new THREE.RenderTarget(1, 1, { type: THREE.HalfFloatType });
+  const phosphorPrevTex = texture(dummyRT.texture, screenUV);
+
+  function ensurePrevRT() {
+    const w = renderer.domElement.width;
+    const h = renderer.domElement.height;
+    if (prevRT && prevW === w && prevH === h) return;
+    if (prevRT) { try { prevRT.dispose(); } catch (_) {} }
+    prevRT = new THREE.RenderTarget(w, h, { type: THREE.HalfFloatType });
+    prevW  = w;
+    prevH  = h;
+    phosphorPrevTex.value = prevRT.texture;
+  }
+
+  // ── Aspect uniform shared between streak pass and resize ──────────────
+  const uAspect = uniform((element.clientWidth || 1) / (element.clientHeight || 1));
+
+  // ── Post-processing (built lazily after renderer.init()) ──────────────
+  let postProcessing  = null;
+  let firstRenderDone = false;
+
+  function buildPP() {
+    return buildPostProcessing(renderer, scene, camera, phosphorPrevTex, phosphorDecay, uAspect);
+  }
+
+  // ── Animate ───────────────────────────────────────────────────────────
+  const animRef = { id: 0 };
+  let prevTs = 0;
+  let burstBloomTimer  = 0;
+  let lastBurstBucket  = -1;
+  let burstBloomActive = true;
+  // syncCamera reference — assigned to state after state object is created
+  let activeSyncCamera = syncCamera;
+
+  async function animate(ts) {
+    animRef.id = requestAnimationFrame(animate);
+    const t  = ts * 0.001;
+    const dt = t - prevTs;
+    prevTs   = t;
+
+    uniforms.uTime.value = t;
+
+    // Sync to external camera if requested
+    if (activeSyncCamera) {
+      camera.position.copy(activeSyncCamera.position);
+      camera.quaternion.copy(activeSyncCamera.quaternion);
+      camera.fov  = activeSyncCamera.fov;
+      camera.near = activeSyncCamera.near;
+      camera.far  = activeSyncCamera.far;
+      camera.updateProjectionMatrix();
+    }
+
+    // Light tracks camera azimuth with +60° offset
+    if (camera.position.lengthSq() > 0.001) {
+      const az = Math.atan2(camera.position.x, camera.position.z) + Math.PI / 3;
+      uniforms.uLightDir.value.set(
+        Math.sin(az) * 0.6, 0.8, Math.cos(az) * 0.6
+      ).normalize();
+    }
+
+    // Depth-adaptive bloom burst
+    if (postProcessing?._bloomNode) {
+      const bloomNode = postProcessing._bloomNode;
+      if (burstBloomActive) {
+        const burstBucket = Math.floor(t / 4.0);
+        if (burstBucket !== lastBurstBucket) {
+          lastBurstBucket = burstBucket;
+          burstBloomTimer = 0.30;
+        }
+        if (burstBloomTimer > 0) {
+          burstBloomTimer = Math.max(0, burstBloomTimer - dt);
+          const surge = 1 - burstBloomTimer / 0.30;
+          bloomNode.threshold.value = surge < 0.2
+            ? THREE.MathUtils.lerp(0.20, 0.10, surge / 0.2)
+            : THREE.MathUtils.lerp(0.10, 0.20, (surge - 0.2) / 0.8);
+        } else {
+          bloomNode.threshold.value = 0.20;
+        }
+      } else {
+        bloomNode.threshold.value = 0.20;
+      }
+    }
+
+    if (!postProcessing) return; // wait for init
+
+    // ── RTT resize detection (telescreen pattern) ───────────────────
+    const rdrW = renderer.domElement.width;
+    const rdrH = renderer.domElement.height;
+    const rttRT = postProcessing._rttPhosphor?.renderTarget;
+    if (firstRenderDone && rttRT && (rttRT.width !== rdrW || rttRT.height !== rdrH)) {
+      try { rttRT.dispose(); } catch (_) {}
+      if (prevRT) { try { prevRT.dispose(); } catch (_) {} prevRT = null; prevW = 0; prevH = 0; }
+      postProcessing = buildPP();
+      firstRenderDone = false;
+      return;
+    }
+
+    ensurePrevRT();
+
+    try {
+      await postProcessing.render();
+      firstRenderDone = true;
+
+      // Copy phosphor rtt output → prevRT so next frame reads the accumulated result
+      if (postProcessing._rttPhosphor?.renderTarget && prevRT) {
+        renderer.copyTextureToTexture(
+          postProcessing._rttPhosphor.renderTarget.texture,
+          prevRT.texture
+        );
+      }
+    } catch (e) {
+      console.warn('matrix-rain-webgpu: render threw:', e);
+    }
+  }
+
+  // Init renderer then kick off animation
+  renderer.init().then(() => {
+    postProcessing = buildPP();
+    animRef.id = requestAnimationFrame(animate);
+  });
+
+  // ── Resize ────────────────────────────────────────────────────────────
+  let resizePending = false;
+  const ro = new ResizeObserver(() => {
+    if (resizePending) return;
+    resizePending = true;
+    requestAnimationFrame(() => {
+      resizePending = false;
+      const w = element.clientWidth  || 1;
+      const h = element.clientHeight || 1;
+      renderer.setSize(w, h);
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+      uAspect.value = w / h;
+      // PostProcessing RTT resize is handled in the render loop
+    });
+  });
+  ro.observe(element);
+
+  // ── State object ──────────────────────────────────────────────────────
+  const s = { renderer, ro, animRef, geom, material, atlasTex, dummyRT, uniforms };
+  _state.set(element, s);
+
+  // ── Control handle ────────────────────────────────────────────────────
+  return {
+    destroy() { destroyMatrixRain(element); },
+
+    setColor(hex) {
+      const c = new THREE.Color(hex);
+      uniforms.uColor.value.set(c.r, c.g, c.b);
+    },
+    setOpacity(v)          { uniforms.uGlobalAlpha.value = v; },
+    setDepth(v)            { uniforms.uDepth.value = v; },
+    setNormalStrength(v)   { uniforms.uNormalStrength.value = v; },
+
+    setSoften(on, strength) {
+      if (!postProcessing?._softenBuild) return;
+      if (strength !== undefined)
+        postProcessing._softenBuild.uBlurStrength.value = strength;
+      // Note: disabling soften requires rebuilding the PostProcessing graph.
+      // For now, setting strength to 0 effectively disables it.
+      if (!on) postProcessing._softenBuild.uBlurStrength.value = 0;
+    },
+    setHeat(on, amt) {
+      if (!postProcessing?._heatBuild) return;
+      postProcessing._heatBuild.uHeatAmt.value = on ? (amt ?? 0.004) : 0;
+    },
+    setStreaks(on, amt) {
+      if (!postProcessing?._streakBuild) return;
+      postProcessing._streakBuild.uStreakAmt.value = on ? (amt ?? 0.055) : 0;
+    },
+    setBurstBloom(on) { burstBloomActive = on; },
+
+    setGlobeInteract(on) { uniforms.uGlobeInteract.value = on ? 1.0 : 0.0; },
+    setGlyphChroma(on, scale) {
+      uniforms.uGlyphChroma.value = on ? (scale ?? 1.0) : 0.0;
+    },
+
+    /**
+     * @param {boolean} enabled
+     * @param {number}  [lightX]    0–1 screen UV X of light source
+     * @param {number}  [lightY]    0–1 screen UV Y of light source
+     * @param {number}  [density]   0–1 ray spacing scalar
+     * @param {number}  [decay]     0–1 per-sample decay
+     * @param {number}  [weight]    0–1 per-sample weight
+     * @param {number}  [exposure]  0–2 final exposure
+     */
+    setGodRays(enabled, lightX, lightY, density, decay, weight, exposure) {
+      if (!postProcessing?._godRaysBuild) return;
+      const g = postProcessing._godRaysBuild;
+      g.uEnabled.value = enabled ? 1.0 : 0.0;
+      if (lightX    !== undefined) g.uLightPos.value.x = lightX;
+      if (lightY    !== undefined) g.uLightPos.value.y = lightY;
+      if (density   !== undefined) g.uDensity.value   = density;
+      if (decay     !== undefined) g.uDecay.value     = decay;
+      if (weight    !== undefined) g.uWeight.value    = weight;
+      if (exposure  !== undefined) g.uExposure.value  = exposure;
+    },
+
+    setPhosphorDecay(v) { phosphorDecay.value = v; },
+  };
+}
+
+/**
+ * Tear down matrix rain on an element.
+ * @param {HTMLElement} element
+ */
+export function destroyMatrixRain(element) {
+  const s = _state.get(element);
+  if (!s) return;
+  cancelAnimationFrame(s.animRef.id);
+  s.ro.disconnect();
+  s.material.dispose();
+  s.geom.dispose();
+  s.atlasTex.dispose();
+  s.dummyRT.dispose();
+  s.renderer.dispose();
+  s.renderer.domElement.remove();
+  _state.delete(element);
+}

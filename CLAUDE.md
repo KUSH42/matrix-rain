@@ -1,0 +1,276 @@
+# CLAUDE.md — matrix-rain-webgpu
+
+## What This Project Is
+
+A WebGPU Matrix (1999) rain effect built on Three.js r183+ with the WebGPU renderer and
+TSL node graph. 600 instanced columns scattered in a spherical shell, each a billboard quad
+rendering MSDF Katakana glyphs with parallax occlusion mapping, chromatic aberration, head
+sweep, burst cycle, globe proximity pulse, and a 7-stage post-processing pipeline.
+
+No bundler. No npm install at runtime. Plain ES modules — serve with any static file server.
+
+---
+
+## File Structure
+
+```
+matrix-rain-webgpu/
+├── matrix-rain-webgpu.js        # Public API + PostProcessing wiring + RAF loop
+├── matrix-rain-tsl.js           # TSL glyph material: vertex + fragment Fns, uniforms
+├── matrix-rain-passes-tsl.js    # TSL post-processing pass builders (heat, phosphor, soften, streaks, holo, god rays)
+├── demo.html                    # Standalone demo with controls panel
+├── data/
+│   └── matrixcode_msdf.png      # 512×512 MSDF glyph atlas, 8×8 grid (Katakana + symbols)
+├── tests/                       # Vitest unit tests (Node-only, no GPU)
+├── specs/                       # Spec files for spec-driven workflow
+├── memory/                      # Session memory for agent runs
+├── vitest.config.js
+└── CLAUDE.md                    # This file
+```
+
+---
+
+## Architecture
+
+### Pipeline Stages
+
+| Stage | Input | Module |
+|---|---|---|
+| 1. Glyph render | Three.js scene | `matrix-rain-tsl.js` `buildGlyphMaterial` |
+| 2. Bloom | scene output | `three/addons/.../BloomNode.js` |
+| 3. Heat distortion | afterBloom rtt | `matrix-rain-passes-tsl.js` `buildHeatPass` |
+| 4. Phosphor persistence | afterHeat rtt | `matrix-rain-passes-tsl.js` `buildPhosphorPass` |
+| 5. Radial soften | phosphor rtt | `matrix-rain-passes-tsl.js` `buildSoftenPass` |
+| 6. Lens streaks | soften rtt | `matrix-rain-passes-tsl.js` `buildStreakPass` |
+| 7. Holo (chroma + scanlines + vignette) | streaks rtt | `matrix-rain-passes-tsl.js` `buildHoloPass` |
+| 8. God rays | holo rtt | `matrix-rain-passes-tsl.js` `buildGodRaysPass` |
+| 9. FXAA | god rays rtt | `three/addons/.../FXAANode.js` |
+
+### Phosphor Temporal Feedback Pattern
+
+```js
+// Dummy 1×1 to satisfy texture node before first real RT
+const dummyRT = new THREE.RenderTarget(1, 1, { type: THREE.HalfFloatType });
+const phosphorPrevTex = texture(dummyRT.texture, screenUV);
+
+// Lazily create full-res RT and hot-swap the texture node value
+function ensurePrevRT() {
+  const w = renderer.domElement.width;
+  const h = renderer.domElement.height;
+  if (prevRT && prevW === w && prevH === h) return;
+  prevRT = new THREE.RenderTarget(w, h, { type: THREE.HalfFloatType });
+  phosphorPrevTex.value = prevRT.texture;   // hot-swap
+}
+
+// After each renderAsync():
+renderer.copyTextureToTexture(
+  pp._rttPhosphor.renderTarget.texture,
+  prevRT.texture
+);
+```
+
+### RTT Resize Detection (telescreen pattern)
+
+```js
+const rttRT = postProcessing._rttPhosphor?.renderTarget;
+if (firstRenderDone && rttRT && (rttRT.width !== rdrW || rttRT.height !== rdrH)) {
+  postProcessing = buildPP();   // rebuild entire graph
+  firstRenderDone = false;
+  return;
+}
+```
+
+### Animation Frame Ref Pattern
+
+Use a ref object so `destroyMatrixRain` always cancels the live frame ID:
+
+```js
+const animRef = { id: 0 };
+async function animate(ts) {
+  animRef.id = requestAnimationFrame(animate);
+  // ...
+}
+// in state: { ..., animRef }
+// in destroy: cancelAnimationFrame(s.animRef.id);
+```
+
+---
+
+## API
+
+### `initMatrixRain(element, opts?)`
+
+| Param | Type | Default | Description |
+|---|---|---|---|
+| `element` | `HTMLElement` | — | Host element; canvas appended inside it |
+| `opts.color` | `string` | `'#00ff70'` | Glyph tint hex |
+| `opts.opacity` | `number` | `0.82` | Global alpha 0–1 |
+| `opts.atlasPath` | `string` | `'/data/matrixcode_msdf.png'` | MSDF atlas URL |
+| `opts.syncCamera` | `THREE.Camera\|null` | `null` | External camera to mirror |
+
+Returns a control handle with methods below.
+
+### Handle Methods
+
+| Method | Description |
+|---|---|
+| `destroy()` | Tear down instance |
+| `setColor(hex)` | Glyph tint |
+| `setOpacity(v)` | Global alpha 0–1 |
+| `setDepth(v)` | POM depth scale 0–0.15 |
+| `setNormalStrength(v)` | Normal map strength 0–12 |
+| `setSoften(on, strength)` | Radial blur strength |
+| `setHeat(on, amt)` | Heat shimmer amount |
+| `setStreaks(on, amt)` | Lens streak amount |
+| `setBurstBloom(on)` | Depth-adaptive bloom bursts |
+| `setGlobeInteract(on)` | Globe proximity pulse |
+| `setGlyphChroma(on, scale)` | Chromatic aberration on glyphs |
+| `setGodRays(enabled, ...)` | Screen-space god rays |
+| `setPhosphorDecay(v)` | Phosphor persistence decay 0–0.99 |
+
+### `destroyMatrixRain(element)`
+
+Tears down the instance registered on `element`.
+
+---
+
+## Shader Uniform Defaults
+
+| Uniform | Default | Note |
+|---|---|---|
+| `uColor` | `(0, 1, 0.44)` | Matrix green |
+| `uGlobalAlpha` | `0.82` | |
+| `uDepth` | `0.04` | POM parallax depth |
+| `uNormalStrength` | `6.0` | |
+| `uGlobeInteract` | `1.0` | On |
+| `uGlyphChroma` | `1.0` | On |
+| `uAtlasCols` | `8` | 8×8 glyph grid |
+| `uAtlasGrid` | `8` | |
+| `uCellW` | `0.12` | World units per column |
+| `uCellH` | `0.08` | World units per row |
+| `uWorldH` | `16` | Vertical world extent |
+| `uNRows` | `120` | Rows per column |
+| Bloom threshold | `0.20` | Burst dips to 0.10 every 4 s |
+| `phosphorDecay` | `0.88` | |
+| Heat `uHeatAmt` | `0.004` | |
+| Streak `uStreakAmt` | `0.055` | |
+| God rays `uExposure` | `0.45` | |
+
+---
+
+## Coding Standards
+
+### Zero External Dependencies (runtime)
+All browser modules import only from `three`, `three/tsl`, and `three/addons` (via importmap).
+No npm packages at runtime.
+
+### TSL Node Patterns
+
+**Custom UV sampling requires `rtt()`.** Passes that sample at offset UVs (heat, soften, holo,
+god rays) need their input as a `TextureNode`. Wrap the upstream node in `rtt()` first:
+
+```js
+const rttNode = rtt(upstreamNode);
+const warped = texture(rttNode, customUV);  // works
+const warped = texture(upstreamNode, customUV);  // does not work
+```
+
+**Method chaining** — use TSL operator methods, not function calls:
+```js
+// Good:
+sin(screenUV.y.mul(uFreq).add(time.mul(uSpeed))).mul(bright).mul(uAmt)
+// Avoid raw GLSL style
+```
+
+**Varyings** — define at builder scope, write in `vertexNode` Fn, read in `outputNode` Fn:
+```js
+const vAlpha = varying(float(), 'vAlpha');  // builder scope
+// inside vertexNode Fn:
+vAlpha.assign(computedAlpha);
+// inside outputNode Fn:
+const a = vAlpha;
+```
+
+**Early return / cull** — `Return(vec4(2,2,2,1))` inside `If()` in `vertexNode` Fn clips the
+quad to off-screen. `Discard()` in fragment Fn discards the fragment.
+
+**POM loop**:
+```js
+Loop({ start: int(0), end: int(8), type: 'int' }, ({ i }) => {
+  If(i.greaterThanEqual(numSteps), () => { Break(); });
+  // ...
+});
+```
+
+### wgslFn Source Ordering (if ever added)
+
+Three.js r171+ `WGSLNodeFunction.parse()` uses `^[fn]*\s*` — source **must start with `fn`
+after trim**. Entry function first, helpers appended after. WGSL allows forward references.
+
+### wgslFn Inline Comment Rules (if ever added)
+
+1. No `//` comment on the last parameter's line — `)` in a line comment extends it to swallow
+   the closing paren + opening brace of the function declaration.
+2. No `word:word` patterns in any parameter comment — `propertiesRegexp` matches all
+   `name: type` pairs including in comments, inserting spurious inputs.
+
+### Uniform Updates
+```js
+uniforms.uDepth.value = 0.04;
+```
+
+### RAF / Animation Frame
+```js
+const animRef = { id: 0 };
+function loop(ts) { animRef.id = requestAnimationFrame(loop); /* ... */ }
+animRef.id = requestAnimationFrame(loop);
+// in destroy:
+cancelAnimationFrame(animRef.id);
+```
+
+### Event Listener Cleanup
+Every `addEventListener` must have a matching removal in `destroy()`.
+
+---
+
+## Development Workflow
+
+### Serving Locally
+```bash
+python3 -m http.server 8080
+# or
+npx serve .
+```
+Open `http://localhost:8080/demo.html`. Requires Chrome 113+ / Edge 113+ with WebGPU enabled.
+
+### Unit Tests (Node.js, no GPU)
+```bash
+npm test            # run once
+npm run test:watch  # watch mode
+```
+Only pure-JS logic can be tested without a GPU. Anything that touches Three.js, uniforms,
+TSL nodes, or the DOM must be tested manually in the browser.
+
+### Spec-Driven Workflow
+1. Write a spec in `specs/SPEC-<feature>.md` describing the change, motivation, and implementation steps.
+2. Review the spec — look for correctness, completeness, and edge cases. Iterate until zero issues.
+3. Implement the spec with the spec doc open for reference.
+4. Update `PROGRESS.md` when done.
+
+### Adding a Post-Processing Pass
+1. Add builder function to `matrix-rain-passes-tsl.js`.
+2. Wire into `buildPostProcessing()` in `matrix-rain-webgpu.js` — add `rtt()` if the pass needs custom UV sampling.
+3. Expose uniforms via `pp._<passBuild>` for handle method access.
+4. Add handle method and slider/checkbox to `demo.html`.
+
+### Adding Glyph Material Uniforms
+1. Add `uniform(default)` to `makeUniforms()` in `matrix-rain-tsl.js`.
+2. Pass to the relevant `vertexNode` or `outputNode` Fn.
+3. Expose in `initMatrixRain` handle methods.
+
+---
+
+## Accessibility
+
+`prefers-reduced-motion` should disable or reduce the most intense effects (heat shimmer,
+god rays, burst bloom). Not yet implemented — track in backlog.
