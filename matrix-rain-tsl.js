@@ -35,14 +35,16 @@ const median3 = Fn(([a, b, c]) => max(min(a, b), min(max(a, b), c)));
 
 // ── Uniform factory ───────────────────────────────────────────────────────
 /**
- * @param {number} [glyphCount=48]  total glyphs in the MSDF atlas
+ * @param {number} [glyphCount=56]  total glyphs in the MSDF atlas
+ * @param {number} [gridW=8]       columns in atlas grid
+ * @param {number} [gridH=8]       rows in atlas grid
  * @returns {object}  all mutable TSL uniform nodes
  */
-export function makeUniforms(glyphCount = 48) {
+export function makeUniforms(glyphCount = 56, gridW = 8, gridH = 8) {
   return {
     uGlyphCount:     uniform(glyphCount),
-    uAtlasCols:      uniform(8),
-    uAtlasGrid:      uniform(8),
+    uAtlasGridW:     uniform(gridW),
+    uAtlasGridH:     uniform(gridH),
     uTime:           uniform(0),
     uCellW:          uniform(0.12),
     uCellH:          uniform(0.08),
@@ -54,7 +56,6 @@ export function makeUniforms(glyphCount = 48) {
     uPomSteps:       uniform(6),
     uNormalStrength: uniform(6),
     uLightDir:       uniform(new THREE.Vector3(-0.4, 0.8, 0.5).normalize()),
-    uGlobeInteract:  uniform(1.0),
     uGlyphChroma:    uniform(1.0),
     uSpeedMul:       uniform(1.0),
     uYawAligned:     uniform(0.0),   // 0 = converge to fixed point, 1 = face camera
@@ -73,10 +74,10 @@ export function makeUniforms(glyphCount = 48) {
  */
 export function buildGlyphMaterial(uniforms, atlasTexture) {
   const {
-    uGlyphCount, uAtlasCols, uAtlasGrid, uTime,
+    uGlyphCount, uAtlasGridW, uAtlasGridH, uTime,
     uCellW, uCellH, uWorldH, uNRows,
     uColor, uGlobalAlpha, uDepth, uPomSteps, uNormalStrength,
-    uLightDir, uGlobeInteract, uGlyphChroma,
+    uLightDir, uGlyphChroma,
     uSpeedMul, uYawAligned, uFacingJitter, uFlatZ,
   } = uniforms;
 
@@ -99,17 +100,16 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
   const vBurst     = varying(float(),  'vBurst');
   const vBootFade  = varying(float(),  'vBootFade');
   const vDeathFade = varying(float(),  'vDeathFade');
-  const vGlobeProx = varying(float(),  'vGlobeProx');
 
   // ── MSDF sampling (closure over atlasTexture + uniforms) ──────────────
   const sampleGlyph = Fn(([faceUV, gIdx]) => {
     // Back-face U-flip: mirror U on the rear face of each billboard quad
     const su  = select(frontFacing, faceUV.x, float(1).sub(faceUV.x));
-    const col = mod(gIdx, uAtlasCols);
-    const row = floor(gIdx.div(uAtlasCols));
+    const col = mod(gIdx, uAtlasGridW);
+    const row = floor(gIdx.div(uAtlasGridW));
     const atlasUV = vec2(
-      col.add(su).div(uAtlasGrid),
-      row.add(float(1).sub(faceUV.y)).div(uAtlasGrid),
+      col.add(su).div(uAtlasGridW),
+      row.add(float(1).sub(faceUV.y)).div(uAtlasGridH),
     );
     const s = texture(atlasTexture, atlasUV).rgb;
     return median3(s.r, s.g, s.b);
@@ -127,7 +127,6 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     // Varying defaults written unconditionally (WGSL requires all varyings to
     // be assigned on every execution path before they are read in the fragment).
     vDeathFade.assign(1.0);
-    vGlobeProx.assign(0.0);
     vBurst.assign(0.0);
     vUvRain.assign(uv());
     vColIdx.assign(aColIdxAttr);
@@ -204,15 +203,6 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
       const dist  = cellY.sub(headY).div(cellStep);
       vDist.assign(dist);
 
-      // ── Globe proximity pulse ────────────────────────────────────────
-      const xzProx = float(1).sub(
-        smoothstep(1.0, 7.0, length(vec2(aWX, aWZ)).sub(1.0))
-      );
-      const yProx  = float(1).sub(smoothstep(0.0, 1.2, abs(headY)));
-      vGlobeProx.assign(
-        xzProx.mul(yProx).mul(smoothstep(3.0, 0.0, max(dist, 0.0)))
-      );
-
       // Cull glyphs outside the visible trail window
       const maxVisible = min(float(4.42).div(aTrail), uNRows.mul(1.2));
       If(dist.greaterThanEqual(-0.5).and(dist.lessThanEqual(maxVisible)), () => {
@@ -288,26 +278,14 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     const trail    = exp(d.negate().mul(vTrail).mul(accel));
     If(trail.lessThan(0.012), () => { Discard(); });
 
-    // ── Globe occlusion ───────────────────────────────────────────────
+    // View-space vectors — used by POM tangent frame below
     const toFrag   = vWorldPos.sub(cameraPosition);
     const fragDist = length(toFrag);
     const viewDir  = toFrag.div(fragDist);
-    const ob       = dot(cameraPosition, viewDir);
-    const oc       = dot(cameraPosition, cameraPosition).sub(1.0); // globe r=1
-    const disc     = ob.mul(ob).sub(oc);
-    const occlude  = float(1.0).toVar();
-    If(disc.greaterThan(0.0), () => {
-      const tNear = ob.negate().sub(sqrt(disc));
-      If(tNear.greaterThan(0.0).and(fragDist.greaterThan(tNear)), () => {
-        occlude.assign(
-          float(1).sub(float(0.8).mul(smoothstep(0.0, 0.12, sqrt(disc))))
-        );
-      });
-    });
 
     // Early discard if max possible alpha is sub-visible
     const maxAlpha = pow(trail.mul(vAlpha).mul(vDepthDim), 1.3)
-      .mul(uGlobalAlpha).mul(occlude).mul(vBootFade);
+      .mul(uGlobalAlpha).mul(vBootFade);
     If(maxAlpha.lessThan(0.015), () => { Discard(); });
 
     // ── Glyph selection ───────────────────────────────────────────────
@@ -451,10 +429,6 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     const edgeGlow = exp(edgeDist.negate().mul(18.0)).mul(0.4);
     col2.addAssign(uColor.mul(edgeGlow).mul(trail));
 
-    // Globe impact pulse — additive glow when head nears globe surface
-    const impulseBright = vGlobeProx.mul(trail).mul(mask).mul(4.0).mul(uGlobeInteract);
-    col2.addAssign(vec3(0.6, 1.0, 0.7).mul(impulseBright));
-
     // ── Normals + Lighting ─────────────────────────────────────────────
     const fakeN = vec3(0, 0, 1).toVar('fakeN');
     If(trail.greaterThan(0.25), () => {
@@ -488,7 +462,7 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     // ── Final alpha ────────────────────────────────────────────────────
     const rawBright = trail.mul(mask).mul(vAlpha).mul(vDepthDim);
     const contrast  = pow(rawBright, 1.3);
-    const alpha     = contrast.mul(uGlobalAlpha).mul(occlude).mul(vBootFade).mul(vDeathFade);
+    const alpha     = contrast.mul(uGlobalAlpha).mul(vBootFade).mul(vDeathFade);
     If(alpha.lessThan(0.015), () => { Discard(); });
 
     // Pre-multiplied alpha — additive compositing on the canvas

@@ -23,6 +23,15 @@
   - `animRef` pattern — cancelAnimationFrame always cancels the live frame ID
 - [x] `demo.html` — standalone demo: controls panel (color, opacity, depth, normal, soften, heat, streaks, phosphor, god rays, burst bloom, globe, chroma), importmap `three@0.183.0`
 
+- [x] **SPEC-katakana-atlas** — multi-set glyph atlas system
+  - `data/matrixcode-glyph-manifest.json` — 56-glyph inventory of the existing atlas (full-width katakana + symbols)
+  - `data/glyph-sets.js` — canonical set definitions: `matrix1999` (64 half-width katakana + numerals + 8 custom path glyphs), `latin` (36), `ascii` (95)
+  - `tools/gen-atlas.html` — standalone browser tool: MSDF-approx (single-channel SDF) + bitmap output, SDF spread control, mirror support, per-glyph progress, PNG download
+  - Shader fix: `uAtlasCols`+`uAtlasGrid` → `uAtlasGridW`+`uAtlasGridH` in `makeUniforms`, `buildGlyphMaterial` destructuring, `sampleGlyph` (4 refs), and `matrix-rain-webgpu.js` constants
+  - Runtime API: `CHAR_SETS` table, `charSet` init opt, `handle.setCharSet(name)` (async material rebuild on atlas load)
+  - `demo.html`: Char set dropdown wired to `setCharSet()`
+  - **Pending**: Run `tools/gen-atlas.html` to generate and commit `data/matrix1999_msdf.png`, `data/matrix1999_bitmap.png`, `data/latin_msdf.png`, `data/latin_bitmap.png`, `data/ascii_msdf.png`, `data/ascii_bitmap.png`
+
 ## Backlog
 
 All items go in `specs/` before implementation.
