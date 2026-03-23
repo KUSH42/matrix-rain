@@ -151,6 +151,14 @@
       <input id="ctl-streaks" type="range" min="0" max="0.2" step="0.005" value="0.055">
     </label>
 
+    <label>Speed
+      <input id="ctl-speed" type="range" min="0.1" max="4" step="0.05" value="1">
+    </label>
+
+    <label>Bloom strength
+      <input id="ctl-bloom" type="range" min="0" max="3" step="0.05" value="1.15">
+    </label>
+
     <label>Phosphor decay
       <input id="ctl-phosphor" type="range" min="0" max="0.99" step="0.01" value="0.88">
     </label>
@@ -189,6 +197,14 @@
 
     <label>Globe interact
       <input id="ctl-globe" type="checkbox" checked>
+    </label>
+
+    <label>Yaw aligned
+      <input id="ctl-yaw" type="checkbox">
+    </label>
+
+    <label>Facing jitter
+      <input id="ctl-jitter" type="range" min="0" max="1.5708" step="0.01" value="0.1745">
     </label>
 
     <label>Glyph chroma
@@ -235,6 +251,8 @@
   document.getElementById('ctl-color').addEventListener('input', () =>
     rain.setColor(document.getElementById('ctl-color').value)
   );
+  bind('ctl-speed',    v  => rain.setSpeed(v));
+  bind('ctl-bloom',    v  => rain.setBloomStrength(v));
   bind('ctl-opacity',  v  => rain.setOpacity(v));
   bind('ctl-depth',    v  => rain.setDepth(v));
   bind('ctl-normal',   v  => rain.setNormalStrength(v));
@@ -267,6 +285,8 @@
   }
   bind('ctl-burst',        on => rain.setBurstBloom(on));
   bind('ctl-globe',        on => rain.setGlobeInteract(on));
+  bind('ctl-yaw',          on => rain.setYawAligned(on ? 1.0 : 0.0));
+  bind('ctl-jitter',       v  => rain.setFacingJitter(v));
   bind('ctl-chroma',       () => chromaFromUI());
   bind('ctl-chroma-scale', () => chromaFromUI());
 </script>

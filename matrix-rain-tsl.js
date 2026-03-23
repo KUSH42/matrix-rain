@@ -56,6 +56,9 @@ export function makeUniforms(glyphCount = 48) {
     uLightDir:       uniform(new THREE.Vector3(-0.4, 0.8, 0.5).normalize()),
     uGlobeInteract:  uniform(1.0),
     uGlyphChroma:    uniform(1.0),
+    uSpeedMul:       uniform(1.0),
+    uYawAligned:     uniform(0.0),   // 0 = converge to fixed point, 1 = face camera
+    uFacingJitter:   uniform(0.1745), // ±jitter radians on each column's yaw (default ±5°)
   };
 }
 
@@ -180,7 +183,7 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
       const burstPhase  = fract(uTime.div(burstCycle));
       const burstFrac   = smoothstep(0.0, 0.1, burstPhase)
         .mul(float(1).sub(smoothstep(0.25, 0.35, burstPhase)));
-      const speedMul    = float(1).add(burstActive.mul(burstFrac).mul(2));
+      const speedMul    = float(1).add(burstActive.mul(burstFrac).mul(2)).mul(uSpeedMul);
       vBurst.assign(burstActive.mul(burstFrac));
 
       // ── Head sweep ──────────────────────────────────────────────────
@@ -218,8 +221,12 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
         const colCenter   = vec3(aWX, cellY, aWZ).toVar();
         const toTarget    = vec2(aWX.negate(), float(-2).sub(aWZ));
         const targetAngle = atan(toTarget.x, toTarget.y);
-        const facingAngle = targetAngle.add(
-          h2(vec2(aColIdxAttr.mul(0.73), 0.51)).sub(0.5).mul(0.1745) // ±5°
+        // Camera-facing angle: project camera→column direction onto XZ plane
+        const toCamXZ      = vec2(cameraPosition.x.sub(aWX), cameraPosition.z.sub(aWZ));
+        const camAngle     = atan(toCamXZ.x.negate(), toCamXZ.y.negate());
+        const blendedAngle = mix(targetAngle, camAngle, uYawAligned);
+        const facingAngle  = blendedAngle.add(
+          h2(vec2(aColIdxAttr.mul(0.73), 0.51)).sub(0.5).mul(uFacingJitter)
         );
         const outward = vec3(sin(facingAngle), 0.0, cos(facingAngle));
         const right   = vec3(outward.z, 0.0, outward.x.negate()); // cross(Y, outward)

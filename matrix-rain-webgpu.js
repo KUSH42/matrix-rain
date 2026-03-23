@@ -450,6 +450,14 @@ export function initMatrixRain(element, opts = {}) {
     },
 
     setPhosphorDecay(v) { phosphorDecay.value = v; },
+
+    setSpeed(v)        { uniforms.uSpeedMul.value = v; },
+    setYawAligned(v)   { uniforms.uYawAligned.value = v; },
+    setFacingJitter(v) { uniforms.uFacingJitter.value = v; },
+
+    setBloomStrength(v) {
+      if (postProcessing?._bloomNode) postProcessing._bloomNode.strength.value = v;
+    },
   };
 }
 
