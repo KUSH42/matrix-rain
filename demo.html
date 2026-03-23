@@ -133,6 +133,16 @@
   <summary>Matrix Rain</summary>
   <div style="margin-top:8px;display:flex;flex-direction:column;gap:4px;">
 
+    <label>Preset
+      <select id="ctl-preset">
+        <option value="">— custom —</option>
+        <option value="matrix1999">matrix1999</option>
+        <option value="ghost">ghost</option>
+        <option value="overdrive">overdrive</option>
+        <option value="default">default</option>
+      </select>
+    </label>
+
     <label>Color
       <input id="ctl-color" type="color" value="#00ff70">
     </label>
@@ -167,6 +177,10 @@
 
     <label>Bloom strength
       <input id="ctl-bloom" type="range" min="0" max="3" step="0.05" value="1.15">
+    </label>
+
+    <label>Bloom threshold
+      <input id="ctl-bloom-thr" type="range" min="0" max="0.5" step="0.005" value="0.2">
     </label>
 
     <label>Phosphor decay
@@ -225,6 +239,18 @@
       <input id="ctl-chroma-scale" type="range" min="0" max="3" step="0.05" value="1">
     </label>
 
+    <label>Vignette
+      <input id="ctl-vignette" type="range" min="0" max="1" step="0.01" value="0.42">
+    </label>
+
+    <label>Scanlines
+      <input id="ctl-scanlines" type="range" min="0" max="0.2" step="0.005" value="0.045">
+    </label>
+
+    <label>Holo aberration
+      <input id="ctl-holo-aber" type="range" min="0" max="0.015" step="0.0005" value="0.0025">
+    </label>
+
     <label>Char set
       <select id="ctl-charset">
         <option value="matrixcode" selected>matrixcode</option>
@@ -241,6 +267,7 @@
 
 <script type="module">
   import { initMatrixRain } from './matrix-rain-webgpu.js';
+  import { PRESETS }        from './matrix-rain-presets.js';
 
   // ── WebGPU check ──────────────────────────────────────────────────────
   const noWebGpu = document.getElementById('no-webgpu');
@@ -271,7 +298,8 @@
     rain.setColor(document.getElementById('ctl-color').value)
   );
   bind('ctl-speed',    v  => rain.setSpeed(v));
-  bind('ctl-bloom',    v  => rain.setBloomStrength(v));
+  bind('ctl-bloom',     v  => rain.setBloomStrength(v));
+  bind('ctl-bloom-thr', v  => rain.setBloomThreshold(v));
   bind('ctl-opacity',  v  => rain.setOpacity(v));
   bind('ctl-depth',    v  => rain.setDepth(v));
   bind('ctl-normal',   v  => rain.setNormalStrength(v));
@@ -308,8 +336,50 @@
   bind('ctl-jitter',       v  => rain.setFacingJitter(v));
   bind('ctl-chroma',       () => chromaFromUI());
   bind('ctl-chroma-scale', () => chromaFromUI());
+  bind('ctl-vignette',    v  => rain.setVignette(v));
+  bind('ctl-scanlines',   v  => rain.setScanlines(v));
+  bind('ctl-holo-aber',   v  => rain.setHoloAberration(v));
+
   document.getElementById('ctl-charset').addEventListener('change', e => {
     rain.setCharSet(e.target.value);
+  });
+
+  // ── Preset selector ───────────────────────────────────────────────────
+  document.getElementById('ctl-preset').addEventListener('change', e => {
+    const name = e.target.value;
+    if (!name) return;
+    rain.applyPreset(name);
+    // Sync UI controls to the applied preset values
+    const p = PRESETS[name];
+    if (!p) return;
+    if (p.color           !== undefined) document.getElementById('ctl-color').value        = p.color;
+    if (p.opacity         !== undefined) document.getElementById('ctl-opacity').value      = p.opacity;
+    if (p.depth           !== undefined) document.getElementById('ctl-depth').value        = p.depth;
+    if (p.normalStrength  !== undefined) document.getElementById('ctl-normal').value       = p.normalStrength;
+    if (p.speed           !== undefined) document.getElementById('ctl-speed').value        = p.speed;
+    if (p.bloomStrength   !== undefined) document.getElementById('ctl-bloom').value        = p.bloomStrength;
+    if (p.bloomThreshold  !== undefined) document.getElementById('ctl-bloom-thr').value    = p.bloomThreshold;
+    if (p.phosphorDecay   !== undefined) document.getElementById('ctl-phosphor').value     = p.phosphorDecay;
+    if (p.heat            !== undefined) document.getElementById('ctl-heat').value         = p.heat;
+    if (p.soften          !== undefined) document.getElementById('ctl-soften').value       = p.soften;
+    if (p.streaks         !== undefined) document.getElementById('ctl-streaks').value      = p.streaks;
+    if (p.burstBloom      !== undefined) document.getElementById('ctl-burst').checked      = p.burstBloom;
+    if (p.vignette        !== undefined) document.getElementById('ctl-vignette').value     = p.vignette;
+    if (p.scanlines       !== undefined) document.getElementById('ctl-scanlines').value    = p.scanlines;
+    if (p.holoAberration  !== undefined) document.getElementById('ctl-holo-aber').value    = p.holoAberration;
+    if (p.glyphChroma     !== undefined) document.getElementById('ctl-chroma').checked     = p.glyphChroma;
+    if (p.glyphChromaScale !== undefined) document.getElementById('ctl-chroma-scale').value = p.glyphChromaScale;
+    if (p.charSet         !== undefined) document.getElementById('ctl-charset').value      = p.charSet;
+    if (p.godRays) {
+      const g = p.godRays;
+      document.getElementById('ctl-godrays').checked  = g.enabled;
+      if (g.lightX    !== undefined) document.getElementById('ctl-gr-lx').value      = g.lightX;
+      if (g.lightY    !== undefined) document.getElementById('ctl-gr-ly').value      = g.lightY;
+      if (g.density   !== undefined) document.getElementById('ctl-gr-density').value = g.density;
+      if (g.decay     !== undefined) document.getElementById('ctl-gr-decay').value   = g.decay;
+      if (g.weight    !== undefined) document.getElementById('ctl-gr-weight').value  = g.weight;
+      if (g.exposure  !== undefined) document.getElementById('ctl-gr-exposure').value = g.exposure;
+    }
   });
 </script>
 </body>

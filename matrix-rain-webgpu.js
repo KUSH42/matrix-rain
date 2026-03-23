@@ -15,7 +15,9 @@
  *   setNormalStrength(v), setSoften(on, strength), setHeat(on, amt),
  *   setStreaks(on, amt), setBurstBloom(on), setGlobeInteract(on),
  *   setGlyphChroma(on, scale), setCharSet(name),
- *   setGodRays(enabled, lightX, lightY, density, decay, weight, exposure)
+ *   setGodRays(enabled, lightX, lightY, density, decay, weight, exposure),
+ *   setBloomThreshold(v), setVignette(v), setScanlines(v), setHoloAberration(v),
+ *   applyPreset(name)
  */
 
 import * as THREE from 'three/webgpu';
@@ -23,6 +25,7 @@ import { pass, rtt, screenUV, texture, uniform } from 'three/tsl';
 import { bloom } from 'three/addons/tsl/display/BloomNode.js';
 import { fxaa } from 'three/addons/tsl/display/FXAANode.js';
 import { makeUniforms, buildGlyphMaterial } from './matrix-rain-tsl.js';
+import { PRESETS } from './matrix-rain-presets.js';
 import {
   buildHeatPass,
   buildPhosphorPass,
@@ -192,6 +195,7 @@ const _state = new Map();
  * @param {number}  [opts.opacity=0.82]            global alpha 0–1
  * @param {string}  [opts.charSet='matrixcode']    named glyph set; see CHAR_SETS
  * @param {string}  [opts.atlasPath=null]          explicit atlas path — overrides charSet
+ * @param {string}  [opts.preset=null]             named preset applied after PP graph is ready
  * @param {object|null} [opts.syncCamera=null]     THREE.Camera to mirror
  * @returns {object}  control handle
  */
@@ -205,6 +209,7 @@ export function initMatrixRain(element, opts = {}) {
     opacity    = 0.82,
     charSet    = 'matrixcode',
     atlasPath  = null,
+    preset     = null,
     syncCamera = null,
   } = opts;
 
@@ -286,9 +291,12 @@ export function initMatrixRain(element, opts = {}) {
   // ── Post-processing (built lazily after renderer.init()) ──────────────
   let postProcessing  = null;
   let firstRenderDone = false;
+  let bloomThreshold  = 0.20;   // static threshold; burst bloom overrides transiently
 
   function buildPP() {
-    return buildPostProcessing(renderer, scene, camera, phosphorPrevTex, phosphorDecay, uAspect);
+    const pp = buildPostProcessing(renderer, scene, camera, phosphorPrevTex, phosphorDecay, uAspect);
+    pp._bloomNode.threshold.value = bloomThreshold;
+    return pp;
   }
 
   // ── Animate ───────────────────────────────────────────────────────────
@@ -338,14 +346,15 @@ export function initMatrixRain(element, opts = {}) {
         if (burstBloomTimer > 0) {
           burstBloomTimer = Math.max(0, burstBloomTimer - dt);
           const surge = 1 - burstBloomTimer / 0.30;
+          const burstLow = bloomThreshold * 0.5;
           bloomNode.threshold.value = surge < 0.2
-            ? THREE.MathUtils.lerp(0.20, 0.10, surge / 0.2)
-            : THREE.MathUtils.lerp(0.10, 0.20, (surge - 0.2) / 0.8);
+            ? THREE.MathUtils.lerp(bloomThreshold, burstLow, surge / 0.2)
+            : THREE.MathUtils.lerp(burstLow, bloomThreshold, (surge - 0.2) / 0.8);
         } else {
-          bloomNode.threshold.value = 0.20;
+          bloomNode.threshold.value = bloomThreshold;
         }
       } else {
-        bloomNode.threshold.value = 0.20;
+        bloomNode.threshold.value = bloomThreshold;
       }
     }
 
@@ -381,10 +390,14 @@ export function initMatrixRain(element, opts = {}) {
     }
   }
 
+  // ── Forward declaration — used by renderer.init callback and applyPreset closure
+  let handle;
+
   // Init renderer then kick off animation
   renderer.init().then(() => {
     postProcessing = buildPP();
     animRef.id = requestAnimationFrame(animate);
+    if (preset) handle?.applyPreset(preset);
   });
 
   // ── Resize ────────────────────────────────────────────────────────────
@@ -410,7 +423,7 @@ export function initMatrixRain(element, opts = {}) {
   _state.set(element, s);
 
   // ── Control handle ────────────────────────────────────────────────────
-  return {
+  handle = {
     destroy() { destroyMatrixRain(element); },
 
     setColor(hex) {
@@ -509,7 +522,67 @@ export function initMatrixRain(element, opts = {}) {
         uniforms.uAtlasGridH.value = descriptor.gridH;
       });
     },
+
+    /** Sets the static bloom threshold. Range 0–1, default 0.20. */
+    setBloomThreshold(v) {
+      bloomThreshold = v;
+      if (postProcessing?._bloomNode) postProcessing._bloomNode.threshold.value = v;
+    },
+
+    /** Sets vignette strength. Range 0–1, default 0.42. */
+    setVignette(v) {
+      if (postProcessing?._holoBuild) postProcessing._holoBuild.uVignetteStrength.value = v;
+    },
+
+    /** Sets scrolling scanline opacity. Range 0–0.2, default 0.045. */
+    setScanlines(v) {
+      if (postProcessing?._holoBuild) postProcessing._holoBuild.uScanlineOpacity.value = v;
+    },
+
+    /** Sets screen-space chromatic aberration in the holo pass. Range 0–0.015, default 0.0025. */
+    setHoloAberration(v) {
+      if (postProcessing?._holoBuild) postProcessing._holoBuild.uAberrationAmt.value = v;
+    },
+
+    /**
+     * Apply a named preset, calling handle methods for every field present.
+     * Fields absent from the preset are not changed.
+     *
+     * @param {string} name  Key from PRESETS: 'default'|'matrix1999'|'ghost'|'overdrive'
+     */
+    applyPreset(name) {
+      const p = PRESETS[name];
+      if (!p) {
+        console.warn(`matrix-rain: unknown preset '${name}'. Valid: ${Object.keys(PRESETS).join(', ')}`);
+        return;
+      }
+      if (p.color           !== undefined) handle.setColor(p.color);
+      if (p.opacity         !== undefined) handle.setOpacity(p.opacity);
+      if (p.depth           !== undefined) handle.setDepth(p.depth);
+      if (p.normalStrength  !== undefined) handle.setNormalStrength(p.normalStrength);
+      if (p.glyphChroma     !== undefined) handle.setGlyphChroma(p.glyphChroma, p.glyphChromaScale ?? 1.0);
+      if (p.speed           !== undefined) handle.setSpeed(p.speed);
+      if (p.bloomStrength   !== undefined) handle.setBloomStrength(p.bloomStrength);
+      if (p.bloomThreshold  !== undefined) handle.setBloomThreshold(p.bloomThreshold);
+      if (p.phosphorDecay   !== undefined) handle.setPhosphorDecay(p.phosphorDecay);
+      if (p.heat            !== undefined) handle.setHeat(p.heat > 0, p.heat);
+      if (p.soften          !== undefined) handle.setSoften(p.soften > 0, p.soften);
+      if (p.streaks         !== undefined) handle.setStreaks(p.streaks > 0, p.streaks);
+      if (p.burstBloom      !== undefined) handle.setBurstBloom(p.burstBloom);
+      if (p.vignette        !== undefined) handle.setVignette(p.vignette);
+      if (p.scanlines       !== undefined) handle.setScanlines(p.scanlines);
+      if (p.holoAberration  !== undefined) handle.setHoloAberration(p.holoAberration);
+      if (p.godRays) {
+        const g = p.godRays;
+        handle.setGodRays(
+          g.enabled, g.lightX, g.lightY,
+          g.density, g.decay, g.weight, g.exposure,
+        );
+      }
+      if (p.charSet         !== undefined) handle.setCharSet(p.charSet);
+    },
   };
+  return handle;
 }
 
 /**

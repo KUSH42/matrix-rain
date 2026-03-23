@@ -32,9 +32,24 @@
   - `demo.html`: Char set dropdown wired to `setCharSet()`
   - Atlas PNGs generated via `tools/gen-atlas.html` (Playwright automation) and committed: `matrix1999_msdf.png` (21K), `matrix1999_bitmap.png` (14K), `latin_msdf.png` / `latin_bitmap.png` (7K each), `ascii_msdf.png` / `ascii_bitmap.png` (11K each)
 
+- [x] **SPEC-matrix-presets** — named preset system
+  - `matrix-rain-presets.js` — `PRESETS` table (default / matrix1999 / ghost / overdrive) + `applyPreset(name, handle)` helper
+  - Four new handle methods: `setBloomThreshold(v)`, `setVignette(v)`, `setScanlines(v)`, `setHoloAberration(v)`
+  - `handle.applyPreset(name)` — partial-field application; calls existing + new methods
+  - `let handle` forward declaration so `renderer.init().then()` can apply a `preset` init option
+  - `bloomThreshold` variable replaces hardcoded `0.20` in burst bloom logic; survives PP graph rebuilds
+  - `demo.html`: preset dropdown with full UI sync, 4 new sliders (bloom threshold, vignette, scanlines, holo aberration)
+
 ## Backlog
 
 All items go in `specs/` before implementation.
+
+- [ ] **SPEC-matrix-crt-integration** — single PostProcessing graph composing matrix-rain + telescreen-crt (Path C) **[spec reviewed, 0 issues]**
+  - Task 1: `externalLoop` opt + `buildNodes` + `tick` + `onResize` + `setGlobeInteract` fix + standalone resize leak fix (touches `matrix-rain-tsl.js` too)
+  - Task 2: expose `scene`, `camera`, `renderer` getters on handle
+  - Task 3: `buildCRTNodesFromSource` + `setSourceNode` exports in telescreen-crt-webgpu.js; `tick` returns `{skipRender, newOutputNode}`
+  - Task 4: `matrix-rain-crt-bridge.js` glue module
+  - Task 5: `demo-crt.html`
 
 - [ ] Tests — `tests/` for any pure-JS logic extracted to a `matrix-rain-math.js`
 - [ ] `prefers-reduced-motion` — disable/reduce heat, god rays, burst bloom

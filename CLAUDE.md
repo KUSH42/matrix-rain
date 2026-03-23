@@ -18,6 +18,7 @@ matrix-rain-webgpu/
 ├── matrix-rain-webgpu.js        # Public API + PostProcessing wiring + RAF loop
 ├── matrix-rain-tsl.js           # TSL glyph material: vertex + fragment Fns, uniforms
 ├── matrix-rain-passes-tsl.js    # TSL post-processing pass builders (heat, phosphor, soften, streaks, holo, god rays)
+├── matrix-rain-presets.js       # PRESETS table (default/matrix1999/ghost/overdrive) + applyPreset helper
 ├── demo.html                    # Standalone demo with controls panel
 ├── data/
 │   ├── matrixcode_msdf.png      # 512×512 MSDF glyph atlas, 8×8 grid, 56 glyphs (full-width katakana + symbols)
@@ -141,6 +142,11 @@ Returns a control handle with methods below.
 | `setGodRays(enabled, ...)` | Screen-space god rays |
 | `setPhosphorDecay(v)` | Phosphor persistence decay 0–0.99 |
 | `setCharSet(name)` | Hot-swap glyph atlas: `'matrixcode'`\|`'matrix1999'`\|`'latin'`\|`'ascii'` |
+| `setBloomThreshold(v)` | Static bloom threshold 0–1 (burst bloom overrides transiently) |
+| `setVignette(v)` | Vignette strength 0–1 |
+| `setScanlines(v)` | Scanline opacity 0–0.2 |
+| `setHoloAberration(v)` | Screen-space chromatic aberration in holo pass 0–0.015 |
+| `applyPreset(name)` | Apply named preset: `'default'`\|`'matrix1999'`\|`'ghost'`\|`'overdrive'` |
 
 ### `destroyMatrixRain(element)`
 
@@ -164,7 +170,7 @@ Tears down the instance registered on `element`.
 | `uCellH` | `0.08` | World units per row |
 | `uWorldH` | `16` | Vertical world extent |
 | `uNRows` | `120` | Rows per column |
-| Bloom threshold | `0.20` | Burst dips to 0.10 every 4 s |
+| Bloom threshold | `0.20` | Stored in `bloomThreshold` var; burst dips to `threshold×0.5` every 4 s |
 | `phosphorDecay` | `0.88` | |
 | Heat `uHeatAmt` | `0.004` | |
 | Streak `uStreakAmt` | `0.055` | |
