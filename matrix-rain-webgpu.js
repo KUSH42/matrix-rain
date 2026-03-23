@@ -454,6 +454,7 @@ export function initMatrixRain(element, opts = {}) {
     setSpeed(v)        { uniforms.uSpeedMul.value = v; },
     setYawAligned(v)   { uniforms.uYawAligned.value = v; },
     setFacingJitter(v) { uniforms.uFacingJitter.value = v; },
+    setFlatZ(on)       { uniforms.uFlatZ.value = on ? 1.0 : 0.0; },
 
     setBloomStrength(v) {
       if (postProcessing?._bloomNode) postProcessing._bloomNode.strength.value = v;

@@ -199,6 +199,10 @@
       <input id="ctl-globe" type="checkbox" checked>
     </label>
 
+    <label>Flat Z (2D plane)
+      <input id="ctl-flatz" type="checkbox">
+    </label>
+
     <label>Yaw aligned
       <input id="ctl-yaw" type="checkbox">
     </label>
@@ -285,6 +289,7 @@
   }
   bind('ctl-burst',        on => rain.setBurstBloom(on));
   bind('ctl-globe',        on => rain.setGlobeInteract(on));
+  bind('ctl-flatz',        on => rain.setFlatZ(on));
   bind('ctl-yaw',          on => rain.setYawAligned(on ? 1.0 : 0.0));
   bind('ctl-jitter',       v  => rain.setFacingJitter(v));
   bind('ctl-chroma',       () => chromaFromUI());

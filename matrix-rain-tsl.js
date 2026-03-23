@@ -59,6 +59,7 @@ export function makeUniforms(glyphCount = 48) {
     uSpeedMul:       uniform(1.0),
     uYawAligned:     uniform(0.0),   // 0 = converge to fixed point, 1 = face camera
     uFacingJitter:   uniform(0.1745), // ±jitter radians on each column's yaw (default ±5°)
+    uFlatZ:          uniform(0.0),   // 0 = spherical shell, 1 = flat plane at Z=0
   };
 }
 
@@ -76,7 +77,7 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     uCellW, uCellH, uWorldH, uNRows,
     uColor, uGlobalAlpha, uDepth, uPomSteps, uNormalStrength,
     uLightDir, uGlobeInteract, uGlyphChroma,
-    uSpeedMul, uYawAligned, uFacingJitter,
+    uSpeedMul, uYawAligned, uFacingJitter, uFlatZ,
   } = uniforms;
 
   // ── Per-instance buffer attributes ────────────────────────────────────
@@ -219,11 +220,12 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
         // ── 3D world-space placement ───────────────────────────────────
         // Columns converge toward a point 2 units behind origin on Z.
         // Each column has ±5° facing jitter for subtle parallax.
-        const colCenter   = vec3(aWX, cellY, aWZ).toVar();
-        const toTarget    = vec2(aWX.negate(), float(-2).sub(aWZ));
+        const wz          = mix(aWZ, float(0), uFlatZ);
+        const colCenter   = vec3(aWX, cellY, wz).toVar();
+        const toTarget    = vec2(aWX.negate(), float(-2).sub(wz));
         const targetAngle = atan(toTarget.x, toTarget.y);
         // Camera-facing angle: project camera→column direction onto XZ plane
-        const toCamXZ      = vec2(cameraPosition.x.sub(aWX), cameraPosition.z.sub(aWZ));
+        const toCamXZ      = vec2(cameraPosition.x.sub(aWX), cameraPosition.z.sub(wz));
         const camAngle     = atan(toCamXZ.x, toCamXZ.y);
         const blendedAngle = mix(targetAngle, camAngle, uYawAligned);
         const facingAngle  = blendedAngle.add(
