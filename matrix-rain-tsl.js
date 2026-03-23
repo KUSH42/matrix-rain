@@ -76,6 +76,7 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     uCellW, uCellH, uWorldH, uNRows,
     uColor, uGlobalAlpha, uDepth, uPomSteps, uNormalStrength,
     uLightDir, uGlobeInteract, uGlyphChroma,
+    uSpeedMul, uYawAligned, uFacingJitter,
   } = uniforms;
 
   // ── Per-instance buffer attributes ────────────────────────────────────
@@ -223,7 +224,7 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
         const targetAngle = atan(toTarget.x, toTarget.y);
         // Camera-facing angle: project camera→column direction onto XZ plane
         const toCamXZ      = vec2(cameraPosition.x.sub(aWX), cameraPosition.z.sub(aWZ));
-        const camAngle     = atan(toCamXZ.x.negate(), toCamXZ.y.negate());
+        const camAngle     = atan(toCamXZ.x, toCamXZ.y);
         const blendedAngle = mix(targetAngle, camAngle, uYawAligned);
         const facingAngle  = blendedAngle.add(
           h2(vec2(aColIdxAttr.mul(0.73), 0.51)).sub(0.5).mul(uFacingJitter)
