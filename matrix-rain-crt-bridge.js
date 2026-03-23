@@ -13,7 +13,7 @@
  */
 
 import * as THREE from 'three/webgpu';
-import { pass } from 'three/tsl';
+import { pass, rtt } from 'three/tsl';
 import { fxaa } from 'three/addons/tsl/display/FXAANode.js';
 import { initMatrixRain } from './matrix-rain-webgpu.js';
 import { buildCRTNodesFromSource } from '../telescreen-crt-webgpu/telescreen-crt-webgpu.js';
@@ -54,7 +54,7 @@ export function initMatrixRainCRT(element, rainOpts = {}, crtOpts = {}) {
 
     // Assemble single RenderPipeline: rain → CRT → FXAA → screen
     pp = new THREE.RenderPipeline(rain.renderer);
-    pp.outputNode = fxaa(crt.outputNode);
+    pp.outputNode = fxaa(rtt(crt.outputNode));
 
     // Bridge ResizeObserver: rain's internal observer is suppressed (externalLoop: true).
     ro = new ResizeObserver(() => {
@@ -96,7 +96,7 @@ export function initMatrixRainCRT(element, rainOpts = {}, crtOpts = {}) {
       // Handle CRT pipeline rebuild (one-frame skip + deferred node swap)
       if (crtResult.skipRender) {
         if (crtResult.newOutputNode) {
-          pp.outputNode = fxaa(crtResult.newOutputNode);
+          pp.outputNode = fxaa(rtt(crtResult.newOutputNode));
         }
         return;
       }
