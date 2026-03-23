@@ -44,12 +44,12 @@
 
 All items go in `specs/` before implementation.
 
-- [ ] **SPEC-matrix-crt-integration** — single PostProcessing graph composing matrix-rain + telescreen-crt (Path C) **[spec reviewed, 0 issues]**
-  - Task 1: `externalLoop` opt + `buildNodes` + `tick` + `onResize` + `setGlobeInteract` fix + standalone resize leak fix (touches `matrix-rain-tsl.js` too)
-  - Task 2: expose `scene`, `camera`, `renderer` getters on handle
-  - Task 3: `buildCRTNodesFromSource` + `setSourceNode` exports in telescreen-crt-webgpu.js; `tick` returns `{skipRender, newOutputNode}`
-  - Task 4: `matrix-rain-crt-bridge.js` glue module
-  - Task 5: `demo-crt.html`
+- [x] **SPEC-matrix-crt-integration** — single PostProcessing graph composing matrix-rain + telescreen-crt (Path C)
+  - `matrix-rain-webgpu.js`: `externalLoop`, `buildNodes`, `tick`, `onResize`, `setGlobeInteract`, `currentRainNodes?.dispose()` resize leak fix, `scene`/`camera`/`renderer` getters
+  - `matrix-rain-tsl.js`: `uGlobeInteract` uniform + globe proximity pulse
+  - `telescreen-crt-webgpu.js`: `_tick`/`_postRender`/`_setSourceNode` internals; `buildCRTNodesFromSource` export; `_externalSource` mode
+  - `matrix-rain-crt-bridge.js`: glue module (single RAF loop, ResizeObserver, re-entry guard, `pp.outputNode` swap on CRT rebuild)
+  - `demo-crt.html`: standalone demo with rain + CRT + signal preset stacking
 
 - [ ] Tests — `tests/` for any pure-JS logic extracted to a `matrix-rain-math.js`
 - [ ] `prefers-reduced-motion` — disable/reduce heat, god rays, burst bloom
