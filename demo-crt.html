@@ -298,6 +298,21 @@
   import { PRESETS as RAIN_PRESETS } from './matrix-rain-presets.js';
   import { PRESETS as CRT_PRESETS, SIGNAL_PRESETS }
     from '../telescreen-crt-webgpu/crt-presets.js';
+  import { TextureNode } from 'three/webgpu';
+
+  // ── WebGL2 compat: Three.js r183 bug — TextureNode.generate() appends
+  // '_sampler' suffix even on WebGL2 (where the uniform has no suffix).
+  // Redirect 'sampler2D' output to 'property' on non-WebGPU backends;
+  // isReference('property') returns true → returns plain textureProperty name.
+  {
+    const _origGenerate = TextureNode.prototype.generate;
+    TextureNode.prototype.generate = function (builder, output) {
+      if (/^sampler/.test(output) && builder.renderer?.backend?.isWebGPUBackend !== true) {
+        return _origGenerate.call(this, builder, 'property');
+      }
+      return _origGenerate.call(this, builder, output);
+    };
+  }
 
   // ── WebGPU check ──────────────────────────────────────────────────────
   const noWebGpu = document.getElementById('no-webgpu');
