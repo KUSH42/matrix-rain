@@ -19,7 +19,7 @@ import {
   sin, dot, abs, max, min, exp, fract, floor, sqrt, clamp, mix,
   smoothstep, step, normalize, length,
   screenUV, texture,
-  If, Loop, Return,
+  If, Loop,
   select, time,
 } from 'three/tsl';
 import * as THREE from 'three/webgpu';
@@ -201,24 +201,28 @@ export function buildGodRaysPass(inputTexNode) {
   const uEnabled  = uniform(1.0);
 
   const outputNode = Fn(() => {
-    const base = texture(inputTexNode, screenUV);
-    If(uEnabled.lessThan(0.5), () => { Return(base); });
+    const base   = texture(inputTexNode, screenUV);
+    const result = base.toVar('grResult');
 
-    const delta  = screenUV.sub(uLightPos).mul(uDensity.div(float(80)));
-    const uv_    = screenUV.toVar('gruv');
-    const decay_ = float(1.0).toVar('grd');
-    const rays   = vec4(0).toVar('gr');
+    If(uEnabled.greaterThanEqual(0.5), () => {
+      const delta  = screenUV.sub(uLightPos).mul(uDensity.div(float(80)));
+      const uv_    = screenUV.toVar('gruv');
+      const decay_ = float(1.0).toVar('grd');
+      const rays   = vec4(0).toVar('gr');
 
-    Loop(80, () => {
-      uv_.subAssign(delta);
-      const s = texture(inputTexNode, uv_).mul(decay_).mul(uWeight);
-      rays.addAssign(s);
-      decay_.mulAssign(uDecay);
+      Loop(80, () => {
+        uv_.subAssign(delta);
+        const s = texture(inputTexNode, uv_).mul(decay_).mul(uWeight);
+        rays.addAssign(s);
+        decay_.mulAssign(uDecay);
+      });
+
+      rays.mulAssign(uExposure);
+      rays.assign(min(rays, vec4(uClampMax)));
+      result.assign(base.add(rays));
     });
 
-    rays.mulAssign(uExposure);
-    rays.assign(min(rays, vec4(uClampMax)));
-    return base.add(rays);
+    return result;
   })();
 
   return { outputNode, uLightPos, uDensity, uDecay, uWeight, uExposure, uEnabled };

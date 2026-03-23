@@ -16,7 +16,7 @@ import {
   cameraViewMatrix, cameraProjectionMatrix, cameraPosition,
   positionGeometry, uv, frontFacing,
   select, texture,
-  If, Loop, Break, Return, Discard,
+  If, Loop, Break, Discard,
   dFdx, dFdy,
 } from 'three/tsl';
 import * as THREE from 'three/webgpu';
@@ -114,9 +114,25 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
   // VERTEX STAGE
   // ═══════════════════════════════════════════════════════════════════════
   const vertexNode = Fn(() => {
-    // Safe defaults for varyings — must be written before any early Return
+    // Default: clip to off-screen. Overwritten only when all cull tests pass.
+    // WGSL vertex functions must always return the varyings struct — no early
+    // return is possible, so culling is done by writing (2,2,2,1) clip coords.
+    const clipPos = vec4(2, 2, 2, 1).toVar('clipPos');
+
+    // Varying defaults written unconditionally (WGSL requires all varyings to
+    // be assigned on every execution path before they are read in the fragment).
     vDeathFade.assign(1.0);
     vGlobeProx.assign(0.0);
+    vBurst.assign(0.0);
+    vUvRain.assign(uv());
+    vColIdx.assign(aColIdxAttr);
+    vRowIdx.assign(aRowIdxAttr);
+    vAlpha.assign(aColBAttr.z);
+    vTrail.assign(aColBAttr.w);
+    vDist.assign(0.0);
+    vDepthDim.assign(0.0);
+    vOutward.assign(vec3(0, 0, 1));
+    vWorldPos.assign(vec3(0));
 
     // Unpack per-column attributes
     const aWX    = aColAAttr.x;
@@ -132,125 +148,123 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     const bootDelay   = h2(vec2(aColIdxAttr.mul(0.31), 0.77)).mul(2.5);
     const bootFadeVal = smoothstep(bootDelay, bootDelay.add(0.3), uTime);
     vBootFade.assign(bootFadeVal);
-    If(bootFadeVal.lessThan(0.001), () => { Return(vec4(2, 2, 2, 1)); });
 
-    vBurst.assign(0.0);
-    vUvRain.assign(uv());
-    vColIdx.assign(aColIdxAttr);
-    vRowIdx.assign(aRowIdxAttr);
-    vTrail.assign(aTrail);
+    If(bootFadeVal.greaterThanEqual(0.001), () => {
 
-    // Per-glyph spacing — step > quad height to prevent overlap
-    const spacingFactor = float(1.85).add(float(0.10).mul(
-      h2(vec2(aColIdxAttr.mul(0.61), 0.29))
-    ));
-    const cellStep = uCellH.mul(aScale).mul(spacingFactor);
+      // Per-glyph spacing — step > quad height to prevent overlap
+      const spacingFactor = float(1.85).add(float(0.10).mul(
+        h2(vec2(aColIdxAttr.mul(0.61), 0.29))
+      ));
+      const cellStep = uCellH.mul(aScale).mul(spacingFactor);
 
-    // Per-glyph Y jitter
-    const yJitter = h2(vec2(aColIdxAttr.mul(0.43), aRowIdxAttr.mul(0.89)))
-      .mul(0.16).mul(cellStep);
+      // Per-glyph Y jitter
+      const yJitter = h2(vec2(aColIdxAttr.mul(0.43), aRowIdxAttr.mul(0.89)))
+        .mul(0.16).mul(cellStep);
 
-    // Per-glyph alpha variation ±12 %
-    const alphaJitter = float(1).add(
-      h2(vec2(aColIdxAttr.mul(0.67), aRowIdxAttr.mul(0.31))).sub(0.5).mul(0.24)
-    );
-    vAlpha.assign(aAlpha.mul(alphaJitter));
+      // Per-glyph alpha variation ±12 %
+      const alphaJitter = float(1).add(
+        h2(vec2(aColIdxAttr.mul(0.67), aRowIdxAttr.mul(0.31))).sub(0.5).mul(0.24)
+      );
+      vAlpha.assign(aAlpha.mul(alphaJitter));
 
-    // Static world-Y of this cell
-    const cellY = aYOff.add(uWorldH.mul(0.5))
-      .sub(aRowIdxAttr.mul(cellStep))
-      .add(yJitter);
+      // Static world-Y of this cell
+      const cellY = aYOff.add(uWorldH.mul(0.5))
+        .sub(aRowIdxAttr.mul(cellStep))
+        .add(yJitter);
 
-    // ── Column burst — 0.5 % of columns get a 4 s speed surge ─────────
-    const burstCycle  = float(4.0);
-    const burstBucket = floor(uTime.div(burstCycle));
-    const burstH      = h2(vec2(aColIdxAttr.mul(0.41), burstBucket.mul(0.19)));
-    const burstActive = step(0.995, burstH);
-    const burstPhase  = fract(uTime.div(burstCycle));
-    const burstFrac   = smoothstep(0.0, 0.1, burstPhase)
-      .mul(float(1).sub(smoothstep(0.25, 0.35, burstPhase)));
-    const speedMul    = float(1).add(burstActive.mul(burstFrac).mul(2));
-    vBurst.assign(burstActive.mul(burstFrac));
+      // ── Column burst — 0.5 % of columns get a 4 s speed surge ───────
+      const burstCycle  = float(4.0);
+      const burstBucket = floor(uTime.div(burstCycle));
+      const burstH      = h2(vec2(aColIdxAttr.mul(0.41), burstBucket.mul(0.19)));
+      const burstActive = step(0.995, burstH);
+      const burstPhase  = fract(uTime.div(burstCycle));
+      const burstFrac   = smoothstep(0.0, 0.1, burstPhase)
+        .mul(float(1).sub(smoothstep(0.25, 0.35, burstPhase)));
+      const speedMul    = float(1).add(burstActive.mul(burstFrac).mul(2));
+      vBurst.assign(burstActive.mul(burstFrac));
 
-    // ── Head sweep ────────────────────────────────────────────────────
-    const cycleH    = uWorldH.add(uNRows.mul(cellStep));
-    const cyclePos  = mod(
-      uTime.mul(aSpeed).mul(speedMul).add(aSeed.mul(cycleH)),
-      cycleH
-    );
-    const cyclePhase = cyclePos.div(cycleH);
+      // ── Head sweep ──────────────────────────────────────────────────
+      const cycleH    = uWorldH.add(uNRows.mul(cellStep));
+      const cyclePos  = mod(
+        uTime.mul(aSpeed).mul(speedMul).add(aSeed.mul(cycleH)),
+        cycleH
+      );
+      const cyclePhase = cyclePos.div(cycleH);
 
-    // Death fade — smooth-out in the last 12 % of cycle before wrap
-    const deathRamp = smoothstep(0.88, 1.0, cyclePhase);
-    vDeathFade.assign(float(1).sub(deathRamp));
+      // Death fade — smooth-out in the last 12 % of cycle before wrap
+      const deathRamp = smoothstep(0.88, 1.0, cyclePhase);
+      vDeathFade.assign(float(1).sub(deathRamp));
 
-    const headY = aYOff.add(uWorldH.mul(0.5)).sub(cyclePos);
-    const dist  = cellY.sub(headY).div(cellStep);
-    vDist.assign(dist);
+      const headY = aYOff.add(uWorldH.mul(0.5)).sub(cyclePos);
+      const dist  = cellY.sub(headY).div(cellStep);
+      vDist.assign(dist);
 
-    // ── Globe proximity pulse ─────────────────────────────────────────
-    const xzProx = float(1).sub(
-      smoothstep(1.0, 7.0, length(vec2(aWX, aWZ)).sub(1.0))
-    );
-    const yProx  = float(1).sub(smoothstep(0.0, 1.2, abs(headY)));
-    vGlobeProx.assign(
-      xzProx.mul(yProx).mul(smoothstep(3.0, 0.0, max(dist, 0.0)))
-    );
+      // ── Globe proximity pulse ────────────────────────────────────────
+      const xzProx = float(1).sub(
+        smoothstep(1.0, 7.0, length(vec2(aWX, aWZ)).sub(1.0))
+      );
+      const yProx  = float(1).sub(smoothstep(0.0, 1.2, abs(headY)));
+      vGlobeProx.assign(
+        xzProx.mul(yProx).mul(smoothstep(3.0, 0.0, max(dist, 0.0)))
+      );
 
-    // Cull glyphs outside the visible trail window
-    const maxVisible = min(float(4.42).div(aTrail), uNRows.mul(1.2));
-    If(dist.lessThan(-0.5).or(dist.greaterThan(maxVisible)), () => {
-      Return(vec4(2, 2, 2, 1));
-    });
+      // Cull glyphs outside the visible trail window
+      const maxVisible = min(float(4.42).div(aTrail), uNRows.mul(1.2));
+      If(dist.greaterThanEqual(-0.5).and(dist.lessThanEqual(maxVisible)), () => {
 
-    // ── 3D world-space placement ──────────────────────────────────────
-    // Columns converge toward a point 2 units behind origin on Z.
-    // Each column has ±5° facing jitter for subtle parallax.
-    const colCenter   = vec3(aWX, cellY, aWZ).toVar();
-    const toTarget    = vec2(aWX.negate(), float(-2).sub(aWZ));
-    const targetAngle = atan(toTarget.x, toTarget.y);
-    const facingAngle = targetAngle.add(
-      h2(vec2(aColIdxAttr.mul(0.73), 0.51)).sub(0.5).mul(0.1745) // ±5°
-    );
-    const outward = vec3(sin(facingAngle), 0.0, cos(facingAngle));
-    const right   = vec3(outward.z, 0.0, outward.x.negate()); // cross(Y, outward)
-    vOutward.assign(outward);
+        // ── 3D world-space placement ───────────────────────────────────
+        // Columns converge toward a point 2 units behind origin on Z.
+        // Each column has ±5° facing jitter for subtle parallax.
+        const colCenter   = vec3(aWX, cellY, aWZ).toVar();
+        const toTarget    = vec2(aWX.negate(), float(-2).sub(aWZ));
+        const targetAngle = atan(toTarget.x, toTarget.y);
+        const facingAngle = targetAngle.add(
+          h2(vec2(aColIdxAttr.mul(0.73), 0.51)).sub(0.5).mul(0.1745) // ±5°
+        );
+        const outward = vec3(sin(facingAngle), 0.0, cos(facingAngle));
+        const right   = vec3(outward.z, 0.0, outward.x.negate()); // cross(Y, outward)
+        vOutward.assign(outward);
 
-    // Sinusoidal lateral sway — head leads, tail lags
-    const sway = sin(uTime.mul(0.4).add(aSeed.mul(6.2832))).mul(0.04)
-      .mul(float(1).sub(clamp(dist.div(uNRows), 0.0, 1.0)));
-    colCenter.addAssign(right.mul(sway));
+        // Sinusoidal lateral sway — head leads, tail lags
+        const sway = sin(uTime.mul(0.4).add(aSeed.mul(6.2832))).mul(0.04)
+          .mul(float(1).sub(clamp(dist.div(uNRows), 0.0, 1.0)));
+        colCenter.addAssign(right.mul(sway));
 
-    // Per-column Z-rotation ±5°
-    const rotAngle = h2(vec2(aSeed, 42.0)).sub(0.5).mul(0.1745);
-    const cosR     = cos(rotAngle);
-    const sinR     = sin(rotAngle);
-    const rotRight = right.mul(cosR).add(vec3(0, 1, 0).mul(sinR));
-    const rotUp    = vec3(0, 1, 0).mul(cosR).sub(right.mul(sinR));
+        // Per-column Z-rotation ±5°
+        const rotAngle = h2(vec2(aSeed, 42.0)).sub(0.5).mul(0.1745);
+        const cosR     = cos(rotAngle);
+        const sinR     = sin(rotAngle);
+        const rotRight = right.mul(cosR).add(vec3(0, 1, 0).mul(sinR));
+        const rotUp    = vec3(0, 1, 0).mul(cosR).sub(right.mul(sinR));
 
-    // Drip stretch — Y-scale at head for mercury-drip effect
-    const scaleJitter = float(1).add(
-      h2(vec2(aColIdxAttr.mul(0.53), aRowIdxAttr.mul(0.17))).sub(0.5).mul(0.20)
-    );
-    const dripStretch = float(1).add(
-      float(0.35).mul(exp(max(dist, 0.0).negate().mul(1.5)))
-    );
-    const sX = aScale.mul(scaleJitter).mul(2.2);
-    const sY = aScale.mul(scaleJitter).mul(2.2).mul(dripStretch);
+        // Drip stretch — Y-scale at head for mercury-drip effect
+        const scaleJitter = float(1).add(
+          h2(vec2(aColIdxAttr.mul(0.53), aRowIdxAttr.mul(0.17))).sub(0.5).mul(0.20)
+        );
+        const dripStretch = float(1).add(
+          float(0.35).mul(exp(max(dist, 0.0).negate().mul(1.5)))
+        );
+        const sX = aScale.mul(scaleJitter).mul(2.2);
+        const sY = aScale.mul(scaleJitter).mul(2.2).mul(dripStretch);
 
-    const worldPos = colCenter
-      .add(rotRight.mul(positionGeometry.x).mul(uCellW).mul(sX))
-      .add(rotUp.mul(positionGeometry.y).mul(uCellH).mul(sY));
-    vWorldPos.assign(worldPos);
+        const worldPos = colCenter
+          .add(rotRight.mul(positionGeometry.x).mul(uCellW).mul(sX))
+          .add(rotUp.mul(positionGeometry.y).mul(uCellH).mul(sY));
+        vWorldPos.assign(worldPos);
 
-    // Fade glyphs close to camera — prevents blinding under a column
-    const viewPos4  = cameraViewMatrix.mul(vec4(worldPos, 1.0));
-    const camDist3D = length(viewPos4.xyz);
-    If(camDist3D.lessThan(1.5), () => { Return(vec4(2, 2, 2, 1)); });
+        // Fade glyphs close to camera — prevents blinding under a column
+        const viewPos4  = cameraViewMatrix.mul(vec4(worldPos, 1.0));
+        const camDist3D = length(viewPos4.xyz);
 
-    vDepthDim.assign(smoothstep(1.5, 3.5, camDist3D));
+        If(camDist3D.greaterThanEqual(1.5), () => {
+          vDepthDim.assign(smoothstep(1.5, 3.5, camDist3D));
+          clipPos.assign(cameraProjectionMatrix.mul(viewPos4));
+        });
 
-    return cameraProjectionMatrix.mul(viewPos4);
+      }); // trail window cull
+    }); // boot cull
+
+    return clipPos;
   })();
 
   // ═══════════════════════════════════════════════════════════════════════
