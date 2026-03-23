@@ -159,6 +159,30 @@
       <input id="ctl-godrays" type="checkbox" checked>
     </label>
 
+    <label>GR light X
+      <input id="ctl-gr-lx" type="range" min="0" max="1" step="0.01" value="0.5">
+    </label>
+
+    <label>GR light Y
+      <input id="ctl-gr-ly" type="range" min="0" max="1" step="0.01" value="0.75">
+    </label>
+
+    <label>GR density
+      <input id="ctl-gr-density" type="range" min="0" max="1" step="0.01" value="0.93">
+    </label>
+
+    <label>GR decay
+      <input id="ctl-gr-decay" type="range" min="0" max="1" step="0.01" value="0.96">
+    </label>
+
+    <label>GR weight
+      <input id="ctl-gr-weight" type="range" min="0" max="1" step="0.01" value="0.35">
+    </label>
+
+    <label>GR exposure
+      <input id="ctl-gr-exposure" type="range" min="0" max="2" step="0.01" value="0.45">
+    </label>
+
     <label>Burst bloom
       <input id="ctl-burst" type="checkbox" checked>
     </label>
@@ -169,6 +193,10 @@
 
     <label>Glyph chroma
       <input id="ctl-chroma" type="checkbox" checked>
+    </label>
+
+    <label>Chroma scale
+      <input id="ctl-chroma-scale" type="range" min="0" max="3" step="0.05" value="1">
     </label>
 
   </div>
@@ -214,10 +242,33 @@
   bind('ctl-heat',     v  => rain.setHeat(v > 0, v));
   bind('ctl-streaks',  v  => rain.setStreaks(v > 0, v));
   bind('ctl-phosphor', v  => rain.setPhosphorDecay(v));
-  bind('ctl-godrays',  on => rain.setGodRays(on));
-  bind('ctl-burst',    on => rain.setBurstBloom(on));
-  bind('ctl-globe',    on => rain.setGlobeInteract(on));
-  bind('ctl-chroma',   on => rain.setGlyphChroma(on));
+  function godRaysFromUI() {
+    const on       = document.getElementById('ctl-godrays').checked;
+    const lightX   = parseFloat(document.getElementById('ctl-gr-lx').value);
+    const lightY   = parseFloat(document.getElementById('ctl-gr-ly').value);
+    const density  = parseFloat(document.getElementById('ctl-gr-density').value);
+    const decay    = parseFloat(document.getElementById('ctl-gr-decay').value);
+    const weight   = parseFloat(document.getElementById('ctl-gr-weight').value);
+    const exposure = parseFloat(document.getElementById('ctl-gr-exposure').value);
+    rain.setGodRays(on, lightX, lightY, density, decay, weight, exposure);
+  }
+  bind('ctl-godrays',    () => godRaysFromUI());
+  bind('ctl-gr-lx',      () => godRaysFromUI());
+  bind('ctl-gr-ly',      () => godRaysFromUI());
+  bind('ctl-gr-density', () => godRaysFromUI());
+  bind('ctl-gr-decay',   () => godRaysFromUI());
+  bind('ctl-gr-weight',  () => godRaysFromUI());
+  bind('ctl-gr-exposure',() => godRaysFromUI());
+
+  function chromaFromUI() {
+    const on    = document.getElementById('ctl-chroma').checked;
+    const scale = parseFloat(document.getElementById('ctl-chroma-scale').value);
+    rain.setGlyphChroma(on, scale);
+  }
+  bind('ctl-burst',        on => rain.setBurstBloom(on));
+  bind('ctl-globe',        on => rain.setGlobeInteract(on));
+  bind('ctl-chroma',       () => chromaFromUI());
+  bind('ctl-chroma-scale', () => chromaFromUI());
 </script>
 </body>
 </html>
