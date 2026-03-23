@@ -127,58 +127,6 @@ function buildGeometry() {
   return geom;
 }
 
-// ── Post-processing pipeline builder ─────────────────────────────────────
-function buildPostProcessing(renderer, scene, camera, phosphorPrevTexNode, phosphorDecay, uAspect) {
-  const pp = new THREE.RenderPipeline(renderer);
-
-  const scenePass  = pass(scene, camera);
-  const sceneColor = scenePass.getTextureNode('output');
-
-  // ── Bloom ──────────────────────────────────────────────────────────
-  const bloomNode = bloom(sceneColor, 1.15, 0.45);
-  bloomNode.threshold.value = 0.20;
-  const afterBloomRtt = rtt(sceneColor.add(bloomNode));
-
-  // ── Heat distortion ────────────────────────────────────────────────
-  const heatBuild  = buildHeatPass(afterBloomRtt);
-  const afterHeatRtt = rtt(heatBuild.outputNode);
-
-  // ── Phosphor persistence ───────────────────────────────────────────
-  const phosphorBuild = buildPhosphorPass(afterHeatRtt, phosphorPrevTexNode, phosphorDecay);
-  const rttPhosphor   = rtt(phosphorBuild.outputNode);
-
-  // ── Soften (radial blur) ───────────────────────────────────────────
-  const softenBuild = buildSoftenPass(rttPhosphor);
-  const afterSoftenRtt = rtt(softenBuild.outputNode);
-
-  // ── Lens rain streaks ──────────────────────────────────────────────
-  const streakBuild = buildStreakPass(afterSoftenRtt, uAspect);
-
-  // ── Holo (chromatic aberration + scanlines + vignette) ────────────
-  const rttPreHolo  = rtt(streakBuild.outputNode);
-  const holoBuild   = buildHoloPass(rttPreHolo);
-
-  // ── God rays ───────────────────────────────────────────────────────
-  const rttPreGodRays = rtt(holoBuild.outputNode);
-  const godRaysBuild  = buildGodRaysPass(rttPreGodRays);
-  godRaysBuild.uEnabled.value = 1.0;
-
-  // ── FXAA ──────────────────────────────────────────────────────────
-  const rttPreFxaa = rtt(godRaysBuild.outputNode);
-  pp.outputNode = fxaa(rttPreFxaa);
-
-  // Expose internal nodes for the render loop
-  pp._rttPhosphor = rttPhosphor;
-  pp._bloomNode   = bloomNode;
-  pp._heatBuild   = heatBuild;
-  pp._softenBuild = softenBuild;
-  pp._streakBuild = streakBuild;
-  pp._holoBuild   = holoBuild;
-  pp._godRaysBuild = godRaysBuild;
-
-  return pp;
-}
-
 // ── Instance registry ─────────────────────────────────────────────────────
 const _state = new Map();
 
@@ -205,12 +153,13 @@ export function initMatrixRain(element, opts = {}) {
   if (stale) stale.remove();
 
   const {
-    color      = '#00ff70',
-    opacity    = 0.82,
-    charSet    = 'matrixcode',
-    atlasPath  = null,
-    preset     = null,
-    syncCamera = null,
+    color        = '#00ff70',
+    opacity      = 0.82,
+    charSet      = 'matrixcode',
+    atlasPath    = null,
+    preset       = null,
+    syncCamera   = null,
+    externalLoop = false,
   } = opts;
 
   // Resolve atlas path + grid dimensions from charSet or explicit opts
@@ -288,13 +237,90 @@ export function initMatrixRain(element, opts = {}) {
   // ── Aspect uniform shared between streak pass and resize ──────────────
   const uAspect = uniform((element.clientWidth || 1) / (element.clientHeight || 1));
 
+  // Track factory result so resize path can dispose all RTTNodes (not just phosphor RT)
+  let currentRainNodes = null;
+
   // ── Post-processing (built lazily after renderer.init()) ──────────────
   let postProcessing  = null;
   let firstRenderDone = false;
   let bloomThreshold  = 0.20;   // static threshold; burst bloom overrides transiently
 
+  // ── Node factory (called by buildPP and by bridge via handle.buildNodes) ──────
+  function buildMatrixRainNodes(sceneColorNode) {
+    const bloomNode     = bloom(sceneColorNode, 1.15, 0.45);
+    bloomNode.threshold.value = 0.20;
+    const afterBloomRtt = rtt(sceneColorNode.add(bloomNode));
+
+    const heatBuild    = buildHeatPass(afterBloomRtt);
+    const afterHeatRtt = rtt(heatBuild.outputNode);
+
+    const phosphorBuild = buildPhosphorPass(afterHeatRtt, phosphorPrevTex, phosphorDecay);
+    const rttPhosphor   = rtt(phosphorBuild.outputNode);
+
+    const softenBuild    = buildSoftenPass(rttPhosphor);
+    const afterSoftenRtt = rtt(softenBuild.outputNode);
+
+    const streakBuild = buildStreakPass(afterSoftenRtt, uAspect);
+    const rttPreHolo  = rtt(streakBuild.outputNode);
+
+    const holoBuild     = buildHoloPass(rttPreHolo);
+    const rttPreGodRays = rtt(holoBuild.outputNode);
+
+    const godRaysBuild = buildGodRaysPass(rttPreGodRays);
+    godRaysBuild.uEnabled.value = 1.0;
+
+    const rttPreFxaa = rtt(godRaysBuild.outputNode);
+
+    function postRender(rdr) {
+      ensurePrevRT();
+      if (rttPhosphor?.renderTarget && prevRT) {
+        rdr.copyTextureToTexture(rttPhosphor.renderTarget.texture, prevRT.texture);
+      }
+    }
+
+    function dispose() {
+      for (const n of [afterBloomRtt, afterHeatRtt, rttPhosphor, afterSoftenRtt,
+                        rttPreHolo, rttPreGodRays, rttPreFxaa]) {
+        try { n?.renderTarget?.dispose(); } catch (_) {}
+      }
+    }
+
+    return {
+      outputNode: rttPreFxaa,
+      rttPhosphor,
+      passBuilders: {
+        _bloomNode:    bloomNode,
+        _heatBuild:    heatBuild,
+        _softenBuild:  softenBuild,
+        _streakBuild:  streakBuild,
+        _holoBuild:    holoBuild,
+        _godRaysBuild: godRaysBuild,
+      },
+      postRender,
+      dispose,
+    };
+  }
+
+  // Stores result in currentRainNodes so tick() and resize path can access it
+  function buildNodesInternal(sceneColorNode) {
+    const nodes = buildMatrixRainNodes(sceneColorNode);
+    currentRainNodes = nodes;
+    return nodes;
+  }
+
+  // Standalone post-processing: wraps factory into a THREE.RenderPipeline
   function buildPP() {
-    const pp = buildPostProcessing(renderer, scene, camera, phosphorPrevTex, phosphorDecay, uAspect);
+    const sceneColorNode = pass(scene, camera).getTextureNode('output');
+    const nodes = buildNodesInternal(sceneColorNode);
+    const pp    = new THREE.RenderPipeline(renderer);
+    pp.outputNode    = fxaa(nodes.outputNode);
+    pp._rttPhosphor  = nodes.rttPhosphor;
+    pp._bloomNode    = nodes.passBuilders._bloomNode;
+    pp._heatBuild    = nodes.passBuilders._heatBuild;
+    pp._softenBuild  = nodes.passBuilders._softenBuild;
+    pp._streakBuild  = nodes.passBuilders._streakBuild;
+    pp._holoBuild    = nodes.passBuilders._holoBuild;
+    pp._godRaysBuild = nodes.passBuilders._godRaysBuild;
     pp._bloomNode.threshold.value = bloomThreshold;
     return pp;
   }
@@ -308,15 +334,13 @@ export function initMatrixRain(element, opts = {}) {
   // syncCamera reference — assigned to state after state object is created
   let activeSyncCamera = syncCamera;
 
-  async function animate(ts) {
-    animRef.id = requestAnimationFrame(animate);
-    const t  = ts * 0.001;
-    const dt = t - prevTs;
-    prevTs   = t;
+  // ── Per-frame state tick (called by animate() in standalone mode, or by bridge) ──
+  function tick(t) {
+    const dt = prevTs > 0 ? t - prevTs : 1.0 / 60.0;
+    prevTs = t;
 
     uniforms.uTime.value = t;
 
-    // Sync to external camera if requested
     if (activeSyncCamera) {
       camera.position.copy(activeSyncCamera.position);
       camera.quaternion.copy(activeSyncCamera.quaternion);
@@ -326,7 +350,6 @@ export function initMatrixRain(element, opts = {}) {
       camera.updateProjectionMatrix();
     }
 
-    // Light tracks camera azimuth with +60° offset
     if (camera.position.lengthSq() > 0.001) {
       const az = Math.atan2(camera.position.x, camera.position.z) + Math.PI / 3;
       uniforms.uLightDir.value.set(
@@ -334,9 +357,8 @@ export function initMatrixRain(element, opts = {}) {
       ).normalize();
     }
 
-    // Depth-adaptive bloom burst
-    if (postProcessing?._bloomNode) {
-      const bloomNode = postProcessing._bloomNode;
+    const bloomNode = currentRainNodes?.passBuilders?._bloomNode;
+    if (bloomNode) {
       if (burstBloomActive) {
         const burstBucket = Math.floor(t / 4.0);
         if (burstBucket !== lastBurstBucket) {
@@ -357,15 +379,20 @@ export function initMatrixRain(element, opts = {}) {
         bloomNode.threshold.value = bloomThreshold;
       }
     }
+  }
 
-    if (!postProcessing) return; // wait for init
+  async function animate(ts) {
+    animRef.id = requestAnimationFrame(animate);
+    tick(ts * 0.001);
 
-    // ── RTT resize detection (telescreen pattern) ───────────────────
+    if (!postProcessing) return;
+
+    // RTT resize detection (telescreen pattern)
     const rdrW = renderer.domElement.width;
     const rdrH = renderer.domElement.height;
     const rttRT = postProcessing._rttPhosphor?.renderTarget;
     if (firstRenderDone && rttRT && (rttRT.width !== rdrW || rttRT.height !== rdrH)) {
-      try { rttRT.dispose(); } catch (_) {}
+      currentRainNodes?.dispose();   // dispose all RTTNodes before rebuild (not just phosphor)
       if (prevRT) { try { prevRT.dispose(); } catch (_) {} prevRT = null; prevW = 0; prevH = 0; }
       postProcessing = buildPP();
       firstRenderDone = false;
@@ -377,8 +404,6 @@ export function initMatrixRain(element, opts = {}) {
     try {
       await postProcessing.render();
       firstRenderDone = true;
-
-      // Copy phosphor rtt output → prevRT so next frame reads the accumulated result
       if (postProcessing._rttPhosphor?.renderTarget && prevRT) {
         renderer.copyTextureToTexture(
           postProcessing._rttPhosphor.renderTarget.texture,
@@ -395,8 +420,10 @@ export function initMatrixRain(element, opts = {}) {
 
   // Init renderer then kick off animation
   renderer.init().then(() => {
-    postProcessing = buildPP();
-    animRef.id = requestAnimationFrame(animate);
+    if (!externalLoop) {
+      postProcessing = buildPP();
+      animRef.id = requestAnimationFrame(animate);
+    }
     if (preset) handle?.applyPreset(preset);
   });
 
@@ -416,7 +443,7 @@ export function initMatrixRain(element, opts = {}) {
       // PostProcessing RTT resize is handled in the render loop
     });
   });
-  ro.observe(element);
+  if (!externalLoop) ro.observe(element);
 
   // ── State object ──────────────────────────────────────────────────────
   const s = { renderer, ro, animRef, geom, material, atlasTex, dummyRT, uniforms, mesh };
@@ -435,22 +462,25 @@ export function initMatrixRain(element, opts = {}) {
     setNormalStrength(v)   { uniforms.uNormalStrength.value = v; },
 
     setSoften(on, strength) {
-      if (!postProcessing?._softenBuild) return;
-      if (strength !== undefined)
-        postProcessing._softenBuild.uBlurStrength.value = strength;
+      const b = postProcessing?._softenBuild ?? currentRainNodes?.passBuilders?._softenBuild;
+      if (!b) return;
+      if (strength !== undefined) b.uBlurStrength.value = strength;
       // Note: disabling soften requires rebuilding the PostProcessing graph.
       // For now, setting strength to 0 effectively disables it.
-      if (!on) postProcessing._softenBuild.uBlurStrength.value = 0;
+      if (!on) b.uBlurStrength.value = 0;
     },
     setHeat(on, amt) {
-      if (!postProcessing?._heatBuild) return;
-      postProcessing._heatBuild.uHeatAmt.value = on ? (amt ?? 0.004) : 0;
+      const b = postProcessing?._heatBuild ?? currentRainNodes?.passBuilders?._heatBuild;
+      if (!b) return;
+      b.uHeatAmt.value = on ? (amt ?? 0.004) : 0;
     },
     setStreaks(on, amt) {
-      if (!postProcessing?._streakBuild) return;
-      postProcessing._streakBuild.uStreakAmt.value = on ? (amt ?? 0.055) : 0;
+      const b = postProcessing?._streakBuild ?? currentRainNodes?.passBuilders?._streakBuild;
+      if (!b) return;
+      b.uStreakAmt.value = on ? (amt ?? 0.055) : 0;
     },
     setBurstBloom(on) { burstBloomActive = on; },
+    setGlobeInteract(on)   { uniforms.uGlobeInteract.value = on ? 1.0 : 0.0; },
 
     setGlyphChroma(on, scale) {
       uniforms.uGlyphChroma.value = on ? (scale ?? 1.0) : 0.0;
@@ -466,8 +496,8 @@ export function initMatrixRain(element, opts = {}) {
      * @param {number}  [exposure]  0–2 final exposure
      */
     setGodRays(enabled, lightX, lightY, density, decay, weight, exposure) {
-      if (!postProcessing?._godRaysBuild) return;
-      const g = postProcessing._godRaysBuild;
+      const g = postProcessing?._godRaysBuild ?? currentRainNodes?.passBuilders?._godRaysBuild;
+      if (!g) return;
       g.uEnabled.value = enabled ? 1.0 : 0.0;
       if (lightX    !== undefined) g.uLightPos.value.x = lightX;
       if (lightY    !== undefined) g.uLightPos.value.y = lightY;
@@ -486,6 +516,8 @@ export function initMatrixRain(element, opts = {}) {
 
     setBloomStrength(v) {
       if (postProcessing?._bloomNode) postProcessing._bloomNode.strength.value = v;
+      if (currentRainNodes?.passBuilders?._bloomNode)
+        currentRainNodes.passBuilders._bloomNode.strength.value = v;
     },
 
     /**
@@ -527,21 +559,26 @@ export function initMatrixRain(element, opts = {}) {
     setBloomThreshold(v) {
       bloomThreshold = v;
       if (postProcessing?._bloomNode) postProcessing._bloomNode.threshold.value = v;
+      if (currentRainNodes?.passBuilders?._bloomNode)
+        currentRainNodes.passBuilders._bloomNode.threshold.value = v;
     },
 
     /** Sets vignette strength. Range 0–1, default 0.42. */
     setVignette(v) {
-      if (postProcessing?._holoBuild) postProcessing._holoBuild.uVignetteStrength.value = v;
+      const b = postProcessing?._holoBuild ?? currentRainNodes?.passBuilders?._holoBuild;
+      if (b) b.uVignetteStrength.value = v;
     },
 
     /** Sets scrolling scanline opacity. Range 0–0.2, default 0.045. */
     setScanlines(v) {
-      if (postProcessing?._holoBuild) postProcessing._holoBuild.uScanlineOpacity.value = v;
+      const b = postProcessing?._holoBuild ?? currentRainNodes?.passBuilders?._holoBuild;
+      if (b) b.uScanlineOpacity.value = v;
     },
 
     /** Sets screen-space chromatic aberration in the holo pass. Range 0–0.015, default 0.0025. */
     setHoloAberration(v) {
-      if (postProcessing?._holoBuild) postProcessing._holoBuild.uAberrationAmt.value = v;
+      const b = postProcessing?._holoBuild ?? currentRainNodes?.passBuilders?._holoBuild;
+      if (b) b.uAberrationAmt.value = v;
     },
 
     /**
@@ -581,6 +618,33 @@ export function initMatrixRain(element, opts = {}) {
       }
       if (p.charSet         !== undefined) handle.setCharSet(p.charSet);
     },
+
+    // ── externalLoop API ──────────────────────────────────────────────────
+    /**
+     * Build the rain PP node chain on top of an external scene colour node.
+     * Returns { outputNode, rttPhosphor, passBuilders, postRender(rdr), dispose() }.
+     * May only be called after renderer.init() has resolved.
+     */
+    buildNodes(sceneColorNode) { return buildNodesInternal(sceneColorNode); },
+
+    /**
+     * Frame tick: update uniforms and burst bloom. Call with t in seconds.
+     * @param {number} t  elapsed seconds (ts * 0.001 from RAF timestamp)
+     */
+    tick(t) { tick(t); },
+
+    /**
+     * Notify of a resize. Sets uAspect.value = w / h.
+     * Call before rebuildPP() whenever the host element resizes.
+     * @param {number} w  new width in pixels
+     * @param {number} h  new height in pixels
+     */
+    onResize(w, h) { uAspect.value = w / h; },
+
+    // ── Scene/camera/renderer getters (for bridge use) ────────────────────
+    get scene()    { return scene; },
+    get camera()   { return camera; },
+    get renderer() { return renderer; },
   };
   return handle;
 }

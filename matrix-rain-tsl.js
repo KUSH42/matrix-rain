@@ -61,6 +61,7 @@ export function makeUniforms(glyphCount = 56, gridW = 8, gridH = 8) {
     uYawAligned:     uniform(0.0),   // 0 = converge to fixed point, 1 = face camera
     uFacingJitter:   uniform(0.1745), // ±jitter radians on each column's yaw (default ±5°)
     uFlatZ:          uniform(0.0),   // 0 = spherical shell, 1 = flat plane at Z=0
+    uGlobeInteract:  uniform(1.0),   // 0 = off, 1 = on — gates globe proximity pulse
   };
 }
 
@@ -78,7 +79,7 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     uCellW, uCellH, uWorldH, uNRows,
     uColor, uGlobalAlpha, uDepth, uPomSteps, uNormalStrength,
     uLightDir, uGlyphChroma,
-    uSpeedMul, uYawAligned, uFacingJitter, uFlatZ,
+    uSpeedMul, uYawAligned, uFacingJitter, uFlatZ, uGlobeInteract,
   } = uniforms;
 
   // ── Per-instance buffer attributes ────────────────────────────────────
@@ -458,6 +459,13 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
       col2.mul(float(0.65).add(float(0.35).mul(diffuse)))
         .add(tintedColor.mul(spec).mul(0.8))
     );
+
+    // Globe proximity pulse — soft radial brightening near the inner sphere surface (R ≈ 3.5)
+    // Gated by uGlobeInteract: 0 = off, 1 = on.
+    const globeRxz  = length(vWorldPos.xz);
+    const nearInner = exp(globeRxz.sub(float(3.5)).abs().negate().mul(0.45));
+    const pulseFrac = sin(uTime.mul(2.5).add(globeRxz.mul(1.0))).mul(0.5).add(0.5);
+    col2.addAssign(uColor.mul(nearInner.mul(pulseFrac).mul(0.22).mul(uGlobeInteract)));
 
     // ── Final alpha ────────────────────────────────────────────────────
     const rawBright = trail.mul(mask).mul(vAlpha).mul(vDepthDim);
