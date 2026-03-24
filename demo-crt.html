@@ -301,13 +301,24 @@
   import { TextureNode } from 'three/webgpu';
 
   // ── WebGL2 compat: Three.js r183 bug — TextureNode.generate() appends
-  // '_sampler' suffix even on WebGL2 (where the uniform has no suffix).
-  // Redirect 'sampler2D' output to 'property' on non-WebGPU backends;
-  // isReference('property') returns true → returns plain textureProperty name.
+  // '_sampler' suffix for any output type matching /^sampler/, which catches
+  // both the WGSL 'sampler' binding AND GLSL 'sampler2D'/'sampler3D'/etc.
+  // In WGSL (WebGPU) the '_sampler' suffix is correct; the sampler binding is
+  // a separate resource from the texture.  In GLSL (WebGL2) 'sampler2D' is a
+  // combined type: there is no separate '_sampler' declaration, so the plain
+  // property name must be returned.
+  //
+  // Fix: intercept the GLSL-specific types ('sampler2D', 'sampler3D',
+  // 'samplerCube', 'sampler2DArray', etc.) and redirect to 'property'.
+  // WGSL uses the bare string 'sampler' — not 'sampler2D' — so this redirect
+  // never fires on the WebGPU backend.  No backend detection required.
   {
     const _origGenerate = TextureNode.prototype.generate;
+    // 'sampler2D', 'sampler3D', 'samplerCube', 'usampler2D', etc. all have word chars after 'sampler'.
+    // The WGSL bare 'sampler' type has none — so /^sampler\w+/ selects only GLSL types.
+    const _GLSL_SAMPLER = /^sampler\w/;
     TextureNode.prototype.generate = function (builder, output) {
-      if (/^sampler/.test(output) && builder.renderer?.backend?.isWebGPUBackend !== true) {
+      if (_GLSL_SAMPLER.test(output)) {
         return _origGenerate.call(this, builder, 'property');
       }
       return _origGenerate.call(this, builder, output);
