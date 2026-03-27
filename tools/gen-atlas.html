@@ -1,20 +1,14 @@
 <!doctype html>
 <!--
-  gen-atlas.html — Matrix Rain glyph atlas generator.
+  gen-atlas.html — Matrix Rain BITMAP atlas generator (canvas-2D rain path only).
 
-  Produces MSDF-approx (single-channel SDF, R=G=B) and bitmap atlases
-  for the matrix1999, latin, and ascii glyph sets defined in ../data/glyph-sets.js.
+  MTSDF atlas generation (for WebGPU path) has moved to the Node.js CLI:
+    npm run gen-atlas          # regenerate all sets
+    npm run gen-atlas:set latin  # single set
 
+  This tool generates BITMAP atlases only (greyscale, for the canvas-2D rain path).
   Serve from the repo root (e.g. python3 -m http.server 8080) and open:
     http://localhost:8080/tools/gen-atlas.html
-
-  The generated PNG files must be saved to ../data/ and committed:
-    data/matrix1999_msdf.png    data/matrix1999_bitmap.png
-    data/latin_msdf.png         data/latin_bitmap.png
-    data/ascii_msdf.png         data/ascii_bitmap.png
-
-  TODO: upgrade MSDF generation to msdf-atlas-gen WASM for true multi-channel SDF
-        with corner-preservation (currently uses approximate single-channel SDF).
 -->
 <html lang="en">
 <head>
@@ -62,7 +56,12 @@
 </head>
 <body>
 
-<h1>MATRIX RAIN / ATLAS GENERATOR</h1>
+<h1>MATRIX RAIN / BITMAP ATLAS GENERATOR</h1>
+
+<p class="note" style="margin-bottom:12px;color:#7fffaa;">
+  MTSDF atlas generation (WebGPU path) → <code>npm run gen-atlas</code><br>
+  This tool generates <strong>bitmap</strong> atlases only (canvas-2D rain path).
+</p>
 
 <div class="row">
   <label>Glyph set</label>
@@ -70,15 +69,14 @@
     <option value="matrix1999">matrix1999 — film-accurate half-width katakana (64 glyphs, 8×8)</option>
     <option value="latin">latin — A–Z + 0–9 (36 glyphs, 8×8)</option>
     <option value="ascii">ascii — printable ASCII (95 glyphs, 10×10)</option>
-  </select>
-</div>
-
-<div class="row">
-  <label>Output mode</label>
-  <select id="sel-mode">
-    <option value="msdf">MSDF-approx (single-channel SDF, for WebGPU path)</option>
-    <option value="bitmap">Bitmap (greyscale, for canvas-2D path)</option>
-    <option value="both">Both</option>
+    <option value="cyber">cyber — mixed script (90 glyphs, 10×10)</option>
+    <option value="cyrillic">cyrillic — Cyrillic + digits (76 glyphs, 10×10)</option>
+    <option value="japanese">japanese — hiragana + katakana (92 glyphs, 10×10)</option>
+    <option value="chinese">chinese — CJK Traditional (64 glyphs, 8×8)</option>
+    <option value="orbitron">orbitron — A–Z + 0–9 (36 glyphs, 8×8)</option>
+    <option value="iosevka">iosevka — printable ASCII (95 glyphs, 10×10)</option>
+    <option value="datatype">datatype — A–Z + 0–9 (36 glyphs, 8×8)</option>
+    <option value="gsanscode">gsanscode — printable ASCII (95 glyphs, 10×10)</option>
   </select>
 </div>
 
@@ -94,18 +92,7 @@
 </div>
 
 <div class="row">
-  <label>SDF spread (px)</label>
-  <select id="sel-spread">
-    <option value="6">6</option>
-    <option value="8" selected>8</option>
-    <option value="10">10</option>
-    <option value="12">12</option>
-  </select>
-  <span class="note">Larger spread = smoother edges but blurrier at small sizes.</span>
-</div>
-
-<div class="row">
-  <button id="btn-generate">Generate</button>
+  <button id="btn-generate">Generate Bitmap</button>
 </div>
 
 <div id="progress-wrap">
@@ -117,20 +104,15 @@
   <h2>PREVIEW</h2>
   <div class="row" style="gap:24px; align-items:flex-start">
     <div>
-      <div class="note" id="label-msdf">MSDF-approx</div>
-      <canvas id="cv-msdf"></canvas>
-    </div>
-    <div>
-      <div class="note" id="label-bitmap">Bitmap</div>
+      <div class="note">Bitmap</div>
       <canvas id="cv-bitmap"></canvas>
     </div>
   </div>
   <div class="dl-row">
-    <a id="dl-msdf"   class="dl-btn hidden" download>Download MSDF PNG</a>
     <a id="dl-bitmap" class="dl-btn hidden" download>Download Bitmap PNG</a>
   </div>
   <p class="note" style="margin-top:8px">
-    Save downloaded files to <code>data/</code> before committing.
+    Save downloaded file to <code>data/</code> as <code>&lt;set&gt;_bitmap.png</code>.
   </p>
 </div>
 
@@ -141,9 +123,7 @@
   const FONT_SIZE = 46;  // glyph render size (fits within CELL with margin)
 
   const selSet    = document.getElementById('sel-set');
-  const selMode   = document.getElementById('sel-mode');
   const selFont   = document.getElementById('sel-font');
-  const selSpread = document.getElementById('sel-spread');
   const btnGen    = document.getElementById('btn-generate');
   const fillEl    = document.getElementById('progress-fill');
   const statusEl  = document.getElementById('status');
@@ -276,9 +256,8 @@
     return outCanvas;
   }
 
-  // ── Build a full atlas canvas ──────────────────────────────────────────
-  // mode: 'msdf' | 'bitmap'
-  async function buildAtlas(setName, mode, font, spread, progressCb) {
+  // ── Build a bitmap atlas canvas ───────────────────────────────────────
+  async function buildAtlas(setName, font, progressCb) {
     const def    = GLYPH_SETS[setName];
     const gridW  = def.gridW;
     const gridH  = def.gridH;
@@ -307,12 +286,7 @@
 
       const cellCv = renderGlyphCell(glyphs[i], font);
 
-      let srcCv;
-      if (mode === 'msdf') {
-        srcCv = computeSDF(cellCv, spread);
-      } else {
-        srcCv = cellCv;
-      }
+      const srcCv = cellCv;
 
       atlasCtx.drawImage(srcCv, col * CELL, pixelRow * CELL);
 
@@ -338,71 +312,26 @@
     btnGen.disabled = true;
     wrapEl.style.display = 'none';
 
-    const setName = selSet.value;
-    const mode    = selMode.value;
-    const font    = selFont.value;
-    const spread  = parseInt(selSpread.value, 10);
-    const def     = GLYPH_SETS[setName];
-    const total   = def.glyphs.length;
-
-    const dlMsdf   = document.getElementById('dl-msdf');
-    const dlBitmap = document.getElementById('dl-bitmap');
-    dlMsdf.classList.add('hidden');
+    const setName    = selSet.value;
+    const font       = selFont.value;
+    const def        = GLYPH_SETS[setName];
+    const total      = def.glyphs.length;
+    const dlBitmap   = document.getElementById('dl-bitmap');
     dlBitmap.classList.add('hidden');
 
-    const cvMsdf   = document.getElementById('cv-msdf');
+    setProgress(0, `Building bitmap atlas for ${setName} (${total} glyphs)…`);
+    const bitmapAtlas = await buildAtlas(setName, font, (done, tot) => {
+      setProgress(Math.round(done / tot * 100), `Bitmap: ${done}/${tot} glyphs…`);
+    });
+
     const cvBitmap = document.getElementById('cv-bitmap');
-    const labelM   = document.getElementById('label-msdf');
-    const labelB   = document.getElementById('label-bitmap');
-
-    // Hide canvases that won't be produced
-    cvMsdf.style.display   = (mode === 'bitmap') ? 'none' : 'block';
-    cvBitmap.style.display = (mode === 'msdf')   ? 'none' : 'block';
-    labelM.style.display   = (mode === 'bitmap') ? 'none' : 'block';
-    labelB.style.display   = (mode === 'msdf')   ? 'none' : 'block';
-
-    let msdfAtlas   = null;
-    let bitmapAtlas = null;
-
-    // ── MSDF pass ────────────────────────────────────────────────────
-    if (mode === 'msdf' || mode === 'both') {
-      setProgress(0, `Building MSDF atlas for ${setName} (${total} glyphs)…`);
-      msdfAtlas = await buildAtlas(setName, 'msdf', font, spread, (done, tot) => {
-        setProgress(Math.round(done / tot * (mode === 'both' ? 50 : 100)),
-          `MSDF: ${done}/${tot} glyphs…`);
-      });
-    }
-
-    // ── Bitmap pass ──────────────────────────────────────────────────
-    if (mode === 'bitmap' || mode === 'both') {
-      const offset = mode === 'both' ? 50 : 0;
-      setProgress(offset, `Building bitmap atlas for ${setName} (${total} glyphs)…`);
-      bitmapAtlas = await buildAtlas(setName, 'bitmap', font, spread, (done, tot) => {
-        setProgress(offset + Math.round(done / tot * 50),
-          `Bitmap: ${done}/${tot} glyphs…`);
-      });
-    }
-
-    // ── Show previews ─────────────────────────────────────────────────
-    const scale = Math.max(1, Math.min(3, Math.floor(400 / (def.gridW * CELL))));
-
-    if (msdfAtlas) {
-      cvMsdf.width  = msdfAtlas.width  * scale;
-      cvMsdf.height = msdfAtlas.height * scale;
-      const ctx = cvMsdf.getContext('2d');
-      ctx.imageSmoothingEnabled = false;
-      ctx.drawImage(msdfAtlas, 0, 0, cvMsdf.width, cvMsdf.height);
-      makeDownloadLink(msdfAtlas, `${setName}_msdf.png`, dlMsdf);
-    }
-
-    if (bitmapAtlas) {
-      cvBitmap.width  = bitmapAtlas.width  * scale;
-      cvBitmap.height = bitmapAtlas.height * scale;
-      const ctx = cvBitmap.getContext('2d');
-      ctx.imageSmoothingEnabled = false;
-      ctx.drawImage(bitmapAtlas, 0, 0, cvBitmap.width, cvBitmap.height);
-      makeDownloadLink(bitmapAtlas, `${setName}_bitmap.png`, dlBitmap);
-    }
+    const scale    = Math.max(1, Math.min(3, Math.floor(400 / (def.gridW * CELL))));
+    cvBitmap.width  = bitmapAtlas.width  * scale;
+    cvBitmap.height = bitmapAtlas.height * scale;
+    const ctx = cvBitmap.getContext('2d');
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(bitmapAtlas, 0, 0, cvBitmap.width, cvBitmap.height);
+    makeDownloadLink(bitmapAtlas, `${setName}_bitmap.png`, dlBitmap);
 
     wrapEl.style.display = 'block';
     setProgress(100, `Done — ${total} glyphs rendered.`);

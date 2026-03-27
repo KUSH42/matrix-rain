@@ -130,6 +130,19 @@ All items go in `specs/` before implementation.
   - `matrix-rain-webgpu.js`: `clusterUniform` param in `buildGeometry` + `_geomParams`; lerp between clustered and uniform theta; `setClusterUniform`, `setSectorCenter`, `setSectorWidth`, `setSectorStrength`, `setHeightFade` handle methods
   - `matrix-3d.html`: cluster uniform slider (rebuild); divider label; sector strength/center/width + height fade sliders (runtime); `collectSettings`/`applySettings` wired
 
+- [x] **SPEC-msdf-upgrade** — proper MTSDF atlas pipeline + 8 new glyph sets
+  - `tools/gen-atlas-cli.js` (new): Node.js CLI using msdf-atlas-gen binary; fixed 64×64 grid compositing; brute-force EDT for custom path glyphs
+  - `tools/README.md` (new): font installation instructions, set→font mapping table
+  - `data/glyph-sets.js`: 8 new set definitions (cyber 90, cyrillic 76, japanese 92, chinese 64, orbitron 36, iosevka 95, datatype 36, gsanscode 95)
+  - `matrix-rain-tsl.js`: `uAtlasMTSDF` uniform; `sampleGlyph` third param `blendSDF`; MTSDF blend formula; `useSDF` pre-POM computation (uniform CF); all 9 call sites updated
+  - `matrix-rain-webgpu.js`: 8 new CHAR_SETS entries; `uAtlasMTSDF` set at init + `setCharSet()`; 8 null GLYPH_WEIGHTS entries
+  - `matrix-rain-2d-tsl.js`: 8 new CHAR_SETS entries
+  - HTML demos: 8 new charset `<option>` elements in `matrix-3d.html`, `demo-crt.html`, `matrix-2d.html`
+  - `tools/gen-atlas.html`: stripped to bitmap-only; MTSDF pass removed; all 11 sets in dropdown
+  - `package.json`: `gen-atlas`/`gen-atlas:set` scripts; canvas+msdf-atlas-gen in devDependencies
+  - `.gitignore`: `data/fonts/` added
+  - Atlas PNGs generated: `matrix1999`, `latin`, `ascii`, `cyber`, `cyrillic`, `japanese`, `chinese`, `orbitron`, `iosevka`, `datatype`, `gsanscode` (all in `data/`)
+
 - [ ] Tests — `tests/` for any pure-JS logic extracted to a `matrix-rain-math.js`
 - [ ] `prefers-reduced-motion` — disable/reduce heat, god rays, burst bloom
 - [ ] README.md — public documentation before any npm/gh-pages publish

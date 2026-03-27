@@ -113,6 +113,7 @@ export function makeUniforms(glyphCount = 56, gridW = 8, gridH = 8, dummyMsgTex,
     uHueRange:       uniform(0.5),   // per-column colour blend spread 0–1 (0=all uColor, 1=full mix)
     uBurstProb:      uniform(0.005), // fraction of columns that burst per 4 s cycle
     uClusterBiasAmt: uniform(0.25),  // per-cluster brightness bias magnitude 0–1
+    uAtlasMTSDF:     uniform(1.0),   // 1 = MTSDF atlas (new); 0 = legacy single-channel (matrixcode)
   };
 }
 
@@ -142,6 +143,7 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     uBootEnabled, uBootStart, uStability, uHoldMult, uBurstGlyphRate,
     uColor2, uHueRange, uBurstProb,
     uClusterBiasAmt,
+    uAtlasMTSDF,
   } = uniforms;
 
   // ── Per-instance buffer attributes ────────────────────────────────────
@@ -165,8 +167,11 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
   const vBootFade  = varying(float(),  'vBootFade');
   const vDeathFade = varying(float(),  'vDeathFade');
 
-  // ── MSDF sampling (closure over atlasTexture + uniforms) ──────────────
-  const sampleGlyph = Fn(([faceUV, gIdx]) => {
+  // ── MTSDF sampling (closure over atlasTexture + uniforms) ─────────────
+  // blendSDF: 0 = pure MSDF (accurate corners, large scale / CRT),
+  //           1 = pure true SDF (alpha ch, stable at tiny scale / rain).
+  // uAtlasMTSDF: 0 = legacy single-channel atlas (matrixcode), 1 = MTSDF atlas.
+  const sampleGlyph = Fn(([faceUV, gIdx, blendSDF]) => {
     // Back-face U-flip: mirror U on the rear face of each billboard quad
     const su  = select(frontFacing, faceUV.x, float(1).sub(faceUV.x));
     const col = mod(gIdx, uAtlasGridW);
@@ -175,8 +180,12 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
       col.add(su).div(uAtlasGridW),
       row.add(float(1).sub(faceUV.y)).div(uAtlasGridH),
     );
-    const s = texture(atlasTexture, atlasUV).rgb;
-    return median3(s.r, s.g, s.b);
+    const s    = texture(atlasTexture, atlasUV);
+    const msdf = median3(s.r, s.g, s.b);
+    // mix(msdf, mix(msdf, s.a, blendSDF), uAtlasMTSDF):
+    //   uAtlasMTSDF=0 → msdf (legacy bypass)
+    //   uAtlasMTSDF=1 → mix(msdf, s.a, blendSDF) (MTSDF blend)
+    return mix(msdf, mix(msdf, s.a, blendSDF), uAtlasMTSDF);
   });
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -531,6 +540,15 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     // Instead: use the fragment's screen position relative to centre as the
     // march direction — always non-zero, always produces visible displacement.
     // Fragments far from screen centre get proportionally more parallax.
+
+    // MTSDF blend factor — computed here in uniform control flow (dFdx/dFdy
+    // are invalid inside the POM loop which is non-uniform control flow).
+    // screenPx ≈ glyph width in screen pixels; useSDF:
+    //   < 3 px (tiny rain glyph) → useSDF=1 → true SDF (no colour fringing)
+    //   > 6 px (large CRT glyph) → useSDF=0 → MSDF (sharp corners)
+    const screenPx = float(1).div(abs(dFdx(vUvRain.x)).add(abs(dFdy(vUvRain.x))));
+    const useSDF   = smoothstep(float(6), float(3), screenPx);
+
     const numSteps = int(max(uPomSteps.toFloat(), 3.0));
     const stepSize = float(1).div(numSteps.toFloat());
     const stepFace = screenUV.sub(0.5).mul(2.0).mul(uDepth).mul(stepSize);
@@ -547,7 +565,7 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
       prevH.assign(currentH);
       currentFace.assign(clamp(currentFace.add(stepFace), 0.005, 0.995));
       currentH.subAssign(stepSize);
-      If(sampleGlyph(currentFace, glyphIdx).greaterThanEqual(currentH), () => { Break(); });
+      If(sampleGlyph(currentFace, glyphIdx, float(1)).greaterThanEqual(currentH), () => { Break(); });
     });
 
     // Binary refinement — 3 bisection steps for sub-step accuracy
@@ -558,7 +576,7 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     Loop(3, () => {
       const midFace = loFace.add(hiFace).mul(0.5).toVar('midF');
       const midH    = loH.add(hiH).mul(0.5).toVar('midH');
-      const s       = sampleGlyph(midFace, glyphIdx);
+      const s       = sampleGlyph(midFace, glyphIdx, float(1));
       If(s.greaterThanEqual(midH), () => {
         hiFace.assign(midFace);
         hiH.assign(midH);
@@ -570,8 +588,8 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
 
     const finalFace = loFace.add(hiFace).mul(0.5);
 
-    // MSDF anti-aliased mask at POM-displaced position
-    const sdfG = sampleGlyph(finalFace, glyphIdx);
+    // MTSDF anti-aliased mask at POM-displaced position
+    const sdfG = sampleGlyph(finalFace, glyphIdx, useSDF);
     const fw   = abs(dFdx(sdfG)).add(abs(dFdy(sdfG))).mul(0.7);
     const mask = smoothstep(float(0.5).sub(fw), float(0.5).add(fw), sdfG);
     If(mask.lessThan(0.01), () => { Discard(); });
@@ -584,8 +602,8 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     const chromaOff  = aberration.mul(0.03);
     const rUV    = clamp(vec2(finalFace.x.add(chromaOff), finalFace.y), 0.005, 0.995);
     const bUV    = clamp(vec2(finalFace.x.sub(chromaOff), finalFace.y), 0.005, 0.995);
-    const rMask  = smoothstep(float(0.5).sub(fw), float(0.5).add(fw), sampleGlyph(rUV, glyphIdx));
-    const bMask  = smoothstep(float(0.5).sub(fw), float(0.5).add(fw), sampleGlyph(bUV, glyphIdx));
+    const rMask  = smoothstep(float(0.5).sub(fw), float(0.5).add(fw), sampleGlyph(rUV, glyphIdx, useSDF));
+    const bMask  = smoothstep(float(0.5).sub(fw), float(0.5).add(fw), sampleGlyph(bUV, glyphIdx, useSDF));
     const luma   = col2.dot(vec3(0.333, 0.334, 0.333));
     col2.assign(vec3(
       col2.x.add(rMask.sub(mask).mul(luma)),
@@ -602,10 +620,10 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     const fakeN = vec3(0, 0, 1).toVar('fakeN');
     If(trail.greaterThan(0.25), () => {
       const eps = float(0.04);
-      const mL  = sampleGlyph(finalFace.add(vec2(eps.negate(), 0)), glyphIdx);
-      const mR  = sampleGlyph(finalFace.add(vec2(eps,           0)), glyphIdx);
-      const mD  = sampleGlyph(finalFace.add(vec2(0, eps.negate())), glyphIdx);
-      const mU  = sampleGlyph(finalFace.add(vec2(0, eps          )), glyphIdx);
+      const mL  = sampleGlyph(finalFace.add(vec2(eps.negate(), 0)), glyphIdx, useSDF);
+      const mR  = sampleGlyph(finalFace.add(vec2(eps,           0)), glyphIdx, useSDF);
+      const mD  = sampleGlyph(finalFace.add(vec2(0, eps.negate())), glyphIdx, useSDF);
+      const mU  = sampleGlyph(finalFace.add(vec2(0, eps          )), glyphIdx, useSDF);
       const Kx  = mR.sub(mL).toVar('Kx');
       const Ky  = mU.sub(mD);
       Kx.mulAssign(select(frontFacing, float(1), float(-1)));

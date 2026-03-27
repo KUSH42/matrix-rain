@@ -252,4 +252,295 @@ export const GLYPH_SETS = {
       mirror: false,
     })),
   },
+
+  /**
+   * cyber — mixed-script set from KUSH42/playground MatrixComponent. 90 glyphs, 10×10 grid.
+   * Font: data/fonts/noto/NotoSansJP-Regular.ttf (covers all Unicode blocks present).
+   * Composition: 19 Cyrillic | 10 CJK | 18 Hiragana | 3 full-width katakana |
+   *              9 Greek | 5 misc symbols | 26 ASCII-derived | 10 unused trailing slots.
+   * Weights: CJK/kana → 2.0 | ASCII/symbols → 0.7 | Cyrillic/Greek → 1.0 | unused → 0.0.
+   */
+  cyber: {
+    gridW: 10, gridH: 10,
+    weights: [
+      // Cyrillic 19
+      1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+      1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+      // CJK 10
+      2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0,
+      // Hiragana 18
+      2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0,
+      2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0,
+      // Full-width katakana 3
+      2.0, 2.0, 2.0,
+      // Greek 9
+      1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+      // Misc symbols 5
+      0.7, 0.7, 0.7, 0.7, 0.7,
+      // ASCII-derived 26
+      0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7,
+      0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7,
+      0.7, 0.7, 0.7, 0.7, 0.7, 0.7,
+      // 10 unused trailing slots
+      0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+    ],
+    glyphs: [
+      // ── Cyrillic (19) ──────────────────────────────────────────────
+      { char: 'А', mirror: false }, { char: 'В', mirror: false },
+      { char: 'Е', mirror: false }, { char: 'Д', mirror: false },
+      { char: 'Ё', mirror: false }, { char: 'З', mirror: false },
+      { char: 'И', mirror: false }, { char: 'Л', mirror: false },
+      { char: 'М', mirror: false }, { char: 'Н', mirror: false },
+      { char: 'О', mirror: false }, { char: 'Я', mirror: false },
+      { char: 'Щ', mirror: false }, { char: 'Ц', mirror: false },
+      { char: 'Х', mirror: false }, { char: 'Т', mirror: false },
+      { char: 'С', mirror: false }, { char: 'Р', mirror: false },
+      { char: 'П', mirror: false },
+      // ── CJK (10) ───────────────────────────────────────────────────
+      { char: '漢', mirror: false }, { char: '字', mirror: false },
+      { char: '日', mirror: false }, { char: '本', mirror: false },
+      { char: '語', mirror: false }, { char: '使', mirror: false },
+      { char: '文', mirror: false }, { char: '中', mirror: false },
+      { char: '国', mirror: false }, { char: '作', mirror: false },
+      // ── Hiragana (18) ──────────────────────────────────────────────
+      { char: 'は', mirror: false }, { char: 'で', mirror: false },
+      { char: 'わ', mirror: false }, { char: 'れ', mirror: false },
+      { char: 'る', mirror: false }, { char: 'か', mirror: false },
+      { char: 'ら', mirror: false }, { char: 'や', mirror: false },
+      { char: 'っ', mirror: false }, { char: 'て', mirror: false },
+      { char: 'き', mirror: false }, { char: 'ま', mirror: false },
+      { char: 'し', mirror: false }, { char: 'た', mirror: false },
+      { char: 'ひ', mirror: false }, { char: 'が', mirror: false },
+      { char: 'な', mirror: false }, { char: 'と', mirror: false },
+      // ── Full-width katakana (3) ────────────────────────────────────
+      { char: 'カ', mirror: false }, { char: 'タ', mirror: false },
+      { char: 'ナ', mirror: false },
+      // ── Greek (9) ──────────────────────────────────────────────────
+      { char: 'Ͷ', mirror: false }, { char: 'Δ', mirror: false },
+      { char: 'Λ', mirror: false }, { char: 'Ξ', mirror: false },
+      { char: 'Π', mirror: false }, { char: 'Σ', mirror: false },
+      { char: 'Ω', mirror: false }, { char: 'Ψ', mirror: false },
+      { char: 'Χ', mirror: false },
+      // ── Misc symbols (5) ───────────────────────────────────────────
+      { char: '。', mirror: false }, { char: '©', mirror: false },
+      { char: '®', mirror: false }, { char: '¶', mirror: false },
+      { char: '¥', mirror: false },
+      // ── ASCII-derived (26) ─────────────────────────────────────────
+      { char: '$', mirror: false }, { char: '#', mirror: false },
+      { char: '!', mirror: false }, { char: '(', mirror: false },
+      { char: '*', mirror: false }, { char: '<', mirror: false },
+      { char: '=', mirror: false }, { char: '>', mirror: false },
+      { char: '?', mirror: false }, { char: '@', mirror: false },
+      { char: '0', mirror: false }, { char: '1', mirror: false },
+      { char: '2', mirror: false }, { char: '3', mirror: false },
+      { char: '4', mirror: false }, { char: '5', mirror: false },
+      { char: '6', mirror: false }, { char: '7', mirror: false },
+      { char: '9', mirror: false }, { char: '8', mirror: false },
+      { char: 'A', mirror: false }, { char: 'B', mirror: false },
+      { char: 'C', mirror: false }, { char: 'D', mirror: false },
+      { char: 'E', mirror: false }, { char: 'F', mirror: false },
+      // 10 unused trailing slots omitted — atlas generator fills them as transparent
+    ],
+  },
+
+  /**
+   * cyrillic — full Russian Cyrillic both cases + digits. 76 glyphs, 10×10 grid (24 unused).
+   * Font: data/fonts/Iosevka_Charon_Mono/IosevkaCharonMono-Regular.ttf
+   * Mixed case produces more visual rhythm than uppercase-only in scrolling rain.
+   * Weights: all used glyphs 1.0 | unused → 0.0.
+   */
+  cyrillic: {
+    gridW: 10, gridH: 10,
+    weights: [
+      ...Array.from({ length: 76 }, () => 1.0),
+      ...Array.from({ length: 24 }, () => 0.0),
+    ],
+    glyphs: [
+      // ── Uppercase А–Я (33) ─────────────────────────────────────────
+      ...'АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ'.split('').map(c => ({ char: c, mirror: false })),
+      // ── Lowercase а–я (33) ─────────────────────────────────────────
+      ...'абвгдеёжзийклмнопрстуфхцчшщъыьэюя'.split('').map(c => ({ char: c, mirror: false })),
+      // ── Digits 0–9 (10) ────────────────────────────────────────────
+      ...'0123456789'.split('').map(c => ({ char: c, mirror: false })),
+      // 24 unused trailing slots omitted — atlas generator fills them as transparent
+    ],
+  },
+
+  /**
+   * japanese — all base hiragana + full-width katakana. 92 glyphs, 10×10 grid (8 unused).
+   * No voiced marks (゛゜) or small forms (ぁ–ょ, っ is included as a base form).
+   * Font: data/fonts/noto/NotoSansJP-Regular.ttf
+   * Ordering: hiragana first (0–45), katakana second (46–91), aiueo row order.
+   * Weights: simple vowel kana (あ ア etc.) → 0.8 | default → 1.0 | unused → 0.0.
+   */
+  japanese: {
+    gridW: 10, gridH: 10,
+    weights: [
+      // Hiragana 46: vowels (0–4) downweighted; rest 1.0
+      0.8, 0.8, 0.8, 0.8, 0.8,                         // あいうえお
+      1.0, 1.0, 1.0, 1.0, 1.0,                         // かきくけこ
+      1.0, 1.0, 1.0, 1.0, 1.0,                         // さしすせそ
+      1.0, 1.0, 1.0, 1.0, 1.0,                         // たちつてと
+      1.0, 1.0, 1.0, 1.0, 1.0,                         // なにぬねの
+      1.0, 1.0, 1.0, 1.0, 1.0,                         // はひふへほ
+      1.0, 1.0, 1.0, 1.0, 1.0,                         // まみむめも
+      1.0, 1.0, 1.0,                                   // やゆよ
+      1.0, 1.0, 1.0, 1.0, 1.0,                         // らりるれろ
+      1.0, 1.0, 1.0,                                   // わをん
+      // Katakana 46: vowels (46–50) downweighted; rest 1.0
+      0.8, 0.8, 0.8, 0.8, 0.8,                         // アイウエオ
+      1.0, 1.0, 1.0, 1.0, 1.0,                         // カキクケコ
+      1.0, 1.0, 1.0, 1.0, 1.0,                         // サシスセソ
+      1.0, 1.0, 1.0, 1.0, 1.0,                         // タチツテト
+      1.0, 1.0, 1.0, 1.0, 1.0,                         // ナニヌネノ
+      1.0, 1.0, 1.0, 1.0, 1.0,                         // ハヒフヘホ
+      1.0, 1.0, 1.0, 1.0, 1.0,                         // マミムメモ
+      1.0, 1.0, 1.0,                                   // ヤユヨ
+      1.0, 1.0, 1.0, 1.0, 1.0,                         // ラリルレロ
+      1.0, 1.0, 1.0,                                   // ワヲン
+      // 8 unused trailing slots
+      0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+    ],
+    glyphs: [
+      // ── Hiragana base (46) — aiueo row order ──────────────────────
+      ...'あいうえおかきくけこさしすせそたちつてとなにぬねのはひふへほまみむめもやゆよらりるれろわをん'
+        .split('').map(c => ({ char: c, mirror: false })),
+      // ── Full-width katakana base (46) — aiueo row order ───────────
+      ...'アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン'
+        .split('').map(c => ({ char: c, mirror: false })),
+      // 8 unused trailing slots omitted — atlas generator fills them as transparent
+    ],
+  },
+
+  /**
+   * chinese — curated CJK selection, Traditional Chinese forms. 64 glyphs, 8×8 grid.
+   * Font: data/fonts/noto/NotoSansTC-Regular.ttf (Traditional Chinese).
+   * Codepoints must use Traditional forms where Simplified and Traditional differ
+   * (e.g. 風 not 风, 雲 not 云, 國 not 国, 龍 not 龙).
+   * Composition: 14 high-stroke | 16 structural | 16 motion/digital | 16 high-frequency | 2 blank.
+   * Weights: high-stroke → 2.5 | others → 1.0 | blank → 0.0.
+   */
+  chinese: {
+    gridW: 8, gridH: 8,
+    weights: [
+      // High-stroke 14
+      2.5, 2.5, 2.5, 2.5, 2.5, 2.5, 2.5, 2.5, 2.5, 2.5, 2.5, 2.5, 2.5, 2.5,
+      // Structural 16
+      1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+      // Motion/digital 16
+      1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+      // High-frequency 16
+      1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+      // 2 blank padding slots
+      0.0, 0.0,
+    ],
+    glyphs: [
+      // ── High-stroke (14, Traditional forms) ───────────────────────
+      { char: '藏', mirror: false }, { char: '疆', mirror: false },
+      { char: '贏', mirror: false }, { char: '鑫', mirror: false },
+      { char: '霸', mirror: false }, { char: '凰', mirror: false },
+      { char: '龍', mirror: false }, { char: '魔', mirror: false },
+      { char: '靈', mirror: false }, { char: '曜', mirror: false },
+      { char: '耀', mirror: false }, { char: '燕', mirror: false },
+      { char: '鳳', mirror: false }, { char: '騰', mirror: false },
+      // ── Structural (16, Traditional forms) ────────────────────────
+      { char: '中', mirror: false }, { char: '國', mirror: false },
+      { char: '天', mirror: false }, { char: '地', mirror: false },
+      { char: '人', mirror: false }, { char: '山', mirror: false },
+      { char: '水', mirror: false }, { char: '火', mirror: false },
+      { char: '風', mirror: false }, { char: '雲', mirror: false },
+      { char: '雨', mirror: false }, { char: '星', mirror: false },
+      { char: '月', mirror: false }, { char: '日', mirror: false },
+      { char: '夜', mirror: false }, { char: '光', mirror: false },
+      // ── Motion / digital theme (16, Traditional forms) ─────────────
+      { char: '數', mirror: false }, { char: '字', mirror: false },
+      { char: '碼', mirror: false }, { char: '網', mirror: false },
+      { char: '信', mirror: false }, { char: '息', mirror: false },
+      { char: '時', mirror: false }, { char: '間', mirror: false },
+      { char: '流', mirror: false }, { char: '速', mirror: false },
+      { char: '動', mirror: false }, { char: '靜', mirror: false },
+      { char: '力', mirror: false }, { char: '影', mirror: false },
+      { char: '聲', mirror: false }, { char: '波', mirror: false },
+      // ── High-frequency (16, Traditional forms) ────────────────────
+      { char: '的', mirror: false }, { char: '一', mirror: false },
+      { char: '是', mirror: false }, { char: '在', mirror: false },
+      { char: '不', mirror: false }, { char: '了', mirror: false },
+      { char: '有', mirror: false }, { char: '和', mirror: false },
+      { char: '來', mirror: false }, { char: '上', mirror: false },
+      { char: '大', mirror: false }, { char: '為', mirror: false },
+      { char: '這', mirror: false }, { char: '以', mirror: false },
+      { char: '要', mirror: false }, { char: '他', mirror: false },
+      // 2 blank padding slots omitted — atlas generator fills them as transparent
+    ],
+  },
+
+  /**
+   * orbitron — uppercase A–Z + digits 0–9. 36 glyphs, 8×8 grid (28 unused).
+   * Drop-in visual swap for 'latin'. Font: data/fonts/Orbitron/static/Orbitron-Bold.ttf
+   * weights.length = 64; unused → 0.0.
+   */
+  orbitron: {
+    gridW: 8, gridH: 8,
+    weights: [
+      ...Array.from({ length: 36 }, () => 1.0),
+      ...Array.from({ length: 28 }, () => 0.0),
+    ],
+    glyphs: [
+      ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').map(c => ({ char: c, mirror: false })),
+      ...'0123456789'.split('').map(c => ({ char: c, mirror: false })),
+      // 28 unused trailing slots omitted
+    ],
+  },
+
+  /**
+   * iosevka — all 95 printable ASCII chars (U+0020–U+007E). 10×10 grid (5 unused).
+   * Drop-in visual swap for 'ascii'. Font: data/fonts/Iosevka_Charon_Mono/IosevkaCharonMono-Regular.ttf
+   * weights.length = 100; unused → 0.0.
+   */
+  iosevka: {
+    gridW: 10, gridH: 10,
+    weights: [
+      ...Array.from({ length: 95 }, () => 1.0),
+      ...Array.from({ length: 5 }, () => 0.0),
+    ],
+    glyphs: [
+      ...Array.from({ length: 95 }, (_, i) => ({ char: String.fromCharCode(0x20 + i), mirror: false })),
+      // 5 unused trailing slots omitted
+    ],
+  },
+
+  /**
+   * datatype — uppercase A–Z + digits 0–9. 36 glyphs, 8×8 grid (28 unused).
+   * Drop-in visual swap for 'latin'. Font: data/fonts/Datatype/static/Datatype-Regular.ttf
+   * weights.length = 64; unused → 0.0.
+   */
+  datatype: {
+    gridW: 8, gridH: 8,
+    weights: [
+      ...Array.from({ length: 36 }, () => 1.0),
+      ...Array.from({ length: 28 }, () => 0.0),
+    ],
+    glyphs: [
+      ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').map(c => ({ char: c, mirror: false })),
+      ...'0123456789'.split('').map(c => ({ char: c, mirror: false })),
+      // 28 unused trailing slots omitted
+    ],
+  },
+
+  /**
+   * gsanscode — all 95 printable ASCII chars (U+0020–U+007E). 10×10 grid (5 unused).
+   * Drop-in visual swap for 'ascii'. Font: data/fonts/Google_Sans_Code/static/GoogleSansCode-Regular.ttf
+   * weights.length = 100; unused → 0.0.
+   */
+  gsanscode: {
+    gridW: 10, gridH: 10,
+    weights: [
+      ...Array.from({ length: 95 }, () => 1.0),
+      ...Array.from({ length: 5 }, () => 0.0),
+    ],
+    glyphs: [
+      ...Array.from({ length: 95 }, (_, i) => ({ char: String.fromCharCode(0x20 + i), mirror: false })),
+      // 5 unused trailing slots omitted
+    ],
+  },
 };

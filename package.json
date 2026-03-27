@@ -19,12 +19,16 @@
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "gen-atlas": "node tools/gen-atlas-cli.js --set all",
+    "gen-atlas:set": "node tools/gen-atlas-cli.js --set"
   },
   "peerDependencies": {
     "three": ">=0.171.0"
   },
   "devDependencies": {
+    "canvas": "^3.2.2",
+    "msdf-atlas-gen": "^1.0.0",
     "vitest": "^3.0.0"
   },
   "keywords": [
