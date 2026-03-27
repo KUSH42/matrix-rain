@@ -765,6 +765,13 @@
         </span>
       </label>
 
+      <label id="lbl-cluster-bias" title="Rebuilds geometry">Cluster bias ⟳
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-cluster-bias"     type="range"  min="0" max="1" step="0.01" value="0.25">
+          <input id="ctl-cluster-bias-num" type="number" min="0" max="1" step="0.01" value="0.25">
+        </span>
+      </label>
+
       <label id="lbl-rect-w" title="Rebuilds geometry">Rect width X ⟳
         <span style="display:flex;align-items:center;gap:4px;">
           <input id="ctl-rect-w"     type="range"  min="0.5" max="16.0" step="0.5" value="8.0">
@@ -1126,6 +1133,7 @@
     'lbl-clusters':        ['shell', 'ring', 'curtain', 'rectangle'],
     'lbl-cluster-spread':  ['shell', 'ring', 'curtain', 'rectangle'],
     'lbl-cluster-uniform': ['shell', 'ring', 'curtain', 'rectangle'],
+    'lbl-cluster-bias':    ['shell', 'ring', 'curtain', 'rectangle'],
     'lbl-radial-bias':    ['shell'],
     'lbl-density-in':     ['shell', 'ring'],
     'lbl-density-out':    ['shell', 'ring'],
@@ -1179,6 +1187,9 @@
   });
   linkSlider('ctl-cluster-uniform', 'ctl-cluster-uniform-num', () => {
     debounceRebuild(() => rain.setClusterUniform(parseFloat(document.getElementById('ctl-cluster-uniform').value)));
+  });
+  linkSlider('ctl-cluster-bias', 'ctl-cluster-bias-num', () => {
+    debounceRebuild(() => rain.setClusterBias(parseFloat(document.getElementById('ctl-cluster-bias').value)));
   });
   bind('ctl-sector-strength', on => rain.setSectorStrength(on ? 1 : 0));
   linkSlider('ctl-sector-center', 'ctl-sector-center-num', () => {
@@ -1321,6 +1332,7 @@
       densityIn:     fv('ctl-density-in'),
       densityOut:    fv('ctl-density-out'),
       clusterUniform:  fv('ctl-cluster-uniform'),
+      clusterBias:     fv('ctl-cluster-bias'),
       sectorStrength:  cb('ctl-sector-strength'),
       sectorCenter:    fv('ctl-sector-center'),
       sectorWidth:     fv('ctl-sector-width'),
@@ -1500,6 +1512,7 @@
     set('ctl-density-in',     s.densityIn);
     set('ctl-density-out',    s.densityOut);
     set('ctl-cluster-uniform',  s.clusterUniform);
+    set('ctl-cluster-bias',     s.clusterBias);
     chk('ctl-sector-strength',  s.sectorStrength);
     set('ctl-sector-center',    s.sectorCenter);
     set('ctl-sector-width',     s.sectorWidth);
@@ -1521,6 +1534,7 @@
     );
     if (s.radialBias      !== undefined) rain.setRadialBias(s.radialBias);
     if (s.clusterUniform  !== undefined) rain.setClusterUniform(s.clusterUniform);
+    if (s.clusterBias     !== undefined) rain.setClusterBias(s.clusterBias);
     if (s.densityIn     !== undefined || s.densityOut     !== undefined) rain.setRadialDensityTaper(
       s.densityIn  ?? parseFloat(document.getElementById('ctl-density-in').value),
       s.densityOut ?? parseFloat(document.getElementById('ctl-density-out').value),

@@ -179,6 +179,7 @@ function buildGeometry({
   clusterSpread = 0.017,      // σ as fraction of full circle; 0.017 ≈ 6°
   radialBias    = 0.0,        // −1 = inner-concentrated, 0 = uniform, +1 = outer-concentrated
   clusterUniform = 0.0,       // 0 = clustered, 1 = fully uniform angular scatter
+  clusterBiasAmt = 0.25,      // per-cluster speed/brightness bias magnitude 0–1
 } = {}) {
   // Guard against inverted ranges
   const sMin = Math.min(speedMin, speedMax);
@@ -202,16 +203,25 @@ function buildGeometry({
   const colBBuf    = new Float32Array(total * 4);  // yOff, scale, alpha, trail
   const rawSpeedBuf = new Float32Array(nCols);     // raw [0,1] for speed — kept for in-place range updates
   const rawTrailBuf = new Float32Array(nCols);     // raw [0,1] for trail
+  const clusterBiasBuf = new Float32Array(total);  // per-instance cluster bias [-1, 1]
 
   // Per-instance cluster centers — fresh per buildGeometry() call so each
   // initMatrixRain() gets its own independent pattern.
   const nClusters    = Math.max(1, Math.round(clusterCount));
   const sigma        = Math.max(0.003, clusterSpread) * 2 * Math.PI;  // σ in radians
   const exp_         = Math.pow(2, -radialBias);  // bias=0→exp=1 (uniform)
-  const clusterThetas = Array.from({ length: nClusters }, () => Math.random() * Math.PI * 2);
+  // Stratified placement: one center per arc — eliminates cluster-of-clusters bunching.
+  const arcSize      = (Math.PI * 2) / nClusters;
+  const clusterThetas = Array.from({ length: nClusters }, (_, i) =>
+    i * arcSize + Math.random() * arcSize
+  );
+  // Per-cluster bias values — uniform in [-1, 1]; same index used for theta + bias below.
+  const clusterBiases = Array.from({ length: nClusters }, () => Math.random() * 2 - 1);
 
   for (let c = 0; c < nCols; c++) {
-    const clustered    = clusterThetas[Math.floor(Math.random() * nClusters)] + _gaussRand() * sigma;
+    const clusterIdx   = Math.floor(Math.random() * nClusters);
+    const clustered    = clusterThetas[clusterIdx] + _gaussRand() * sigma;
+    const colBias      = clusterBiases[clusterIdx];
     const uniformTheta = Math.random() * Math.PI * 2;
     const theta        = clustered + (uniformTheta - clustered) * clusterUniform;
     // Normalize theta to [-1, 1] for linear topologies (curtain/rectangle X axis).
@@ -251,7 +261,9 @@ function buildGeometry({
     const yOff  = (Math.random() - 0.5) * WORLD_H;
     const sr    = Math.random();
     rawSpeedBuf[c] = sr;
-    const speed = sMin + sr * sr * (sMax - sMin);  // log-biased over range
+    const speed = Math.min(sMax, Math.max(sMin,
+      sMin + sr * sr * (sMax - sMin) * (1.0 + colBias * clusterBiasAmt)
+    ));
     const seed  = Math.random();
     const t     = (r - inner) / (outer - inner);           // 0 = inner (close), 1 = outer (far)
     const scale = (1.45 - t * 0.95) + (Math.random() - 0.5) * 0.2;
@@ -273,13 +285,15 @@ function buildGeometry({
       colBBuf[i4 + 1] = scale;
       colBBuf[i4 + 2] = alpha;
       colBBuf[i4 + 3] = trail;
+      clusterBiasBuf[idx] = colBias;
     }
   }
 
-  geom.setAttribute('aColIdx', new THREE.InstancedBufferAttribute(colBuf,  1));
-  geom.setAttribute('aRowIdx', new THREE.InstancedBufferAttribute(rowBuf,  1));
-  geom.setAttribute('aColA',   new THREE.InstancedBufferAttribute(colABuf, 4));
-  geom.setAttribute('aColB',   new THREE.InstancedBufferAttribute(colBBuf, 4));
+  geom.setAttribute('aColIdx',      new THREE.InstancedBufferAttribute(colBuf,         1));
+  geom.setAttribute('aRowIdx',      new THREE.InstancedBufferAttribute(rowBuf,         1));
+  geom.setAttribute('aColA',        new THREE.InstancedBufferAttribute(colABuf,        4));
+  geom.setAttribute('aColB',        new THREE.InstancedBufferAttribute(colBBuf,        4));
+  geom.setAttribute('aClusterBias', new THREE.InstancedBufferAttribute(clusterBiasBuf, 1));
   geom.instanceCount = total;
   geom._rawSpeed = rawSpeedBuf;
   geom._rawTrail = rawTrailBuf;
@@ -388,6 +402,7 @@ export function initMatrixRain(element, opts = {}) {
     clusterSpread: 0.017,
     radialBias:   0.0,
     clusterUniform: 0.0,
+    clusterBiasAmt: 0.25,
   };
 
   // Resolve atlas path + grid dimensions from charSet or explicit opts
@@ -1005,6 +1020,11 @@ export function initMatrixRain(element, opts = {}) {
       uniforms.uDensityOuter.value = outer;
     },
     setClusterUniform(v) { _geomParams.clusterUniform = Math.max(0, Math.min(1, v)); rebuildGeom(); },
+    setClusterBias(v) {
+      _geomParams.clusterBiasAmt = Math.max(0, Math.min(1, v));
+      uniforms.uClusterBiasAmt.value = _geomParams.clusterBiasAmt;
+      rebuildGeom();
+    },
     setSectorCenter(deg)  { uniforms.uSectorCenter.value   = deg * Math.PI / 180; },
     setSectorWidth(deg)   { uniforms.uSectorWidth.value    = Math.max(1, deg) * Math.PI / 180; },
     setSectorStrength(v)  { uniforms.uSectorStrength.value = Math.max(0, Math.min(1, v)); },

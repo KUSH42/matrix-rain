@@ -75,6 +75,11 @@ All items go in `specs/` before implementation.
 - [x] **SPEC-column-clustering** — angular cluster placement
   - `matrix-rain-webgpu.js`: `N_CLUSTERS = 12`; `_gaussRand()` Box-Muller helper; `clusterThetas` array inside `buildGeometry()` (per-instance random); `theta` now = random cluster center + σ=6° Gaussian jitter — 30° spacing, 6° visible gap between cluster bands
 
+- [x] **SPEC-cluster-improvements** — cluster mechanic improvements (3 changes)
+  - **3D stratified placement**: `clusterThetas` now uses one-per-arc stratified sampling — maximum inter-center gap bounded to 60° vs. ~93° expected with pure random
+  - **3D per-cluster bias**: `clusterBiases[-1,1]` per cluster; `aClusterBias` instanced attribute; speed baked with clamped bias; `uClusterBiasAmt` uniform modulates brightness in vertex stage; `setClusterBias(v)` handle method; "Cluster bias ⟳" slider in `matrix-3d.html`
+  - **2D symmetric transition**: `getStreamNodes()` clustering block now uses prev/current/next bucket states with symmetric 15% fade-in + 15% fade-out — clusters cross-fade rather than snapping on
+
 - [x] **SPEC-glyph-weights** — weighted glyph sampling
   - `matrix-rain-webgpu.js`: `GLYPH_WEIGHTS` map (matrix1999 64-entry weight table; others null/uniform); `buildGlyphWeightLUT(weights, glyphCount)` builds 256-sample inverse-CDF `DataTexture`; `applyGlyphWeightLUT(charSet, count, uniforms)` uploads LUT; called after init `buildGlyphMaterial` and inside `setCharSet` async callback
   - `matrix-rain-tsl.js`: `uGlyphWeightLUT` added to `makeUniforms()` (placeholder built inline if null); `baseGlyph`/`mutGlyph` now sampled via `texture(uGlyphWeightLUT, vec2(hash, 0.5)).r.mul(255.0).floor()`

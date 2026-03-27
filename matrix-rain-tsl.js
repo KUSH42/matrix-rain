@@ -112,6 +112,7 @@ export function makeUniforms(glyphCount = 56, gridW = 8, gridH = 8, dummyMsgTex,
     uBurstGlyphRate: uniform(12.0),  // glyph-change rate during burst   1–30 Hz
     uHueRange:       uniform(0.5),   // per-column colour blend spread 0–1 (0=all uColor, 1=full mix)
     uBurstProb:      uniform(0.005), // fraction of columns that burst per 4 s cycle
+    uClusterBiasAmt: uniform(0.25),  // per-cluster brightness bias magnitude 0–1
   };
 }
 
@@ -140,13 +141,15 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     uDripAmt, uEdgeGlow, uZRotRange, uGrainAmt, uDepthTintAmt,
     uBootEnabled, uBootStart, uStability, uHoldMult, uBurstGlyphRate,
     uColor2, uHueRange, uBurstProb,
+    uClusterBiasAmt,
   } = uniforms;
 
   // ── Per-instance buffer attributes ────────────────────────────────────
-  const aColIdxAttr = attribute('aColIdx', 'float');
-  const aRowIdxAttr = attribute('aRowIdx', 'float');
-  const aColAAttr   = attribute('aColA',   'vec4');  // wx, wz, speed, seed
-  const aColBAttr   = attribute('aColB',   'vec4');  // yOff, scale, alpha, trail
+  const aColIdxAttr      = attribute('aColIdx',      'float');
+  const aRowIdxAttr      = attribute('aRowIdx',      'float');
+  const aColAAttr        = attribute('aColA',        'vec4');  // wx, wz, speed, seed
+  const aColBAttr        = attribute('aColB',        'vec4');  // yOff, scale, alpha, trail
+  const aClusterBiasAttr = attribute('aClusterBias', 'float'); // per-cluster bias [-1, 1]
 
   // ── Varyings shared between vertex and fragment stages ─────────────────
   const vUvRain    = varying(vec2(),   'vUvRain');
@@ -264,8 +267,9 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
       const alphaJitter = float(1).add(
         h2(vec2(aColIdxAttr.mul(0.67), aRowIdxAttr.mul(0.31))).sub(0.5).mul(0.24)
       );
-      const zoneBrightBias = mix(uZoneBrightInner, uZoneBrightOuter, t_zone);
-      vAlpha.assign(aAlpha.mul(alphaJitter).mul(zoneBrightBias));
+      const zoneBrightBias  = mix(uZoneBrightInner, uZoneBrightOuter, t_zone);
+      const clusterAlphaMul = float(1.0).add(aClusterBiasAttr.mul(uClusterBiasAmt).mul(0.4));
+      vAlpha.assign(aAlpha.mul(alphaJitter).mul(zoneBrightBias).mul(clusterAlphaMul));
 
       // Static world-Y of this cell
       const cellY = aYOff.add(uWorldH.mul(0.5))

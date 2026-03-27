@@ -248,7 +248,13 @@ function getStreamNodes(col, sif, uniforms, t) {
   const bucketFrac  = fract(bucketPhase);
   const nextIdx     = bucketIdx.add(1.0);
   const nextActive  = h21(vec2(seg.mul(3.73), nextIdx.mul(0.17)));
-  const smoothed    = mix(segActive, nextActive, smoothstep(float(0.7), float(1.0), bucketFrac));
+  // Symmetric cross-fade: fade in from prev state (first 15%), stable (70%), fade out (last 15%)
+  const prevIdx     = bucketIdx.sub(1.0);
+  const prevActive  = h21(vec2(seg.mul(3.73), prevIdx.mul(0.17)));
+  const fadeIn      = smoothstep(float(0.0),  float(0.15), bucketFrac);
+  const fadeOut     = smoothstep(float(0.85), float(1.0),  bucketFrac);
+  const withFadeIn  = mix(prevActive, segActive, fadeIn);
+  const smoothed    = mix(withFadeIn, nextActive, fadeOut);
 
   // Blend clustered vs independent (Bernoulli) activation
   const independent = h21(vec2(col.mul(7.77).add(sif.mul(3.33)), float(17.1)));
