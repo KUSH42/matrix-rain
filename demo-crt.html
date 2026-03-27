@@ -134,9 +134,9 @@
 </head>
 <body>
 
-<div id="no-webgpu">
-  <strong>WebGPU not available</strong>
-  <small>Try Chrome 113+ or Edge 113+ with a compatible GPU</small>
+<div id="no-webgpu" class="hidden">
+  <strong>WebGPU and WebGL2 unavailable</strong>
+  <small>Try Chrome 113+, Edge 113+, or Firefox 120+ with a compatible GPU</small>
 </div>
 
 <div id="rain-host"></div>
@@ -364,13 +364,8 @@
     };
   }
 
-  // ── WebGPU check ──────────────────────────────────────────────────────
+  // WebGL2 fallback is automatic — only show the overlay if init truly fails.
   const noWebGpu = document.getElementById('no-webgpu');
-  if (!navigator.gpu) {
-    noWebGpu.classList.remove('hidden');
-  } else {
-    noWebGpu.classList.add('hidden');
-  }
 
   // ── Bloom dependencies (GaussianBlurNode) — required for GPU bloom and
   // glass-faceplate scatter. Call before initMatrixRainCRT so the CRT
@@ -380,6 +375,8 @@
 
   // ── Init ──────────────────────────────────────────────────────────────
   const host = document.getElementById('rain-host');
+  const failTimer = setTimeout(() => noWebGpu.classList.remove('hidden'), 10000);
+  host.addEventListener('matrixrain:ready', () => clearTimeout(failTimer), { once: true });
   const bridge = initMatrixRainCRT(host, {
     color:     '#00ff70',
     opacity:    0.82,

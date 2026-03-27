@@ -138,9 +138,9 @@
 </head>
 <body>
 
-<div id="no-webgpu">
-  <strong>WebGPU not available</strong>
-  <small>Try Chrome 113+ or Edge 113+ with a compatible GPU</small>
+<div id="no-webgpu" class="hidden">
+  <strong>WebGPU and WebGL2 unavailable</strong>
+  <small>Try Chrome 113+, Edge 113+, or Firefox 120+ with a compatible GPU</small>
 </div>
 
 <div id="rain-host"></div>
@@ -868,13 +868,8 @@
   // ── Load defaults from def.json ───────────────────────────────────────
   const defaults = await fetch('./def.json').then(r => r.json()).catch(() => ({}));
 
-  // ── WebGPU check ──────────────────────────────────────────────────────
+  // WebGL2 fallback is automatic — only show the overlay if init truly fails.
   const noWebGpu = document.getElementById('no-webgpu');
-  if (!navigator.gpu) {
-    noWebGpu.classList.remove('hidden');
-  } else {
-    noWebGpu.classList.add('hidden');
-  }
 
   // ── Init ──────────────────────────────────────────────────────────────
   const host = document.getElementById('rain-host');
@@ -882,7 +877,9 @@
   // Register a one-shot 'matrixrain:ready' listener that shows the backend badge.
   // Called before each initMatrixRain so re-inits also refresh the badge.
   function registerBadge() {
+    const failTimer = setTimeout(() => noWebGpu.classList.remove('hidden'), 10000);
     host.addEventListener('matrixrain:ready', ({ detail }) => {
+      clearTimeout(failTimer);
       let badge = document.getElementById('backend-badge');
       if (!badge) {
         badge = document.createElement('div');

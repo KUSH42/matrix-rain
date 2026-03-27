@@ -156,9 +156,9 @@
 </head>
 <body>
 
-<div id="no-webgpu">
-  <strong>WebGPU not available</strong>
-  <small>Try Chrome 113+ or Edge 113+ with a compatible GPU</small>
+<div id="no-webgpu" class="hidden">
+  <strong>WebGPU and WebGL2 unavailable</strong>
+  <small>Try Chrome 113+, Edge 113+, or Firefox 120+ with a compatible GPU</small>
 </div>
 
 <div id="rain-host"></div>
@@ -348,11 +348,8 @@ import { init2DRain } from './matrix-rain-2d-tsl.js';
 
 const noWebGPU = document.getElementById('no-webgpu');
 
-// Detect WebGPU support
-if (!navigator.gpu) {
-  // noWebGPU stays visible
-} else {
-  noWebGPU.classList.add('hidden');
+// WebGL2 fallback is automatic; show overlay only if init truly fails.
+try {
 
   const host      = document.getElementById('rain-host');
   const loadingEl = document.getElementById('loading-indicator');
@@ -626,6 +623,9 @@ if (!navigator.gpu) {
   document.getElementById('ctl-layers').addEventListener('change', (e) => {
     rebuildWithLayers(e.target.checked);
   });
+} catch (e) {
+  console.error('[matrix-rain-2d] init failed:', e);
+  document.getElementById('no-webgpu').classList.remove('hidden');
 }
 </script>
 </body>
