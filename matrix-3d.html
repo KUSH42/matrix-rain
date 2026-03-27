@@ -822,8 +822,8 @@
   import { OrbitControls }   from 'three/addons/controls/OrbitControls.js';
   import { Vector3 }         from 'three/webgpu';
 
-  // ── Load defaults from ../def.json ────────────────────────────────────
-  const defaults = await fetch('../def.json').then(r => r.json()).catch(() => ({}));
+  // ── Load defaults from def.json ───────────────────────────────────────
+  const defaults = await fetch('./def.json').then(r => r.json()).catch(() => ({}));
 
   // ── WebGPU check ──────────────────────────────────────────────────────
   const noWebGpu = document.getElementById('no-webgpu');
