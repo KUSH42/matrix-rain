@@ -967,9 +967,10 @@ export function initMatrixRain(element, opts = {}) {
       requestAnimationFrame(step);
     },
 
-    setMaxYaw(deg)     { uniforms.uMaxYaw.value = deg * (Math.PI / 180); },
-    setFacingJitter(v) { uniforms.uFacingJitter.value = v; },
-    setFlatZ(on)       { uniforms.uFlatZ.value = on ? 1.0 : 0.0; },
+    setMaxYaw(deg)       { uniforms.uMaxYaw.value = deg * (Math.PI / 180); },
+    setFacingJitter(v)   { uniforms.uFacingJitter.value = v; },
+    setFlatZ(on)         { uniforms.uFlatZ.value = on ? 1.0 : 0.0; },
+    setForwardFacing(on) { uniforms.uForwardFacing.value = on ? 1.0 : 0.0; },
 
     setBloomStrength(v) {
       if (postProcessing !== 'rain') return;

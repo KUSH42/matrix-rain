@@ -463,6 +463,10 @@
         </select>
       </label>
 
+      <label title="Force all columns to face +Z — use with curtain topology">Forward facing
+        <input id="ctl-forward-facing" type="checkbox">
+      </label>
+
       <label title="Rebuilds geometry">Columns ⟳
         <input id="ctl-ncols" type="range" min="50" max="1200" step="50" value="600">
       </label>
@@ -778,6 +782,7 @@
     rain.setTopology(e.target.value);
     updateDistControls(e.target.value);
   });
+  bind('ctl-forward-facing', on => rain.setForwardFacing(on));
   document.getElementById('ctl-ncols').addEventListener('input', () => {
     debounceRebuild(() => rain.setColumnCount(parseFloat(document.getElementById('ctl-ncols').value)));
   });
@@ -910,6 +915,7 @@
       zoneBrIn:    fv('ctl-zone-br-in'),
       zoneBrOut:   fv('ctl-zone-br-out'),
       topology:      sv('ctl-topology'),
+      forwardFacing: cb('ctl-forward-facing'),
       nCols:         fv('ctl-ncols'),
       shellIn:       fv('ctl-shell-in'),
       shellOut:      fv('ctl-shell-out'),
@@ -1033,6 +1039,7 @@
     if (s.zoneSpeedIn !== undefined || s.zoneSpeedOut !== undefined) pushZoneSpeed();
     if (s.zoneBrIn    !== undefined || s.zoneBrOut    !== undefined) pushZoneBright();
     set('ctl-topology',       s.topology);
+    chk('ctl-forward-facing', s.forwardFacing);
     set('ctl-ncols',          s.nCols);
     set('ctl-shell-in',       s.shellIn);
     set('ctl-shell-out',      s.shellOut);
@@ -1044,6 +1051,7 @@
     set('ctl-density-in',     s.densityIn);
     set('ctl-density-out',    s.densityOut);
     if (s.topology      !== undefined) { rain.setTopology(s.topology); updateDistControls(s.topology); }
+    if (s.forwardFacing !== undefined) rain.setForwardFacing(s.forwardFacing);
     if (s.nCols         !== undefined) rain.setColumnCount(s.nCols);
     if (s.shellIn       !== undefined || s.shellOut       !== undefined) rain.setShellRadii(
       s.shellIn  ?? parseFloat(document.getElementById('ctl-shell-in').value),

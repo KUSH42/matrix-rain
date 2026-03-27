@@ -16,7 +16,7 @@ import {
   cameraViewMatrix, cameraProjectionMatrix, cameraPosition,
   positionGeometry, uv, frontFacing, screenUV,
   select, texture,
-  If, Loop, Break, Discard, Return,
+  If, Loop, Break, Discard,
   dFdx, dFdy,
 } from 'three/tsl';
 import * as THREE from 'three/webgpu';
@@ -68,9 +68,10 @@ export function makeUniforms(glyphCount = 56, gridW = 8, gridH = 8, dummyMsgTex,
     uLightDir:       uniform(new THREE.Vector3(-0.4, 0.8, 0.5).normalize()),
     uGlyphChroma:    uniform(1.0),
     uSpeedMul:       uniform(1.0),
-    uYawAligned:     uniform(0.0),   // 0 = converge to fixed point, 1 = face camera
+    uMaxYaw:         uniform(Math.PI), // max deviation from camera angle (radians); π = unconstrained
     uFacingJitter:   uniform(0.1745), // ±jitter radians on each column's yaw (default ±5°)
     uFlatZ:          uniform(0.0),   // 0 = spherical shell, 1 = flat plane at Z=0
+    uForwardFacing:  uniform(0.0),  // 0 = target/camera blend, 1 = force +Z (for curtain topology)
     uGlobeInteract:  uniform(1.0),   // 0 = off, 1 = on — gates globe proximity pulse
     uSwayAmt:        uniform(0.04),  // lateral sway amplitude (world units)
     uSwayDecay:      uniform(1.5),   // exponential decay rate — higher = settles faster
@@ -90,6 +91,8 @@ export function makeUniforms(glyphCount = 56, gridW = 8, gridH = 8, dummyMsgTex,
     uZoneSpeedOuter: uniform(1.0),   // speed bias at r = R_MAX  (outer / far)
     uZoneBrightInner: uniform(1.0),  // brightness bias at r = R_MIN
     uZoneBrightOuter: uniform(1.0),  // brightness bias at r = R_MAX
+    uDensityInner:   uniform(1.0),   // radial density multiplier at inner shell (t_zone=0)
+    uDensityOuter:   uniform(1.0),   // radial density multiplier at outer shell (t_zone=1)
   };
 }
 
@@ -107,12 +110,13 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     uCellW, uCellH, uWorldH, uNRows,
     uColor, uGlobalAlpha, uDepth, uPomSteps, uNormalStrength,
     uLightDir, uGlyphChroma,
-    uSpeedMul, uYawAligned, uFacingJitter, uFlatZ, uGlobeInteract, uSwayAmt, uSwayDecay,
+    uSpeedMul, uMaxYaw, uFacingJitter, uFlatZ, uForwardFacing, uGlobeInteract, uSwayAmt, uSwayDecay,
     uMsgTex, uMsgRevealProgress, uMsgWaveX, uMsgBoost,
     uGlyphWeightLUT,
     uBrightness, uBreathAmt, uWaveSpeed, uWaveAmt, uWeightedGlyphs, uReverseChance,
     uDensity,
     uZoneSpeedInner, uZoneSpeedOuter, uZoneBrightInner, uZoneBrightOuter,
+    uDensityInner, uDensityOuter,
   } = uniforms;
 
   // ── Per-instance buffer attributes ────────────────────────────────────
@@ -187,17 +191,20 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     const bootFadeVal = smoothstep(bootDelay, bootDelay.add(0.3), uTime);
     vBootFade.assign(bootFadeVal);
 
-    // Density cull — deterministic hash per column: fraction (1 - uDensity) of
-    // columns stay at the off-screen default and never reach the placement block.
-    // Placed after all varying defaults so WGSL is satisfied on the early-return path.
-    If(h2(vec2(aColIdxAttr.mul(0.137).add(0.5), float(42.7))).greaterThan(uDensity), () => {
-      Return(vec4(2, 2, 2, 1));   // off-screen cull — must be literal vec4, not a var ref
-    });
-
-    // Radial zone factor: 0 = inner (R_MIN), 1 = outer (R_MAX).
-    // Derived from the baked world column position (aWX, aWZ) so no extra attribute needed.
+    // Radial zone factor: 0 = inner (R_MIN=3.5), 1 = outer (R_MAX=8.0).
+    // Derived from baked world XZ position (aWX, aWZ) — no extra attribute needed.
+    // Shell constants (3.5, 4.5 = R_MAX−R_MIN) are hardcoded; clamp() ensures
+    // t_zone stays in [0,1] gracefully when shellInner/shellOuter differ from defaults.
     const r_zone = sqrt(aColAAttr.x.mul(aColAAttr.x).add(aColAAttr.y.mul(aColAAttr.y)));
     const t_zone = r_zone.sub(float(3.5)).div(float(4.5)).clamp(0.0, 1.0);
+
+    // Density cull — deterministic hash per column: fraction (1 - zonedDensity) of
+    // columns stay at the off-screen default (clipPos = (2,2,2,1)) and skip all
+    // placement work. Return() is intentionally avoided; WGSL vertex functions
+    // cannot early-return — they must reach the final return statement.
+    // uDensityInner/uDensityOuter radially bias the per-column cull threshold.
+    const zonedDensity = uDensity.mul(mix(uDensityInner, uDensityOuter, t_zone)).clamp(0.0, 1.0);
+    If(h2(vec2(aColIdxAttr.mul(0.137).add(0.5), float(42.7))).lessThanEqual(zonedDensity), () => {
 
     If(bootFadeVal.greaterThanEqual(0.001), () => {
 
@@ -231,16 +238,15 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
       const burstPhase  = fract(uTime.div(burstCycle));
       const burstFrac   = smoothstep(0.0, 0.1, burstPhase)
         .mul(float(1).sub(smoothstep(0.25, 0.35, burstPhase)));
-      // Per-column breathing: fv ∈ [0.1, 0.5] Hz, random phase — derived from aSeed
+      // Per-column breathing: fv ∈ [0.1, 0.5] Hz, random phase — derived from aSeed.
+      // Breath is additive (not multiplicative) so its ±0.15 amplitude is independent
+      // of uSpeedMul — moving the speed slider doesn't amplify the oscillation.
       const breathFreq  = float(0.1).add(h2(vec2(aSeed.mul(13.7), float(0.1))).mul(0.4));
       const breathPhase = h2(vec2(aSeed.mul(7.3), float(0.5))).mul(6.2832);
-      const breathMul   = float(1).add(
-        sin(uTime.mul(breathFreq).mul(6.2832).add(breathPhase)).mul(uBreathAmt.mul(0.15))
-      );
+      const breathAdd   = sin(uTime.mul(breathFreq).mul(6.2832).add(breathPhase)).mul(uBreathAmt.mul(0.15));
       const zoneSpeedBias = mix(uZoneSpeedInner, uZoneSpeedOuter, t_zone);
-      const speedMul    = breathMul
+      const speedMul    = max(float(0.01), uSpeedMul.add(breathAdd))
         .mul(float(1).add(burstActive.mul(burstFrac).mul(2)))
-        .mul(uSpeedMul)
         .mul(zoneSpeedBias);
       vBurst.assign(burstActive.mul(burstFrac));
 
@@ -252,8 +258,6 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
       const wavePhase  = thetaWave.mul(3.0).add(uTime.mul(uWaveSpeed));
       const waveOffset = sin(wavePhase).mul(uWaveAmt.mul(4.0));
 
-      // waveOffset is applied to headY *outside* mod so that the wave's
-      // time-derivative never flips a column's fall direction.
       const cyclePos  = mod(
         uTime.mul(aSpeed).mul(speedMul).add(aSeed.mul(cycleH)),
         cycleH
@@ -271,7 +275,7 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
       // Reverse columns invert cyclePos so head sweeps bottom→top.
       const revCyclePos = select(isRev, cycleH.sub(cyclePos), cyclePos);
 
-      const headY = aYOff.add(uWorldH.mul(0.5)).sub(revCyclePos).add(waveOffset);
+      const headY = aYOff.add(uWorldH.mul(0.5)).sub(revCyclePos);
       // Signed trail distance: positive = behind head (in the trail).
       // Forward: trail is above head (cellY > headY). Reverse: below (headY > cellY).
       const rawDist = cellY.sub(headY).div(cellStep);
@@ -286,14 +290,25 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
         // Columns converge toward a point 2 units behind origin on Z.
         // Each column has ±5° facing jitter for subtle parallax.
         const wz          = mix(aWZ, float(0), uFlatZ);
-        const colCenter   = vec3(aWX, cellY, wz).toVar();
+        // waveOffset displaces the rendered glyph position in world Y, not headY.
+        // Keeping it out of headY means dist (trail gradient) is never affected,
+        // so the wave cannot cause apparent fall-direction reversal.
+        const colCenter   = vec3(aWX, cellY.add(waveOffset), wz).toVar();
         const toTarget    = vec2(aWX.negate(), float(-2).sub(wz));
         const targetAngle = atan(toTarget.x, toTarget.y);
         // Camera-facing angle: project camera→column direction onto XZ plane
         const toCamXZ      = vec2(cameraPosition.x.sub(aWX), cameraPosition.z.sub(wz));
         const camAngle     = atan(toCamXZ.x, toCamXZ.y);
-        const blendedAngle = mix(targetAngle, camAngle, uYawAligned);
-        const facingAngle  = blendedAngle.add(
+        // Clamp column yaw to within ±uMaxYaw of the camera angle.
+        // Angular delta is normalised to [−π, π] to handle wrap-around correctly.
+        const TWO_PI     = float(Math.PI * 2);
+        const rawDelta   = targetAngle.sub(camAngle);
+        const delta      = fract(rawDelta.div(TWO_PI).add(0.5)).mul(TWO_PI).sub(Math.PI);
+        const blendedAngle = camAngle.add(clamp(delta, uMaxYaw.negate(), uMaxYaw));
+        // Forward-facing mode: ignore target/camera blend and face +Z (angle=0).
+        // Used for curtain topology so all columns present a flat wall to the viewer.
+        const effectiveAngle = select(uForwardFacing.greaterThan(0.5), float(0), blendedAngle);
+        const facingAngle  = effectiveAngle.add(
           h2(vec2(aColIdxAttr.mul(0.73), 0.51)).sub(0.5).mul(uFacingJitter)
         );
         const outward = vec3(sin(facingAngle), 0.0, cos(facingAngle));
@@ -339,6 +354,8 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
 
       }); // trail window cull
     }); // boot cull
+
+    }); // density cull
 
     return clipPos;
   })();
