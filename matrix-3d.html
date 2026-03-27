@@ -502,10 +502,17 @@
         </span>
       </label>
 
-      <label>Wave amount
+      <label>Wave height
         <span style="display:flex;align-items:center;gap:4px;">
-          <input id="ctl-wave-amt"     type="range"  min="0" max="1" step="0.05" value="1.0">
-          <input id="ctl-wave-amt-num" type="number" min="0" max="1" step="0.05" value="1.0">
+          <input id="ctl-wave-amt"     type="range"  min="0" max="3" step="0.05" value="1.0">
+          <input id="ctl-wave-amt-num" type="number" min="0" max="3" step="0.05" value="1.0">
+        </span>
+      </label>
+
+      <label>Wave crests
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-wave-crests"     type="range"  min="1" max="12" step="1" value="3">
+          <input id="ctl-wave-crests-num" type="number" min="1" max="12" step="1" value="3">
         </span>
       </label>
 
@@ -1196,7 +1203,8 @@
   linkSlider('ctl-brightness', 'ctl-brightness-num', v => rain.setBrightness(v));
   linkSlider('ctl-breath-amt', 'ctl-breath-amt-num', v => rain.setBreathAmt(v));
   linkSlider('ctl-wave-speed', 'ctl-wave-speed-num', v => rain.setWaveSpeed(v));
-  linkSlider('ctl-wave-amt',   'ctl-wave-amt-num',   v => rain.setWaveAmt(v));
+  linkSlider('ctl-wave-amt',     'ctl-wave-amt-num',     v => rain.setWaveAmt(v));
+  linkSlider('ctl-wave-crests', 'ctl-wave-crests-num', v => rain.setWaveCrests(v));
   bind('ctl-weighted', on => rain.setWeightedGlyphs(on ? 1.0 : 0.0));
   linkSlider('ctl-reverse', 'ctl-reverse-num', v => rain.setReverseChance(v));
   function pushCellSize() {
@@ -1288,6 +1296,7 @@
       breathAmt:      fv('ctl-breath-amt'),
       waveSpeed:      fv('ctl-wave-speed'),
       waveAmt:        fv('ctl-wave-amt'),
+      waveCrests:     fv('ctl-wave-crests'),
       weightedGlyphs: cb('ctl-weighted'),
       reverseChance:  fv('ctl-reverse'),
       spdMin:      fv('ctl-spd-min'),
@@ -1386,6 +1395,7 @@
     set('ctl-breath-amt',  s.breathAmt);
     set('ctl-wave-speed',  s.waveSpeed);
     set('ctl-wave-amt',    s.waveAmt);
+    set('ctl-wave-crests', s.waveCrests);
     chk('ctl-weighted',    s.weightedGlyphs);
     set('ctl-reverse',     s.reverseChance);
     // Glyph FX
@@ -1446,6 +1456,7 @@
     if (s.breathAmt      !== undefined) rain.setBreathAmt(s.breathAmt);
     if (s.waveSpeed      !== undefined) rain.setWaveSpeed(s.waveSpeed);
     if (s.waveAmt        !== undefined) rain.setWaveAmt(s.waveAmt);
+    if (s.waveCrests     !== undefined) rain.setWaveCrests(s.waveCrests);
     if (s.weightedGlyphs !== undefined) rain.setWeightedGlyphs(s.weightedGlyphs ? 1.0 : 0.0);
     if (s.reverseChance  !== undefined) rain.setReverseChance(s.reverseChance);
     // Glyph FX

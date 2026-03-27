@@ -939,6 +939,7 @@ export function initMatrixRain(element, opts = {}) {
     setBreathAmt(v)      { uniforms.uBreathAmt.value = v; },
     setWaveSpeed(v)      { uniforms.uWaveSpeed.value = v; },
     setWaveAmt(v)        { uniforms.uWaveAmt.value = v; },
+    setWaveCrests(n)     { uniforms.uWaveCrests.value = Math.max(1, Math.round(n)); },
     setWeightedGlyphs(v) { uniforms.uWeightedGlyphs.value = v; },
     setCellSize(w, h)    { uniforms.uCellW.value = w; uniforms.uCellH.value = h; },
     setReverseChance(v)  { uniforms.uReverseChance.value = v; },

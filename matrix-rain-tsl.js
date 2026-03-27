@@ -84,7 +84,8 @@ export function makeUniforms(glyphCount = 56, gridW = 8, gridH = 8, dummyMsgTex,
     uBrightness:     uniform(1.0),   // output brightness multiplier — range [0.2, 2.0]
     uBreathAmt:      uniform(1.0),   // speed-oscillation amplitude scale — 0 = off, 1 = ±15%
     uWaveSpeed:      uniform(0.15),  // wave crest angular speed in rad/s (hardcoded was 0.15)
-    uWaveAmt:        uniform(1.0),   // wave offset amplitude scale — 0 = off, 1 = ±4 world units
+    uWaveAmt:        uniform(1.0),   // wave height amplitude scale — 0 = off, 1 = ±4 world units
+    uWaveCrests:     uniform(3.0),   // number of wave crests around the shell (integer 1–12)
     uWeightedGlyphs: uniform(1.0),  // LUT weight blend — 0 = uniform sampling, 1 = full LUT
     uReverseChance:  uniform(0.0),  // fraction of columns that fall upward — 0 = all down, 1 = all up
     uDensity:        uniform(1.0),   // fraction of columns active — range [0.1, 1.0]
@@ -131,7 +132,7 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     uSpeedMul, uMaxYaw, uFacingJitter, uFlatZ, uForwardFacing, uGlobeInteract, uSwayAmt, uSwayDecay,
     uMsgTex, uMsgRevealProgress, uMsgWaveX, uMsgBoost,
     uGlyphWeightLUT,
-    uBrightness, uBreathAmt, uWaveSpeed, uWaveAmt, uWeightedGlyphs, uReverseChance,
+    uBrightness, uBreathAmt, uWaveSpeed, uWaveAmt, uWaveCrests, uWeightedGlyphs, uReverseChance,
     uDensity,
     uZoneSpeedInner, uZoneSpeedOuter, uZoneBrightInner, uZoneBrightOuter,
     uDensityInner, uDensityOuter,
@@ -296,7 +297,7 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
       // Traveling wave: 3 crests sweep around the shell at ~42 s/revolution.
       // aWX = aColAAttr.x, aWZ = aColAAttr.y — angular position on XZ shell.
       const thetaWave  = atan(aWZ, aWX);                           // −π..π
-      const wavePhase  = thetaWave.mul(3.0).add(uTime.mul(uWaveSpeed));
+      const wavePhase  = thetaWave.mul(uWaveCrests).add(uTime.mul(uWaveSpeed));
       const waveOffset = sin(wavePhase).mul(uWaveAmt.mul(4.0));
 
       const cyclePos  = mod(
