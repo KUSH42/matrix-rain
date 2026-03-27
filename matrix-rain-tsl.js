@@ -190,8 +190,8 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     // Density cull — deterministic hash per column: fraction (1 - uDensity) of
     // columns stay at the off-screen default and never reach the placement block.
     // Placed after all varying defaults so WGSL is satisfied on the early-return path.
-    If(h2(vec2(aColIdxAttr.mul(0.137).add(0.5), float(42.7))).x.greaterThan(uDensity), () => {
-      Return(clipPos);   // clipPos is still vec4(2,2,2,1) here — off-screen cull
+    If(h2(vec2(aColIdxAttr.mul(0.137).add(0.5), float(42.7))).greaterThan(uDensity), () => {
+      Return(vec4(2, 2, 2, 1));   // off-screen cull — must be literal vec4, not a var ref
     });
 
     // Radial zone factor: 0 = inner (R_MIN), 1 = outer (R_MAX).
