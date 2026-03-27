@@ -186,7 +186,7 @@
     </label>
 
     <label>Speed
-      <input id="ctl-speed" type="range" min="0.1" max="4" step="0.05" value="1">
+      <input id="ctl-speed" type="range" min="0.1" max="2.0" step="0.05" value="1">
     </label>
 
     <label>Bloom strength
@@ -237,8 +237,8 @@
       <input id="ctl-flatz" type="checkbox">
     </label>
 
-    <label>Yaw aligned
-      <input id="ctl-yaw" type="checkbox">
+    <label>Max yaw (°)
+      <input id="ctl-yaw" type="range" min="0" max="180" step="1" value="180">
     </label>
 
     <label>Facing jitter
@@ -401,10 +401,10 @@
       </label>
 
       <label title="Rebuilds geometry">Speed min ⟳
-        <input id="ctl-spd-min" type="range" min="0.5" max="4.0" step="0.1" value="1.2">
+        <input id="ctl-spd-min" type="range" min="0.2" max="2.5" step="0.1" value="0.8">
       </label>
       <label title="Rebuilds geometry">Speed max ⟳
-        <input id="ctl-spd-max" type="range" min="2.0" max="12.0" step="0.5" value="8.0">
+        <input id="ctl-spd-max" type="range" min="1.0" max="6.0" step="0.25" value="4.0">
       </label>
 
       <label title="Rebuilds geometry">Trail min ⟳
@@ -430,10 +430,10 @@
       </span>
 
       <label>Inner speed
-        <input id="ctl-zone-spd-in" type="range" min="0.2" max="3.0" step="0.05" value="1.0">
+        <input id="ctl-zone-spd-in" type="range" min="0.3" max="2.0" step="0.05" value="1.0">
       </label>
       <label>Outer speed
-        <input id="ctl-zone-spd-out" type="range" min="0.2" max="3.0" step="0.05" value="1.0">
+        <input id="ctl-zone-spd-out" type="range" min="0.3" max="2.0" step="0.05" value="1.0">
       </label>
 
       <label>Inner bright
@@ -441,6 +441,66 @@
       </label>
       <label>Outer bright
         <input id="ctl-zone-br-out" type="range" min="0.1" max="2.5" step="0.05" value="1.0">
+      </label>
+    </div>
+
+    <!-- Distribution sub-panel -->
+    <div style="border-top:1px solid #00ff7044;margin-top:4px;padding-top:4px;
+                display:flex;flex-direction:column;gap:4px;">
+      <label style="color:#7fffaa;font-size:10px;letter-spacing:0.1em;text-transform:uppercase;">
+        — Distribution ⟳ —
+      </label>
+      <span style="color:#5f9a6f;font-size:9px;line-height:1.3;">
+        ⟳ = rebuilds geometry
+      </span>
+
+      <label>Topology ⟳
+        <select id="ctl-topology">
+          <option value="shell" selected>shell</option>
+          <option value="ring">ring</option>
+          <option value="curtain">curtain</option>
+          <option value="rectangle">rectangle</option>
+        </select>
+      </label>
+
+      <label title="Rebuilds geometry">Columns ⟳
+        <input id="ctl-ncols" type="range" min="50" max="1200" step="50" value="600">
+      </label>
+
+      <label id="lbl-shell-in" title="Rebuilds geometry">Shell inner ⟳
+        <input id="ctl-shell-in" type="range" min="1.0" max="6.0" step="0.5" value="3.5">
+      </label>
+
+      <label id="lbl-shell-out" title="Rebuilds geometry"><span id="txt-shell-out">Shell outer</span> ⟳
+        <input id="ctl-shell-out" type="range" min="4.0" max="12.0" step="0.5" value="8.0">
+      </label>
+
+      <label id="lbl-clusters" title="Rebuilds geometry">Clusters ⟳
+        <input id="ctl-clusters" type="range" min="1" max="36" step="1" value="12">
+      </label>
+
+      <label id="lbl-cluster-spread" title="Rebuilds geometry">Cluster spread ⟳
+        <input id="ctl-cluster-spread" type="range" min="0.003" max="0.5" step="0.001" value="0.017">
+      </label>
+
+      <label id="lbl-radial-bias" title="Rebuilds geometry">Radial bias ⟳
+        <input id="ctl-radial-bias" type="range" min="-1.0" max="1.0" step="0.05" value="0.0">
+      </label>
+
+      <label id="lbl-rect-w" title="Rebuilds geometry">Rect width X ⟳
+        <input id="ctl-rect-w" type="range" min="0.5" max="16.0" step="0.5" value="8.0">
+      </label>
+
+      <label id="lbl-rect-h" title="Rebuilds geometry">Rect depth Z ⟳
+        <input id="ctl-rect-h" type="range" min="0.5" max="16.0" step="0.5" value="8.0">
+      </label>
+
+      <label id="lbl-density-in">Density inner
+        <input id="ctl-density-in" type="range" min="0" max="2" step="0.05" value="1.0">
+      </label>
+
+      <label id="lbl-density-out">Density outer
+        <input id="ctl-density-out" type="range" min="0" max="2" step="0.05" value="1.0">
       </label>
     </div>
 
@@ -481,8 +541,10 @@
 <div id="hint">MATRIX RAIN / WEBGPU + TSL</div>
 
 <script type="module">
-  import { initMatrixRain } from './matrix-rain-webgpu.js';
-  import { PRESETS }        from './matrix-rain-presets.js';
+  import { initMatrixRain }  from './matrix-rain-webgpu.js';
+  import { PRESETS }         from './matrix-rain-presets.js';
+  import { OrbitControls }   from 'three/addons/controls/OrbitControls.js';
+  import { Vector3 }         from 'three/webgpu';
 
   // ── WebGPU check ──────────────────────────────────────────────────────
   const noWebGpu = document.getElementById('no-webgpu');
@@ -499,6 +561,50 @@
     opacity:    0.82,
     atlasPath: './data/matrixcode_msdf.png',
   });
+
+  // ── Orbit controls ────────────────────────────────────────────────────
+  let controls = null;
+  function makeControls(rainHandle) {
+    if (controls) controls.dispose();
+    // Canvas has pointer-events:none so the controls panel stays interactive.
+    // Attach OrbitControls to the host div instead; it receives all pointer events.
+    controls = new OrbitControls(rainHandle.camera, host);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.05;
+    controls.minDistance   = 0.5;
+    controls.maxDistance   = 20;
+  }
+  host.addEventListener('contextmenu', e => e.preventDefault());
+  makeControls(rain);
+
+  // ── WASD fly ──────────────────────────────────────────────────────────
+  const _keys = {};
+  document.addEventListener('keydown', e => { _keys[e.code] = true;  });
+  document.addEventListener('keyup',   e => { _keys[e.code] = false; });
+
+  const _fwd   = new Vector3();
+  const _right = new Vector3();
+  const MOVE_SPEED = 0.06;
+
+  (function controlsLoop() {
+    requestAnimationFrame(controlsLoop);
+    if (!controls) return;
+    const cam = rain.camera;
+    cam.getWorldDirection(_fwd);
+    _right.crossVectors(_fwd, cam.up).normalize();
+    let dx = 0, dz = 0;
+    if (_keys['KeyW'] || _keys['ArrowUp'])    dz =  1;
+    if (_keys['KeyS'] || _keys['ArrowDown'])  dz = -1;
+    if (_keys['KeyA'] || _keys['ArrowLeft'])  dx = -1;
+    if (_keys['KeyD'] || _keys['ArrowRight']) dx =  1;
+    if (dx || dz) {
+      const speed = (_keys['ShiftLeft'] || _keys['ShiftRight']) ? MOVE_SPEED * 2 : MOVE_SPEED;
+      const delta = _fwd.clone().multiplyScalar(dz * speed).addScaledVector(_right, dx * speed);
+      cam.position.add(delta);
+      controls.target.add(delta);
+    }
+    controls.update();
+  })();
 
   // ── PP mode switching ─────────────────────────────────────────────────
   // On mode change: preserve only charSet; all other params reset to defaults.
@@ -519,6 +625,7 @@
       charSet:        currentSet,
       postProcessing: newMode,
     });
+    makeControls(rain);
     updateCrtPanelVisibility(newMode);
   });
 
@@ -570,7 +677,7 @@
   }
   bind('ctl-burst',        on => rain.setBurstBloom(on));
   bind('ctl-flatz',        on => rain.setFlatZ(on));
-  bind('ctl-yaw',          on => rain.setYawAligned(on ? 1.0 : 0.0));
+  bind('ctl-yaw',          v  => rain.setMaxYaw(v));
   bind('ctl-jitter',       v  => rain.setFacingJitter(v));
   bind('ctl-chroma',       () => chromaFromUI());
   bind('ctl-chroma-scale', () => chromaFromUI());
@@ -638,6 +745,78 @@
   document.getElementById('ctl-zone-br-in').addEventListener('input', pushZoneBright);
   document.getElementById('ctl-zone-br-out').addEventListener('input', pushZoneBright);
 
+  // Distribution controls — rebuild-triggering ones use a 150 ms debounce
+  let _distTimer = null;
+  function debounceRebuild(fn) {
+    clearTimeout(_distTimer);
+    _distTimer = setTimeout(fn, 150);
+  }
+
+  // Contextual distribution controls — show/hide based on active topology
+  const _distTopoMap = {
+    'lbl-shell-in':       ['shell', 'ring'],
+    'lbl-shell-out':      ['shell', 'ring', 'curtain'],
+    'lbl-clusters':       ['shell', 'ring'],
+    'lbl-cluster-spread': ['shell', 'ring'],
+    'lbl-radial-bias':    ['shell'],
+    'lbl-density-in':     ['shell', 'ring'],
+    'lbl-density-out':    ['shell', 'ring'],
+    'lbl-rect-w':         ['rectangle'],
+    'lbl-rect-h':         ['rectangle'],
+  };
+  const _shellOutLabels = { shell: 'Shell outer', ring: 'Shell outer', curtain: 'Spread width' };
+
+  function updateDistControls(topo) {
+    for (const [id, topos] of Object.entries(_distTopoMap)) {
+      document.getElementById(id).style.display = topos.includes(topo) ? '' : 'none';
+    }
+    document.getElementById('txt-shell-out').textContent = _shellOutLabels[topo] ?? 'Shell outer';
+  }
+  updateDistControls('shell');
+
+  document.getElementById('ctl-topology').addEventListener('change', e => {
+    rain.setTopology(e.target.value);
+    updateDistControls(e.target.value);
+  });
+  document.getElementById('ctl-ncols').addEventListener('input', () => {
+    debounceRebuild(() => rain.setColumnCount(parseFloat(document.getElementById('ctl-ncols').value)));
+  });
+  function pushShellRadii() {
+    debounceRebuild(() => rain.setShellRadii(
+      parseFloat(document.getElementById('ctl-shell-in').value),
+      parseFloat(document.getElementById('ctl-shell-out').value),
+    ));
+  }
+  document.getElementById('ctl-shell-in').addEventListener('input', pushShellRadii);
+  document.getElementById('ctl-shell-out').addEventListener('input', pushShellRadii);
+  function pushRectExtent() {
+    debounceRebuild(() => rain.setRectExtent(
+      parseFloat(document.getElementById('ctl-rect-w').value),
+      parseFloat(document.getElementById('ctl-rect-h').value),
+    ));
+  }
+  document.getElementById('ctl-rect-w').addEventListener('input', pushRectExtent);
+  document.getElementById('ctl-rect-h').addEventListener('input', pushRectExtent);
+  function pushClusterParams() {
+    debounceRebuild(() => rain.setClusterParams(
+      parseFloat(document.getElementById('ctl-clusters').value),
+      parseFloat(document.getElementById('ctl-cluster-spread').value),
+    ));
+  }
+  document.getElementById('ctl-clusters').addEventListener('input', pushClusterParams);
+  document.getElementById('ctl-cluster-spread').addEventListener('input', pushClusterParams);
+  document.getElementById('ctl-radial-bias').addEventListener('input', () => {
+    debounceRebuild(() => rain.setRadialBias(parseFloat(document.getElementById('ctl-radial-bias').value)));
+  });
+  function pushDensityTaper() {
+    rain.setRadialDensityTaper(
+      parseFloat(document.getElementById('ctl-density-in').value),
+      parseFloat(document.getElementById('ctl-density-out').value),
+    );
+  }
+  document.getElementById('ctl-density-in').addEventListener('input', pushDensityTaper);
+  document.getElementById('ctl-density-out').addEventListener('input', pushDensityTaper);
+
   // Organic controls
   bind('ctl-brightness',  v  => rain.setBrightness(v));
   bind('ctl-breath-amt',  v  => rain.setBreathAmt(v));
@@ -700,7 +879,7 @@
       glyphChromaScale: fv('ctl-chroma-scale'),
       burstBloom:       cb('ctl-burst'),
       flatZ:            cb('ctl-flatz'),
-      yawAligned:       cb('ctl-yaw'),
+      maxYaw:           fv('ctl-yaw'),
       vignette:         fv('ctl-vignette'),
       scanlines:        fv('ctl-scanlines'),
       holoAberration:   fv('ctl-holo-aber'),
@@ -730,6 +909,17 @@
       zoneSpeedOut:fv('ctl-zone-spd-out'),
       zoneBrIn:    fv('ctl-zone-br-in'),
       zoneBrOut:   fv('ctl-zone-br-out'),
+      topology:      sv('ctl-topology'),
+      nCols:         fv('ctl-ncols'),
+      shellIn:       fv('ctl-shell-in'),
+      shellOut:      fv('ctl-shell-out'),
+      rectW:         fv('ctl-rect-w'),
+      rectH:         fv('ctl-rect-h'),
+      clusters:      fv('ctl-clusters'),
+      clusterSpread: fv('ctl-cluster-spread'),
+      radialBias:    fv('ctl-radial-bias'),
+      densityIn:     fv('ctl-density-in'),
+      densityOut:    fv('ctl-density-out'),
     };
   }
 
@@ -761,7 +951,7 @@
     set('ctl-chroma-scale',  s.glyphChromaScale);
     chk('ctl-burst',         s.burstBloom);
     chk('ctl-flatz',         s.flatZ);
-    chk('ctl-yaw',           s.yawAligned);
+    set('ctl-yaw',           s.maxYaw);
     set('ctl-vignette',      s.vignette);
     set('ctl-scanlines',     s.scanlines);
     set('ctl-holo-aber',     s.holoAberration);
@@ -811,7 +1001,7 @@
     if (s.glyphChroma    !== undefined || s.glyphChromaScale !== undefined) chromaFromUI();
     if (s.burstBloom     !== undefined) rain.setBurstBloom(s.burstBloom);
     if (s.flatZ          !== undefined) rain.setFlatZ(s.flatZ);
-    if (s.yawAligned     !== undefined) rain.setYawAligned(s.yawAligned ? 1.0 : 0.0);
+    if (s.maxYaw         !== undefined) rain.setMaxYaw(s.maxYaw);
     if (s.vignette       !== undefined) rain.setVignette(s.vignette);
     if (s.scanlines      !== undefined) rain.setScanlines(s.scanlines);
     if (s.holoAberration !== undefined) rain.setHoloAberration(s.holoAberration);
@@ -842,6 +1032,36 @@
     if (s.density3d !== undefined) rain.setDensity(s.density3d);
     if (s.zoneSpeedIn !== undefined || s.zoneSpeedOut !== undefined) pushZoneSpeed();
     if (s.zoneBrIn    !== undefined || s.zoneBrOut    !== undefined) pushZoneBright();
+    set('ctl-topology',       s.topology);
+    set('ctl-ncols',          s.nCols);
+    set('ctl-shell-in',       s.shellIn);
+    set('ctl-shell-out',      s.shellOut);
+    set('ctl-rect-w',         s.rectW);
+    set('ctl-rect-h',         s.rectH);
+    set('ctl-clusters',       s.clusters);
+    set('ctl-cluster-spread', s.clusterSpread);
+    set('ctl-radial-bias',    s.radialBias);
+    set('ctl-density-in',     s.densityIn);
+    set('ctl-density-out',    s.densityOut);
+    if (s.topology      !== undefined) { rain.setTopology(s.topology); updateDistControls(s.topology); }
+    if (s.nCols         !== undefined) rain.setColumnCount(s.nCols);
+    if (s.shellIn       !== undefined || s.shellOut       !== undefined) rain.setShellRadii(
+      s.shellIn  ?? parseFloat(document.getElementById('ctl-shell-in').value),
+      s.shellOut ?? parseFloat(document.getElementById('ctl-shell-out').value),
+    );
+    if (s.rectW         !== undefined || s.rectH         !== undefined) rain.setRectExtent(
+      s.rectW ?? parseFloat(document.getElementById('ctl-rect-w').value),
+      s.rectH ?? parseFloat(document.getElementById('ctl-rect-h').value),
+    );
+    if (s.clusters      !== undefined || s.clusterSpread  !== undefined) rain.setClusterParams(
+      s.clusters      ?? parseFloat(document.getElementById('ctl-clusters').value),
+      s.clusterSpread ?? parseFloat(document.getElementById('ctl-cluster-spread').value),
+    );
+    if (s.radialBias    !== undefined) rain.setRadialBias(s.radialBias);
+    if (s.densityIn     !== undefined || s.densityOut     !== undefined) rain.setRadialDensityTaper(
+      s.densityIn  ?? parseFloat(document.getElementById('ctl-density-in').value),
+      s.densityOut ?? parseFloat(document.getElementById('ctl-density-out').value),
+    );
   }
 
   document.getElementById('ctl-export').addEventListener('click', () => {

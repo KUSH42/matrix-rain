@@ -126,14 +126,10 @@ function applyGlyphWeightLUT(charSet, glyphCount, uniforms) {
 }
 
 // ── Scene constants ────────────────────────────────────────────────────────
-const N_COLS     = 600;
-const N_ROWS     = 120;
-const CELL_W     = 0.12;
-const CELL_H     = 0.08;
-const WORLD_H    = 16;
-const R_MIN      = 3.5;
-const R_MAX      = 8.0;
-const N_CLUSTERS = 12;   // angular cluster count for rivulet grouping
+const N_ROWS  = 120;
+const CELL_W  = 0.12;
+const CELL_H  = 0.08;
+const WORLD_H = 16;
 
 // Box-Muller Gaussian random — used for cluster angular jitter
 function _gaussRand() {
@@ -155,17 +151,27 @@ function loadMSDF(path) {
 
 // ── Instanced buffer geometry ─────────────────────────────────────────────
 function buildGeometry({
-  speedMin = 1.2,
-  speedMax = 8.0,
-  trailMin = 0.015,
-  trailMax = 0.050,
+  speedMin      = 0.8,
+  speedMax      = 4.0,
+  trailMin      = 0.015,
+  trailMax      = 0.050,
+  nCols         = 600,
+  topology      = 'shell',    // 'shell' | 'ring' | 'curtain' | 'rectangle'
+  shellInner    = 3.5,
+  shellOuter    = 8.0,
+  rectW         = 8.0,        // rectangle topology: half-extent in X
+  rectH         = 8.0,        // rectangle topology: half-extent in Z
+  clusterCount  = 12,
+  clusterSpread = 0.017,      // σ as fraction of full circle; 0.017 ≈ 6°
+  radialBias    = 0.0,        // −1 = inner-concentrated, 0 = uniform, +1 = outer-concentrated
 } = {}) {
-  // Guard against inverted ranges — clamp min to max so the distribution
-  // always has non-negative spread (caller gets all-same value at min==max).
+  // Guard against inverted ranges
   const sMin = Math.min(speedMin, speedMax);
   const sMax = Math.max(speedMin, speedMax);
   const tMin = Math.min(trailMin, trailMax);
   const tMax = Math.max(trailMin, trailMax);
+  const inner = shellInner;
+  const outer = Math.max(shellOuter, inner + 0.1);
 
   const geom = new THREE.InstancedBufferGeometry();
   const base = new THREE.PlaneGeometry(1, 1);
@@ -174,7 +180,7 @@ function buildGeometry({
   geom.setAttribute('uv',       base.getAttribute('uv').clone());
   base.dispose();
 
-  const total   = N_COLS * N_ROWS;
+  const total   = nCols * N_ROWS;
   const colBuf  = new Float32Array(total);
   const rowBuf  = new Float32Array(total);
   const colABuf = new Float32Array(total * 4);  // wx, wz, speed, seed
@@ -182,19 +188,48 @@ function buildGeometry({
 
   // Per-instance cluster centers — fresh per buildGeometry() call so each
   // initMatrixRain() gets its own independent pattern.
-  const clusterThetas = Array.from({ length: N_CLUSTERS }, () => Math.random() * Math.PI * 2);
+  const nClusters    = Math.max(1, Math.round(clusterCount));
+  const sigma        = Math.max(0.003, clusterSpread) * 2 * Math.PI;  // σ in radians
+  const exp_         = Math.pow(2, -radialBias);  // bias=0→exp=1 (uniform)
+  const clusterThetas = Array.from({ length: nClusters }, () => Math.random() * Math.PI * 2);
 
-  for (let c = 0; c < N_COLS; c++) {
-    const theta = clusterThetas[Math.floor(Math.random() * N_CLUSTERS)]
-                  + _gaussRand() * (6 * Math.PI / 180);  // σ = 6° per cluster
-    const r     = R_MIN + Math.random() * (R_MAX - R_MIN);
-    const wx    = Math.cos(theta) * r;
-    const wz    = Math.sin(theta) * r;
+  for (let c = 0; c < nCols; c++) {
+    const theta  = clusterThetas[Math.floor(Math.random() * nClusters)] + _gaussRand() * sigma;
+    let r        = inner + Math.pow(Math.random(), exp_) * (outer - inner);
+
+    let wx, wz;
+    switch (topology) {
+      case 'ring': {
+        const r_ring = (inner + outer) / 2;
+        wx = Math.cos(theta) * r_ring;
+        wz = Math.sin(theta) * r_ring;
+        break;
+      }
+      case 'curtain': {
+        wx = (Math.random() * 2 - 1) * outer;
+        wz = 0;
+        break;
+      }
+      case 'rectangle': {
+        wx = (Math.random() * 2 - 1) * rectW;
+        wz = (Math.random() * 2 - 1) * rectH;
+        break;
+      }
+      default: // 'shell'
+        wx = Math.cos(theta) * r;
+        wz = Math.sin(theta) * r;
+    }
+
+    // Normalise r for scale gradient — non-shell topologies use a representative radius
+    if (topology === 'ring')    r = (inner + outer) / 2;
+    if (topology === 'curtain') r = (inner + outer) / 2;
+    if (topology === 'rectangle') r = Math.min(Math.max(rectW, rectH), Math.max(inner, Math.sqrt(wx * wx + wz * wz)));
+
     const yOff  = (Math.random() - 0.5) * WORLD_H;
     const sr    = Math.random();
     const speed = sMin + sr * sr * (sMax - sMin);  // log-biased over range
     const seed  = Math.random();
-    const t     = (r - R_MIN) / (R_MAX - R_MIN);           // 0 = inner (close), 1 = outer (far)
+    const t     = (r - inner) / (outer - inner);           // 0 = inner (close), 1 = outer (far)
     const scale = (1.45 - t * 0.95) + (Math.random() - 0.5) * 0.2;
     const alpha = 0.18 + Math.random() * 0.72;
     const trail = tMin + Math.random() * (tMax - tMin);
@@ -311,10 +346,19 @@ export function initMatrixRain(element, opts = {}) {
   } = opts;
 
   const _geomParams = {
-    speedMin: speedRange?.[0] ?? 1.2,
-    speedMax: speedRange?.[1] ?? 8.0,
-    trailMin: trailRange?.[0] ?? 0.015,
-    trailMax: trailRange?.[1] ?? 0.050,
+    speedMin:     speedRange?.[0] ?? 0.8,
+    speedMax:     speedRange?.[1] ?? 4.0,
+    trailMin:     trailRange?.[0] ?? 0.015,
+    trailMax:     trailRange?.[1] ?? 0.050,
+    nCols:        600,
+    topology:     'shell',
+    shellInner:   3.5,
+    shellOuter:   8.0,
+    rectW:        8.0,
+    rectH:        8.0,
+    clusterCount: 12,
+    clusterSpread: 0.017,
+    radialBias:   0.0,
   };
 
   // Resolve atlas path + grid dimensions from charSet or explicit opts
@@ -816,6 +860,38 @@ export function initMatrixRain(element, opts = {}) {
       _geomParams.trailMax = max;
       rebuildGeom();
     },
+    setColumnCount(n) {
+      _geomParams.nCols = Math.max(50, Math.min(1200, Math.round(n)));
+      rebuildGeom();
+    },
+    setTopology(name) {
+      _geomParams.topology = name;
+      rebuildGeom();
+    },
+    setShellRadii(inner, outer) {
+      if (outer <= inner) outer = inner + 0.1;
+      _geomParams.shellInner = inner;
+      _geomParams.shellOuter = outer;
+      rebuildGeom();
+    },
+    setClusterParams(count, spread) {
+      _geomParams.clusterCount  = Math.max(1, Math.round(count));
+      _geomParams.clusterSpread = spread;
+      rebuildGeom();
+    },
+    setRadialBias(v) {
+      _geomParams.radialBias = Math.max(-1, Math.min(1, v));
+      rebuildGeom();
+    },
+    setRectExtent(w, h) {
+      _geomParams.rectW = Math.max(0.1, w);
+      _geomParams.rectH = Math.max(0.1, h);
+      rebuildGeom();
+    },
+    setRadialDensityTaper(inner, outer) {
+      uniforms.uDensityInner.value = inner;
+      uniforms.uDensityOuter.value = outer;
+    },
     setDensity(v) { uniforms.uDensity.value = v; },
     setZoneSpeed(inner, outer) {
       uniforms.uZoneSpeedInner.value = inner;
@@ -891,7 +967,7 @@ export function initMatrixRain(element, opts = {}) {
       requestAnimationFrame(step);
     },
 
-    setYawAligned(v)   { uniforms.uYawAligned.value = v; },
+    setMaxYaw(deg)     { uniforms.uMaxYaw.value = deg * (Math.PI / 180); },
     setFacingJitter(v) { uniforms.uFacingJitter.value = v; },
     setFlatZ(on)       { uniforms.uFlatZ.value = on ? 1.0 : 0.0; },
 
