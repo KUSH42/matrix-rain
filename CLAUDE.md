@@ -212,6 +212,11 @@ Tears down the instance registered on `element`.
 | Heat `uHeatAmt` | `0.004` | |
 | Streak `uStreakAmt` | `0.055` | |
 | God rays `uExposure` | `0.45` | |
+| `uMsgBoost` | `2.0` | Brightness multiplier in message region (was 3.0 before message-reveal rework) |
+| `uMsgCascadeMode` | `0.0` | 0=wave, 1=radial, 2=column |
+| `uMsgSettleSharpness` | `4.0` | Per-cell crystallisation speed |
+| `uMsgCenter` | `(0.5, 0.5)` | Message centre in screen UV (for radial mode) |
+| `uMsgWorldXMin/Max` | `−8/8` | World X range for column cascade ordering |
 
 ---
 

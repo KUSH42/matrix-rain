@@ -321,50 +321,549 @@ function buildGeometry({
 // ── Instance registry ─────────────────────────────────────────────────────
 const _state = new Map();
 
-// ── Canvas text → GPU texture helper ─────────────────────────────────────
+// ── Canvas text → GPU texture helpers ────────────────────────────────────
+
 /**
- * Render a message string to a CanvasTexture sized to the renderer output.
- * Returns a THREE.CanvasTexture ready to assign to uniforms.uMsgTex.value.
+ * Map a character to its glyph atlas index for the given charSet.
+ * Returns -1 if the character has no mapping in this charset.
+ */
+function charToGlyphIdx(char, charSet) {
+  const c    = char.toUpperCase();
+  const code = c.charCodeAt(0);
+  switch (charSet) {
+    case 'ascii':
+    case 'iosevka':
+    case 'gsanscode':
+      // Printable ASCII: space(32) → index 0, through '~'(126) → index 94
+      if (code >= 32 && code <= 126) return code - 32;
+      return -1;
+    case 'latin':
+    case 'datatype':
+    case 'orbitron':
+      // A–Z → 0–25, 0–9 → 26–35
+      if (code >= 65 && code <= 90) return code - 65;
+      if (code >= 48 && code <= 57) return code - 48 + 26;
+      return -1;
+    case 'matrixcode':
+    case 'matrix1999':
+    case 'japanese':
+    case 'chinese':
+    case 'cyrillic':
+    default:
+      return -1;
+  }
+}
+
+/**
+ * Render a dual-channel message texture at 1/4 resolution.
+ * R channel: soft mask from fillText (bilinear-upsampled for soft edges).
+ * G channel: per-character target glyph index encoded as (glyphIdx+1)/255.
  *
  * @param {string} text
- * @param {number} w   renderer pixel width
- * @param {number} h   renderer pixel height
- * @param {object} [opts]
- * @param {string} [opts.font]    CSS font string (default: 'bold 80px monospace')
- * @param {string} [opts.align]   'left'|'center'|'right' (default: 'center')
- * @param {number} [opts.yFrac]   vertical position 0–1 (default: 0.5)
- * @param {number} [opts.padding] horizontal padding px (default: 48)
+ * @param {number} w       renderer pixel width
+ * @param {number} h       renderer pixel height
+ * @param {object} opts
+ * @param {string} charSet active glyph set name
  * @returns {THREE.CanvasTexture}
  */
-function renderMessageToTexture(text, w, h, opts = {}) {
-  const {
-    font    = 'bold 80px monospace',
-    align   = 'center',
-    yFrac   = 0.5,
-    padding = 48,
-  } = opts;
+function renderMessageToTexture(text, w, h, opts, charSet) {
+  const { font, align = 'center', yFrac = 0.5, padding = 48 } = opts;
+  const SCALE      = 0.25;
+  const cw         = Math.max(64, Math.round(w * SCALE));
+  const ch         = Math.max(32, Math.round(h * SCALE));
+  const scaledFont = font.replace(/(\d+)px/, (_, px) => `${Math.max(8, Math.round(px * SCALE))}px`);
 
-  const canvas  = document.createElement('canvas');
-  canvas.width  = w;
-  canvas.height = h;
-  const ctx     = canvas.getContext('2d');
+  // ── Pass 1: mask (R channel) ──────────────────────────────────────────
+  const maskCanvas  = document.createElement('canvas');
+  maskCanvas.width  = cw;
+  maskCanvas.height = ch;
+  const mCtx        = maskCanvas.getContext('2d');
+  mCtx.fillStyle    = 'black';
+  mCtx.fillRect(0, 0, cw, ch);
+  mCtx.fillStyle    = 'white';
+  mCtx.font         = scaledFont;
+  mCtx.textAlign    = align;
+  mCtx.textBaseline = 'middle';
+  const mx = align === 'center' ? cw / 2
+           : align === 'left'   ? padding * SCALE
+           :                      cw - padding * SCALE;
+  mCtx.fillText(text, mx, ch * yFrac);
+  const maskData = mCtx.getImageData(0, 0, cw, ch);
 
-  ctx.fillStyle = 'black';
-  ctx.fillRect(0, 0, w, h);
+  // ── Pass 2: glyph index (G channel) ──────────────────────────────────
+  const idxCanvas   = document.createElement('canvas');
+  idxCanvas.width   = cw;
+  idxCanvas.height  = ch;
+  const iCtx        = idxCanvas.getContext('2d');
+  iCtx.fillStyle    = 'black';
+  iCtx.fillRect(0, 0, cw, ch);
+  iCtx.font         = scaledFont;
+  iCtx.textAlign    = 'left';
+  iCtx.textBaseline = 'middle';
+  const charAdvances = [];
+  let totalWidth     = 0;
+  for (const c of text) {
+    const adv = iCtx.measureText(c).width;
+    charAdvances.push(adv);
+    totalWidth += adv;
+  }
+  let charX = align === 'center' ? mx - totalWidth / 2
+            : align === 'left'   ? mx
+            :                      mx - totalWidth;
+  for (let ci = 0; ci < text.length; ci++) {
+    const gi = charToGlyphIdx(text[ci], charSet);
+    if (gi >= 0) {
+      iCtx.fillStyle = `rgb(0,${gi + 1},0)`;
+      iCtx.fillRect(charX, 0, charAdvances[ci], ch);
+    }
+    charX += charAdvances[ci];
+  }
+  const idxData = iCtx.getImageData(0, 0, cw, ch);
 
-  ctx.fillStyle    = 'white';
-  ctx.font         = font;
-  ctx.textAlign    = align;
-  ctx.textBaseline = 'middle';
+  // ── Combine R + G ──────────────────────────────────────────────────────
+  const combined  = document.createElement('canvas');
+  combined.width  = cw;
+  combined.height = ch;
+  const cCtx      = combined.getContext('2d');
+  const out       = cCtx.createImageData(cw, ch);
+  for (let i = 0; i < cw * ch; i++) {
+    out.data[i * 4 + 0] = maskData.data[i * 4 + 0]; // R = mask
+    out.data[i * 4 + 1] = idxData.data[i * 4 + 1];  // G = glyph index
+    out.data[i * 4 + 2] = 0;
+    out.data[i * 4 + 3] = 255;
+  }
+  cCtx.putImageData(out, 0, 0);
 
-  const x = align === 'center' ? w / 2
-          : align === 'left'   ? padding
-          :                      w - padding;
-  ctx.fillText(text, x, h * yFrac);
-
-  const tex       = new THREE.CanvasTexture(canvas);
+  const tex       = new THREE.CanvasTexture(combined);
   tex.needsUpdate = true;
   return tex;
+}
+
+/**
+ * Project the message text onto rain columns, writing per-column target glyph indices.
+ * Call on showMessage() when cascadeMode === 'column'.
+ */
+function projectMessageOntoColumns(text, charSet, font, align, yFrac, padding,
+                                   camera, columnOffset, aColA, attrOut, nCols, nRows,
+                                   rendererW, rendererH) {
+  const tmpCanvas  = document.createElement('canvas');
+  tmpCanvas.width  = rendererW;
+  tmpCanvas.height = rendererH;
+  const tCtx       = tmpCanvas.getContext('2d');
+  tCtx.font        = font;
+
+  const advances = [];
+  let totalWidth = 0;
+  for (const c of text) {
+    const adv = tCtx.measureText(c).width;
+    advances.push(adv);
+    totalWidth += adv;
+  }
+  const originX = align === 'center' ? rendererW / 2 - totalWidth / 2
+                : align === 'left'   ? padding
+                :                      rendererW - padding - totalWidth;
+  const originY = yFrac * rendererH;
+
+  const fontSizeMatch = font.match(/(\d+)px/);
+  const fontSize      = fontSizeMatch ? parseFloat(fontSizeMatch[1]) : 64;
+  const halfH         = fontSize * 0.6;
+
+  const charRects = [];
+  let cx = originX;
+  for (let i = 0; i < text.length; i++) {
+    charRects.push({ x0: cx, x1: cx + advances[i], gi: charToGlyphIdx(text[i], charSet) });
+    cx += advances[i];
+  }
+
+  const proj    = new THREE.Vector4();
+  const worldPt = new THREE.Vector3();
+  camera.updateMatrixWorld();
+  const vp = new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+
+  attrOut.fill(0);
+
+  const colAArr = aColA.array;
+  for (let c = 0; c < nCols; c++) {
+    const base4 = c * nRows * 4;
+    const wx    = colAArr[base4    ] + columnOffset.x;
+    const wz    = colAArr[base4 + 1] + columnOffset.y;
+
+    worldPt.set(wx, 0, wz);
+    proj.set(worldPt.x, worldPt.y, worldPt.z, 1.0).applyMatrix4(vp);
+    if (proj.w <= 0) continue;
+    const screenX = ((proj.x / proj.w) * 0.5 + 0.5) * rendererW;
+    const screenY = ((proj.y / proj.w) * -0.5 + 0.5) * rendererH;
+
+    if (screenY < originY - halfH || screenY > originY + halfH) continue;
+
+    for (const rect of charRects) {
+      if (screenX >= rect.x0 && screenX < rect.x1 && rect.gi >= 0) {
+        const encoded = (rect.gi + 1) / 256;
+        const base    = c * nRows;
+        attrOut.fill(encoded, base, base + nRows);
+        break;
+      }
+    }
+  }
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// CAMERA CONTROLLER
+// ═════════════════════════════════════════════════════════════════════════
+
+/**
+ * Autonomous camera animation controller.
+ * Handles orbit and Lissajous flythrough modes with optional column-follow.
+ * Pre-allocates frustum/matrix/sphere to avoid per-frame GC.
+ */
+class CameraController {
+  constructor(camera) {
+    this._cam           = camera;
+    this._mode          = 'none';   // 'none' | 'orbit' | 'fly'
+    this._orbitTheta    = 0;
+    this._orbitRadius   = 6;
+    this._orbitSpeed    = 0.015;
+    this._orbitElevDeg  = 0;
+    this._flyPhase      = 0;   // raw seconds; drives heading oscillation
+    this._flySpeed      = 0.008;
+    this._flyRadius     = 4.5;
+    this._flyYaw        = 0;   // current integrated yaw (radians)
+    this._flyPitch      = 0;   // current integrated pitch (radians)
+    this._flyPos        = new THREE.Vector3();  // integrated world position
+    this._columnFollow  = false;
+    // Pre-allocated to avoid GC pressure during updateFrustumCull
+    this._frustum          = new THREE.Frustum();
+    this._projScreenMatrix = new THREE.Matrix4();
+    this._testSphere       = new THREE.Sphere(new THREE.Vector3(), 0);
+  }
+
+  setMode(mode) { this._mode = mode; }
+
+  /**
+   * Advance the camera by dt seconds.
+   * @param {number} dt  elapsed seconds
+   */
+  tick(dt) {
+    if (this._mode === 'orbit') this._tickOrbit(dt);
+    else if (this._mode === 'fly')  this._tickFly(dt);
+  }
+
+  _tickOrbit(dt) {
+    this._orbitTheta += this._orbitSpeed * Math.PI * 2 * dt;
+    const elevRad = this._orbitElevDeg * (Math.PI / 180);
+    const r = this._orbitRadius;
+    this._cam.position.set(
+      r * Math.cos(elevRad) * Math.sin(this._orbitTheta),
+      r * Math.sin(elevRad),
+      r * Math.cos(elevRad) * Math.cos(this._orbitTheta),
+    );
+    this._cam.lookAt(0, 0, 0);
+    this._cam.updateProjectionMatrix();
+  }
+
+  _tickFly(dt) {
+    // Phase accumulates as raw wall-clock seconds — heading oscillation is independent of speed
+    this._flyPhase += dt;
+    const t = this._flyPhase;
+
+    // Target yaw/pitch: slow sinusoidal banking — gentle S-curves and vertical drift
+    const targetYaw   = Math.sin(t * 0.25) * (Math.PI / 5);  // ±36°, ~25 s half-period
+    const targetPitch = Math.sin(t * 0.37) * 0.18;            // ±10°, ~17 s half-period
+
+    // Lag filter — heading changes feel like banking, not snapping
+    const lag = Math.min(1.0, 2.5 * dt);
+    this._flyYaw   += (targetYaw   - this._flyYaw)   * lag;
+    this._flyPitch += (targetPitch - this._flyPitch) * lag;
+
+    // Forward unit vector from yaw/pitch
+    const cp = Math.cos(this._flyPitch), sp = Math.sin(this._flyPitch);
+    const cy = Math.cos(this._flyYaw),   sy = Math.sin(this._flyYaw);
+    const fx = sy * cp, fy = sp, fz = cy * cp;
+
+    // Integrate position; flySpeed slider controls world-units/s directly
+    const spd = this._flySpeed * 150;   // default 0.008 → 1.2 wu/s
+    this._flyPos.x += fx * spd * dt;
+    this._flyPos.y += fy * spd * dt;
+    this._flyPos.z += fz * spd * dt;
+
+    this._cam.position.copy(this._flyPos);
+    this._cam.lookAt(
+      this._flyPos.x + fx,
+      this._flyPos.y + fy,
+      this._flyPos.z + fz,
+    );
+    this._cam.updateProjectionMatrix();
+  }
+
+  /**
+   * Update the aFrustumVis per-instance attribute based on the current camera frustum.
+   * Columns whose representative sphere intersects the frustum get vis=1, others vis=0.
+   * @param {THREE.Mesh}    mesh          the instanced glyph mesh
+   * @param {THREE.Vector2} columnOffset  current XZ offset applied to column world positions
+   * @param {number}        nCols         number of columns (e.g. 600)
+   */
+  updateFrustumCull(mesh, columnOffset, nCols) {
+    this._projScreenMatrix.multiplyMatrices(
+      this._cam.projectionMatrix,
+      this._cam.matrixWorldInverse,
+    );
+    this._frustum.setFromProjectionMatrix(this._projScreenMatrix);
+
+    const attr   = mesh.geometry.getAttribute('aFrustumVis');
+    if (!attr) return;
+    const colA   = mesh.geometry.getAttribute('aColA');
+    if (!colA) return;
+    const nRows  = attr.count / nCols;   // e.g. 72000 / 600 = 120
+    const sphere = this._testSphere;
+    sphere.radius = 8;  // large enough to cover a full column height and trail
+
+    // Direct typed-array access for performance (avoids 72k getter calls)
+    const colAArr = colA.array;   // Float32Array, itemSize=4: wx, wz, speed, seed per instance
+    const visArr  = attr.array;   // Float32Array, itemSize=1
+
+    for (let c = 0; c < nCols; c++) {
+      // aColA entries are ordered col0_row0, col0_row1, ..., col0_rowN, col1_row0, ...
+      // so column c's first instance is at flat index c * nRows, offset by itemSize=4
+      const flatBase = c * nRows * 4;
+      const wx = colAArr[flatBase    ] + columnOffset.x;
+      const wz = colAArr[flatBase + 1] + columnOffset.y;
+      sphere.center.set(wx, 0, wz);
+      const vis = this._frustum.intersectsSphere(sphere) ? 1.0 : 0.0;
+      visArr.fill(vis, c * nRows, c * nRows + nRows);
+    }
+    attr.needsUpdate = true;
+  }
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// CCP EASTER EGG — module-scope constants and helpers
+// ═════════════════════════════════════════════════════════════════════════
+
+// Xi Jinping braille copypasta — well-known public-domain counter-censorship art.
+const CCP_ART = [
+  // [0] Full portrait ~30 lines
+  `⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⣠⣤⣤⣤⣄⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⣴⣿⣿⣿⣿⣿⣿⣿⣦⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣰⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣆⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣸⣿⠟⠻⣿⣿⣿⣿⣿⣿⣿⡟⠻⣿⣆⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⣿⡏⠀⠀⠙⢿⣿⣿⣿⡿⠋⠀⠀⢹⣿⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⣿⠃⠀⠀⠀⠀⠉⠉⠉⠀⠀⠀⠀⠸⣿⡇⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⣿⠀⠀⢠⡄⠀⠀⠀⠀⠀⢠⡄⠀⠀⣿⡇⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠘⣿⡄⠀⠈⠁⠀⠀⠀⠀⠀⠈⠁⠀⢠⣿⠃⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢹⣿⣦⡀⠀⠀⢀⣀⣀⠀⠀⢀⣴⣿⡏⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠙⢿⣿⣷⣶⣿⣿⣿⣶⣾⣿⡿⠋⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠉⠛⠿⣿⣿⣿⠿⠛⠉⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢠⣶⣶⣶⣶⣶⣶⣿⣿⣿⣶⣶⣶⣶⣶⣶⡄⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢹⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣸⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⣿⣿⣿⣿⣿⣿⡿⠿⠿⣿⣿⣿⣿⣿⣿⣄⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣾⣿⣿⣿⣿⣿⡟⠀⠀⠀⠀⢻⣿⣿⣿⣿⣿⡆⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢠⣿⣿⣿⣿⣿⣿⠁⠀⠀⠀⠀⠈⣿⣿⣿⣿⣿⣿⡄⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢠⣾⣿⣿⣿⣿⣿⣿⣷⣦⣤⣤⣦⣾⣿⣿⣿⣿⣿⣿⣷⡄⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢠⣿⣿⣿⠟⠛⠛⠻⣿⣿⣿⣿⣿⣿⣿⡿⠛⠛⠻⣿⣿⣿⣿⡄⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢠⣿⣿⣿⡏⠀⠀⠀⠀⠈⢿⣿⣿⣿⣿⡿⠁⠀⠀⠀⢹⣿⣿⣿⣿⡄⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⢠⣿⣿⣿⣿⠀⠀⠀⠀⠀⠀⠀⠉⠛⠛⠉⠀⠀⠀⠀⠀⠀⣿⣿⣿⣿⣿⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⣠⣿⣿⣿⣿⣿⣆⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣼⣿⣿⣿⣿⣿⣿⣄⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠻⣿⣿⣿⣿⣿⣿⣷⣦⣄⣀⣀⣀⣀⣀⣀⣀⣀⣀⣤⣴⣾⣿⣿⣿⣿⣿⣿⣿⠟⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠛⢿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡿⠛⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠉⠛⠿⢿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡿⠿⠛⠉⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠉⠉⠛⠛⠿⠿⠿⠿⠛⠛⠉⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀`,
+
+  // [1] Compact bust variant ~18 lines
+  `⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⣠⣤⣤⣄⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⣴⣿⣿⣿⣿⣿⣿⣦⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⣰⣿⣿⡿⠛⠁⠈⠙⢿⣿⣿⣆⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⢸⣿⣿⠃⠀⠀⠀⠀⠀⠀⠹⣿⣿⡇⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⢸⣿⡇⠀⢠⡄⠀⠀⢠⡄⠀⢸⣿⡇⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠸⣿⣧⡀⠀⠀⠀⠀⠀⠀⢀⣿⣿⠇⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠹⣿⣿⣶⣤⣤⣤⣤⣶⣿⣿⠏⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠙⠿⣿⣿⣿⣿⠿⠛⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⢠⣶⣶⣶⣾⣿⣿⣷⣶⣶⣶⡄⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⢸⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡇⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⢠⣿⣿⣿⠟⠛⠛⢿⣿⣿⠛⠛⣿⣿⣿⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⢠⣿⣿⣿⡏⠀⠀⠀⠀⠙⠁⠀⠀⢹⣿⣿⣿⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⢠⣿⣿⣿⣿⣷⣤⣀⣀⣀⣀⣀⣀⣤⣾⣿⣿⣿⣿⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠈⠻⢿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡿⠟⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠈⠉⠛⠿⠿⣿⣿⣿⣿⠿⠿⠛⠉⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀`,
+
+  // [2] Dense fill portrait ~22 lines
+  `⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣀⣤⣴⣶⣶⣶⣶⣶⣶⣶⣦⣤⣀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⣴⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣷⣄⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⣴⣿⣿⣿⡿⠿⠛⠛⠉⠉⠉⠉⠛⠛⠿⢿⣿⣿⣿⣿⣦⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⣼⣿⣿⡿⠋⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠙⢿⣿⣿⣿⣧⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⢸⣿⣿⠏⠀⠀⠀⢀⡄⠀⠀⠀⠀⠀⠀⢠⡀⠀⠀⠀⠹⣿⣿⣿⡇⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⣿⣿⡟⠀⠀⠀⠀⣿⡇⠀⠀⠀⠀⠀⠀⢸⣿⠀⠀⠀⠀⢹⣿⣿⣿⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⣿⣿⡇⠀⠀⠀⠀⠙⠁⠀⠀⠀⠀⠀⠀⠈⠋⠀⠀⠀⠀⢸⣿⣿⣿⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⢻⣿⣷⡀⠀⠀⠀⠀⠀⠀⣀⣀⣀⠀⠀⠀⠀⠀⠀⠀⢀⣾⣿⣿⡟⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠻⣿⣿⣶⣤⣀⣀⣾⣿⣿⣿⣿⣿⣿⣀⣀⣤⣶⣿⣿⣿⣿⠟⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠈⠙⠻⠿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠿⠟⠛⠉⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡇⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣾⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣷⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢠⣿⣿⣿⣿⡿⠛⠛⠛⠛⢿⣿⣿⣿⣿⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢠⣿⣿⣿⣿⡟⠀⠀⠀⠀⠀⠀⢻⣿⣿⣿⣿⡄⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⢠⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⣾⣿⣿⣿⡿⠟⠛⠛⠉⠉⠉⠉⠛⠛⠿⢿⣿⣿⣿⣿⣿⣧⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⢸⣿⣿⣿⡟⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢻⣿⣿⣿⣿⣿⡇⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⣠⣿⣿⣿⣿⣷⣶⣶⣶⣶⣶⣶⣶⣶⣶⣶⣶⣾⣿⣿⣿⣿⣿⣿⣧⡄⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠸⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠇⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠙⠿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡿⠟⠃⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠉⠛⠻⠿⢿⣿⣿⣿⣿⣿⣿⡿⠿⠟⠛⠉⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀`,
+];
+
+// Panel position table: azimuth (rad), radius, y offset, flash phase (rad)
+const _CCP_POSES = [
+  { az: 0.0,   r: 22, y: +1.5, phase: 0.0   },
+  { az: 2.094, r: 24, y: -1.0, phase: 2.094 },
+  { az: 4.189, r: 21, y: +2.5, phase: 4.189 },
+];
+
+// CCP mode expansion constants
+const CCP_SLOGANS = [
+  '\u4e3a\u4eba\u6c11\u670d\u52a1',   // 为人民服务 Serve the People
+  '\u4e2d\u56fd\u68a6',               // 中国梦 Chinese Dream
+  '\u4e0d\u5fd8\u521d\u5fc3',         // 不忘初心 Never Forget the Original Mission
+  '\u548c\u8c10\u793e\u4f1a',         // 和谐社会 Harmonious Society
+  '\u5929\u5b89\u95e8',               // 天安门 Tiananmen
+];
+
+const TIANANMEN_ART = [
+  '\u256c\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u256c',
+  '\u2551  \u25b2\u25b2\u25b2  \u25b2\u25b2\u25b2  \u25b2\u25b2\u25b2  \u25b2\u25b2\u25b2  \u25b2\u25b2\u25b2  \u25b2\u25b2\u25b2  \u25b2\u25b2\u25b2  \u2551',
+  '\u2551 \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2551',
+  '\u2560\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2566\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2566\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2563',
+  '\u2551 \u2591\u2591\u2591\u2591\u2591\u2591 \u2551  \u2588\u2588\u2588  \u2588\u2588\u2588\u2588\u2588  \u2588\u2588\u2588  \u2588\u2588\u2588  \u2551 \u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591 \u2551',
+  '\u2551 \u2591\u2591\u2591\u2591\u2591\u2591 \u2551  \u2588\u2588\u2588  \u2588\u2588\u2588\u2588\u2588  \u2588\u2588\u2588  \u2588\u2588\u2588  \u2551 \u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591 \u2551',
+  '\u2560\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u256c\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u256c\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2563',
+  '\u2551 \u2591\u2591\u2591\u2591\u2591\u2591 \u2551  \u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591  \u2551 \u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591 \u2551',
+  '\u2551        \u2551  \u2591\u2591 \u5929 \u5b89 \u95e8 \u5e7f \u573a \u2591\u2591  \u2551          \u2551',
+  '\u2551 \u2591\u2591\u2591\u2591\u2591\u2591 \u2551  \u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591  \u2551 \u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591 \u2551',
+  '\u2560\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u256c\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u256c\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2563',
+  '\u2551\u2591\u2591\u2591\u2591\u2591\u2591\u2591 \u2551 \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 \u2551 \u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591 \u2551',
+  '\u2551\u2591\u2591\u2591\u2591\u2591\u2591\u2591 \u2551 \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 \u2551 \u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591 \u2551',
+  '\u2560\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2569\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2569\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2563',
+  '\u2551 \u2588\u2588\u2588   \u2588\u2588\u2588   \u2588\u2588\u2588   \u2588\u2588\u2588   \u2588\u2588\u2588   \u2588\u2588\u2588   \u2588\u2588\u2588  \u2551',
+  '\u2551 \u2588\u2588\u2588   \u2588\u2588\u2588   \u2588\u2588\u2588   \u2588\u2588\u2588   \u2588\u2588\u2588   \u2588\u2588\u2588   \u2588\u2588\u2588  \u2551',
+  '\u2560\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2563',
+  '\u2551  \u2502  \u2502  \u2502  \u2502  \u2502  \u2502  \u2502  \u2502  \u2502  \u2502  \u2502  \u2502  \u2502  \u2502  \u2551',
+  '\u2558\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2565',
+].join('\n');
+
+/**
+ * Draw a 5-pointed star on a 2D canvas context.
+ */
+function drawStar(ctx, cx, cy, outerR, innerR, points, rotation) {
+  ctx.beginPath();
+  for (let i = 0; i < points * 2; i++) {
+    const r     = i % 2 === 0 ? outerR : innerR;
+    const angle = rotation + i * Math.PI / points;
+    if (i === 0) ctx.moveTo(cx + r * Math.cos(angle), cy + r * Math.sin(angle));
+    else         ctx.lineTo(cx + r * Math.cos(angle), cy + r * Math.sin(angle));
+  }
+  ctx.closePath();
+  ctx.fill();
+}
+
+/**
+ * Build a canvas texture with Xi Jinping braille ASCII art in red on transparent bg.
+ */
+function buildBrailleTexture(artStr) {
+  const canvas = document.createElement('canvas');
+  canvas.width  = 768;
+  canvas.height = 512;
+  const ctx   = canvas.getContext('2d');
+  const lines = artStr.split('\n');
+  ctx.font      = '16px monospace';
+  ctx.fillStyle = '#ff2020';
+  ctx.textBaseline = 'top';
+  let maxW = 0;
+  for (const l of lines) {
+    const w = ctx.measureText(l).width;
+    if (w > maxW) maxW = w;
+  }
+  const xOffset = (canvas.width - maxW) / 2;
+  const yStep   = canvas.height / (lines.length + 2);
+  for (let i = 0; i < lines.length; i++) {
+    ctx.fillText(lines[i], xOffset, yStep + i * yStep);
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.needsUpdate = true;
+  return tex;
+}
+
+/**
+ * Build a canvas texture of the PRC five-star flag.
+ */
+function buildFlagTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width  = 512;
+  canvas.height = 341;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#DE2910';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = '#FFDE00';
+  const lcx = 170, lcy = 85;
+  drawStar(ctx, lcx, lcy, 51, 21, 5, -Math.PI / 2);
+  const smalls = [
+    { cx: 256, cy: 34  },
+    { cx: 291, cy: 68  },
+    { cx: 291, cy: 116 },
+    { cx: 256, cy: 153 },
+  ];
+  for (const s of smalls) {
+    const rot = Math.atan2(lcy - s.cy, lcx - s.cx) - Math.PI / 2;
+    drawStar(ctx, s.cx, s.cy, 20, 8, 5, rot);
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.needsUpdate = true;
+  return tex;
+}
+
+/**
+ * Build a canvas texture of Tiananmen Gate ASCII art (gold on red).
+ */
+function buildTiananmenTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width  = 768;
+  canvas.height = 480;
+  const ctx   = canvas.getContext('2d');
+  ctx.fillStyle = '#DE2910';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.font         = '15px monospace';
+  ctx.fillStyle    = '#FFDE00';
+  ctx.textBaseline = 'top';
+  const lines = TIANANMEN_ART.split('\n');
+  let maxW = 0;
+  for (const l of lines) {
+    const w = ctx.measureText(l).width;
+    if (w > maxW) maxW = w;
+  }
+  const xOffset = (canvas.width - maxW) / 2;
+  const yStep   = (canvas.height - 40) / (lines.length + 2);
+  for (let i = 0; i < lines.length; i++) {
+    ctx.fillText(lines[i], xOffset, yStep + i * yStep);
+  }
+  ctx.font = '14px monospace';
+  const lastY  = yStep + lines.length * yStep + 20;
+  const label  = '\u5929\u5b89\u95e8';
+  const labelW = ctx.measureText(label).width;
+  ctx.fillText(label, (canvas.width - labelW) / 2, lastY);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.needsUpdate = true;
+  return tex;
+}
+
+/**
+ * Convert 0–1 float channels to '#rrggbb' hex string.
+ */
+function toHex(r, g, b) {
+  return '#' + [r, g, b].map(v =>
+    Math.round(v * 255).toString(16).padStart(2, '0')
+  ).join('');
 }
 
 // ═════════════════════════════════════════════════════════════════════════
@@ -404,6 +903,8 @@ export function initMatrixRain(element, opts = {}) {
     speedRange     = null,
     trailRange     = null,
   } = opts;
+
+  let _activeCharSet = charSet;  // mutable; updated by setCharSet()
 
   const _geomParams = {
     speedMin:     speedRange?.[0] ?? 0.8,
@@ -451,6 +952,9 @@ export function initMatrixRain(element, opts = {}) {
   camera.position.set(0, 0, 6);
   camera.lookAt(0, 0, 0);
 
+  const _columnOffset = new THREE.Vector2();
+  const camCtrl       = new CameraController(camera);
+
   // ── Atlas & material ──────────────────────────────────────────────────
   const atlasTex = loadMSDF(resolvedPath);
 
@@ -485,6 +989,18 @@ export function initMatrixRain(element, opts = {}) {
   mesh.frustumCulled = false;
   mesh.renderOrder   = 1;
   scene.add(mesh);
+
+  // ── Frustum visibility attribute (per-instance) ───────────────────────
+  // All cells start visible (1.0); updateFrustumCull() writes 0 for off-screen columns.
+  const frustumVisData = new Float32Array(mesh.geometry.instanceCount).fill(1);
+  const frustumVisAttr = new THREE.InstancedBufferAttribute(frustumVisData, 1);
+  mesh.geometry.setAttribute('aFrustumVis', frustumVisAttr);
+
+  // ── Column message glyph attribute (per-instance) ─────────────────────
+  // Filled by projectMessageOntoColumns() on showMessage(); cleared on fade-out.
+  const colMsgGlyphData = new Float32Array(mesh.geometry.instanceCount).fill(0);
+  const colMsgGlyphAttr = new THREE.InstancedBufferAttribute(colMsgGlyphData, 1);
+  mesh.geometry.setAttribute('aColMsgGlyph', colMsgGlyphAttr);
 
   // ── Phosphor persistence ──────────────────────────────────────────────
   // prevRT is lazily created at full renderer resolution on first use.
@@ -652,11 +1168,33 @@ export function initMatrixRain(element, opts = {}) {
   }
 
   // ── Message reveal state ──────────────────────────────────────────────
-  let msgState       = 'idle';  // 'idle' | 'revealing' | 'holding' | 'fading'
-  let msgRevealSpeed = 0;       // wave units per second (screen widths)
-  let msgHoldEnd     = 0;       // absolute time (s) when hold ends
-  let msgFadeSpeed   = 0;       // progress units per second
-  let msgTex         = null;    // current CanvasTexture; disposed on new message / idle
+  let msgState        = 'idle';  // 'idle' | 'revealing' | 'holding' | 'fading'
+  let msgRevealSpeed  = 0;       // wave units per second (screen widths or radial)
+  let msgHoldDuration = 0;       // hold duration in seconds (set on showMessage)
+  let msgHoldEnd      = 0;       // absolute timestamp when hold ends (set on entering 'holding')
+  let msgFadeSpeed    = 0;       // progress units per second
+  let msgTex          = null;    // current CanvasTexture; disposed on new message / idle
+  let msgCascadeMode  = 0;       // mirror of uMsgCascadeMode.value for tick() branching
+
+  // ── CCP easter egg state ───────────────────────────────────────────────
+  let _ccpActive      = false;
+  let _ccpFadeT       = 0;       // 0 = hidden, 1 = fully visible
+  let _ccpFadeDir     = 0;       // +1 fading in, -1 fading out, 0 stable
+  let _ccpPanels      = [];      // { mesh, canvasTex, phase, yBase }
+  let _ccpFlashHz     = 1.2;
+  let _ccpPeakOpacity = 0.72;
+  let _ccpScale       = 1.0;
+  let _ccpPanelCount  = 3;
+  let _ccpOrbitSpeed  = 0.0;
+  let _ccpOrbitAngle  = 0.0;
+  // Expansion state
+  let _ccpSaved        = null;
+  let _ccpRainOverride = true;
+  let _currentCharSet  = charSet;  // tracks active charset name; updated in setCharSet()
+  let _ccpSloganActive = true;
+  let _ccpSloganTimer  = null;
+  let _ccpSloganIdx    = 0;
+  let _ccpExtraMeshes  = [];      // flag + Tiananmen panel meshes
 
   // ── Animate ───────────────────────────────────────────────────────────
   const animRef = { id: 0 };
@@ -680,6 +1218,17 @@ export function initMatrixRain(element, opts = {}) {
     prevTs = t;
 
     if (!_frozen) uniforms.uTime.value = t;
+
+    if (!activeSyncCamera) {
+      camCtrl.tick(dt);
+      if (camCtrl._columnFollow) {
+        uniforms.uColumnOffset.value.set(camera.position.x, camera.position.z);
+        _columnOffset.set(camera.position.x, camera.position.z);
+      }
+      if (camCtrl._mode !== 'none') {
+        camCtrl.updateFrustumCull(mesh, _columnOffset, _geomParams.nCols);
+      }
+    }
 
     if (activeSyncCamera) {
       camera.position.copy(activeSyncCamera.position);
@@ -724,24 +1273,61 @@ export function initMatrixRain(element, opts = {}) {
     if (msgState !== 'idle') {
       const u = uniforms;
       if (msgState === 'revealing') {
-        u.uMsgWaveX.value = Math.min(1.0, u.uMsgWaveX.value + msgRevealSpeed * dt);
-        u.uMsgRevealProgress.value = 1.0;
-        if (u.uMsgWaveX.value >= 1.0) {
-          msgState   = 'holding';
-          msgHoldEnd = t + msgHoldEnd;  // msgHoldEnd held the duration; now absolute time
+        if (msgCascadeMode === 1) {   // radial
+          u.uMsgWaveR.value = Math.min(1.6, u.uMsgWaveR.value + msgRevealSpeed * dt);
+          u.uMsgRevealProgress.value = 1.0;
+          if (u.uMsgWaveR.value >= 1.6) { msgState = 'holding'; msgHoldEnd = t + msgHoldDuration; }
+        } else {                      // wave or column
+          u.uMsgWaveX.value = Math.min(1.0, u.uMsgWaveX.value + msgRevealSpeed * dt);
+          u.uMsgRevealProgress.value = 1.0;
+          if (u.uMsgWaveX.value >= 1.0) { msgState = 'holding'; msgHoldEnd = t + msgHoldDuration; }
         }
       } else if (msgState === 'holding') {
-        if (t >= msgHoldEnd) {
-          msgState = 'fading';
-        }
+        if (t >= msgHoldEnd) msgState = 'fading';
       } else if (msgState === 'fading') {
-        u.uMsgRevealProgress.value = Math.max(0.0, u.uMsgRevealProgress.value - msgFadeSpeed * dt);
-        if (u.uMsgRevealProgress.value <= 0.0) {
-          msgState           = 'idle';
-          u.uMsgWaveX.value  = 0.0;
+        u.uMsgRevealProgress.value = Math.max(0, u.uMsgRevealProgress.value - msgFadeSpeed * dt);
+        if (u.uMsgRevealProgress.value <= 0) {
+          msgState = 'idle';
+          u.uMsgWaveX.value = 0.0;
+          u.uMsgWaveR.value = 0.0;
           if (msgTex) { try { msgTex.dispose(); } catch (_) {} msgTex = null; }
-          u.uMsgTex.value    = dummyMsgTex;
+          u.uMsgTex.value = dummyMsgTex;
+          // Reset column mode attribute
+          const attr = mesh.geometry.getAttribute('aColMsgGlyph');
+          if (attr) { attr.array.fill(0); attr.needsUpdate = true; }
         }
+      }
+    }
+
+    // ── CCP mode panel animation ──────────────────────────────────────────
+    if (_ccpFadeDir !== 0 || _ccpPanels.length > 0 || _ccpExtraMeshes.length > 0) {
+      if (_ccpFadeDir !== 0) {
+        const speed = _ccpFadeDir > 0 ? (1 / 0.8) : (1 / 0.5);
+        _ccpFadeT = Math.max(0, Math.min(1, _ccpFadeT + _ccpFadeDir * dt * speed));
+        if (_ccpFadeT <= 0 && _ccpFadeDir < 0) {
+          _destroyCCPPanels();
+          _destroyCCPExtras();
+          _ccpFadeDir = 0;
+        }
+        if (_ccpFadeT >= 1) _ccpFadeDir = 0;
+      }
+      _ccpOrbitAngle += _ccpOrbitSpeed * dt;
+      for (let i = 0; i < _ccpPanels.length; i++) {
+        const p  = _ccpPanels[i];
+        const az = _CCP_POSES[i].az + _ccpOrbitAngle;
+        const r  = _CCP_POSES[i].r;
+        p.mesh.position.set(
+          Math.sin(az) * r,
+          p.yBase + Math.sin(t * 0.4 + p.phase) * 0.4,
+          -Math.cos(az) * r
+        );
+        p.mesh.quaternion.copy(camera.quaternion);
+        const flash = 0.5 + 0.5 * Math.sin(t * _ccpFlashHz * Math.PI * 2 + p.phase);
+        p.mesh.material.opacity = _ccpPeakOpacity * flash * _ccpFadeT;
+      }
+      for (const m of _ccpExtraMeshes) {
+        m.mesh.quaternion.copy(camera.quaternion);
+        m.mesh.material.opacity = m.opacityFn(t, _ccpFadeT);
       }
     }
   }
@@ -877,15 +1463,145 @@ export function initMatrixRain(element, opts = {}) {
     currentRainNodes?.dispose();
     crtHandle?.destroy?.();
     if (msgTex) { try { msgTex.dispose(); } catch (_) {} msgTex = null; }
+    clearTimeout(_ccpSloganTimer);
+    _destroyCCPPanels();
+    _destroyCCPExtras();
   }
   const s = { renderer, ro, animRef, geom, material, atlasTex, dummyRT, dummyMsgTex, uniforms, mesh, _cleanup };
   _state.set(element, s);
 
   function rebuildGeom() {
     const newGeom = buildGeometry(_geomParams);
+    // Re-attach frustum visibility attribute (new geometry has more instances after rebuild)
+    const newVisData = new Float32Array(newGeom.instanceCount).fill(1);
+    const newVisAttr = new THREE.InstancedBufferAttribute(newVisData, 1);
+    newGeom.setAttribute('aFrustumVis', newVisAttr);
+    // Re-attach column message glyph attribute (cleared on rebuild)
+    const newMsgData = new Float32Array(newGeom.instanceCount).fill(0);
+    const newMsgAttr = new THREE.InstancedBufferAttribute(newMsgData, 1);
+    newGeom.setAttribute('aColMsgGlyph', newMsgAttr);
     mesh.geometry.dispose();
     mesh.geometry = newGeom;
     s.geom = newGeom;
+  }
+
+  function _resetFrustumVis() {
+    const attr = mesh.geometry.getAttribute('aFrustumVis');
+    if (!attr) return;
+    attr.array.fill(1);
+    attr.needsUpdate = true;
+  }
+
+  // ── CCP panel helpers ─────────────────────────────────────────────────
+  function _initCCPPanels() {
+    if (_ccpPanels.length > 0) return;  // already initialised
+    const count = Math.min(_ccpPanelCount, _CCP_POSES.length);
+    for (let i = 0; i < count; i++) {
+      const artStr   = CCP_ART[i % CCP_ART.length];
+      const canvasTex = buildBrailleTexture(artStr);
+      const panelW   = 16 * _ccpScale;
+      const panelH   = panelW * (512 / 768);
+      const geom     = new THREE.PlaneGeometry(panelW, panelH);
+      const mat      = new THREE.MeshBasicMaterial({
+        map:         canvasTex,
+        transparent: true,
+        opacity:     0,
+        depthWrite:  false,
+        side:        THREE.DoubleSide,
+        blending:    THREE.AdditiveBlending,
+      });
+      const mesh2 = new THREE.Mesh(geom, mat);
+      scene.add(mesh2);
+      _ccpPanels.push({ mesh: mesh2, canvasTex, phase: _CCP_POSES[i].phase, yBase: _CCP_POSES[i].y });
+    }
+  }
+
+  function _destroyCCPPanels() {
+    for (const p of _ccpPanels) {
+      scene.remove(p.mesh);
+      p.mesh.geometry.dispose();
+      p.mesh.material.dispose();
+      p.canvasTex.dispose();
+    }
+    _ccpPanels = [];
+  }
+
+  // ── CCP extras helpers (flag + Tiananmen) ─────────────────────────────
+  function _initCCPExtras() {
+    if (_ccpExtraMeshes.length > 0) return;
+
+    // Five-star flag
+    const flagTex  = buildFlagTexture();
+    const flagW    = 14 * _ccpScale;
+    const flagH    = flagW * (341 / 512);
+    const flagGeom = new THREE.PlaneGeometry(flagW, flagH);
+    const flagMat  = new THREE.MeshBasicMaterial({
+      map:         flagTex,
+      transparent: true,
+      opacity:     0,
+      depthWrite:  false,
+      side:        THREE.DoubleSide,
+      blending:    THREE.AdditiveBlending,
+    });
+    const flagMesh = new THREE.Mesh(flagGeom, flagMat);
+    const flagAz   = 0.52;
+    flagMesh.position.set(Math.sin(flagAz) * 15, 4.0, -Math.cos(flagAz) * 15);
+    scene.add(flagMesh);
+    _ccpExtraMeshes.push({
+      mesh:      flagMesh,
+      canvasTex: flagTex,
+      opacityFn: (t, fadeT) => (0.4 + 0.15 * Math.sin(t * 0.6)) * fadeT,
+    });
+
+    // Tiananmen gate
+    const tTex  = buildTiananmenTexture();
+    const tW    = 13 * _ccpScale;
+    const tH    = tW * (480 / 768);
+    const tGeom = new THREE.PlaneGeometry(tW, tH);
+    const tMat  = new THREE.MeshBasicMaterial({
+      map:         tTex,
+      transparent: true,
+      opacity:     0,
+      depthWrite:  false,
+      side:        THREE.DoubleSide,
+      blending:    THREE.AdditiveBlending,
+    });
+    const tMesh = new THREE.Mesh(tGeom, tMat);
+    tMesh.position.set(Math.sin(Math.PI) * 20, -3.0, -Math.cos(Math.PI) * 20);
+    scene.add(tMesh);
+    _ccpExtraMeshes.push({
+      mesh:      tMesh,
+      canvasTex: tTex,
+      opacityFn: (_t, fadeT) => 0.45 * fadeT,
+    });
+  }
+
+  function _destroyCCPExtras() {
+    for (const m of _ccpExtraMeshes) {
+      scene.remove(m.mesh);
+      m.mesh.geometry.dispose();
+      m.mesh.material.dispose();
+      m.canvasTex.dispose();
+    }
+    _ccpExtraMeshes = [];
+  }
+
+  // ── CCP slogan cycling ────────────────────────────────────────────────
+  function _startSlogans() {
+    if (!_ccpSloganActive) return;
+    _ccpSloganIdx = 0;
+    function showNext() {
+      if (!_ccpActive || !_ccpSloganActive) return;
+      handle.showMessage(CCP_SLOGANS[_ccpSloganIdx % CCP_SLOGANS.length], {
+        revealDuration: 1.2,
+        holdDuration:   3.0,
+        fadeDuration:   0.8,
+        boost:          4.0,
+      });
+      _ccpSloganIdx++;
+      _ccpSloganTimer = setTimeout(showNext, (1.2 + 3.0 + 0.8 + 1.5) * 1000);
+    }
+    _ccpSloganTimer = setTimeout(showNext, 2500);
   }
 
   // ── Control handle ────────────────────────────────────────────────────
@@ -1165,6 +1881,7 @@ export function initMatrixRain(element, opts = {}) {
      * @param {string} name  Key from CHAR_SETS: 'matrixcode'|'matrix1999'|'latin'|'ascii'
      */
     setCharSet(name) {
+      _currentCharSet = name;  // track for CCP save/restore
       const descriptor = CHAR_SETS[name];
       if (!descriptor) {
         console.warn(`matrix-rain: unknown charSet '${name}'. Valid keys: ${Object.keys(CHAR_SETS).join(', ')}`);
@@ -1191,6 +1908,7 @@ export function initMatrixRain(element, opts = {}) {
         uniforms.uAtlasGridH.value = descriptor.gridH;
         applyGlyphWeightLUT(name, descriptor.glyphCount, uniforms);
         uniforms.uAtlasMTSDF.value = (name === 'matrixcode') ? 0.0 : 1.0;
+        _activeCharSet = name;
       });
     },
 
@@ -1265,17 +1983,20 @@ export function initMatrixRain(element, opts = {}) {
 
     // ── Message reveal API ────────────────────────────────────────────────
     /**
-     * Display a message by brightening rain glyphs in the text region.
+     * Display a message by resolving rain glyphs into the target characters.
      *
      * @param {string} text
      * @param {object} [opts]
-     * @param {string} [opts.font]            CSS font for canvas rendering (default: 'bold 80px monospace')
-     * @param {string} [opts.align]           'left'|'center'|'right' (default: 'center')
-     * @param {number} [opts.yFrac]           vertical centre 0–1 (default: 0.5)
-     * @param {number} [opts.revealDuration]  seconds for wave to sweep screen (default: 1.5)
-     * @param {number} [opts.holdDuration]    seconds to hold after reveal (default: 3.0)
-     * @param {number} [opts.fadeDuration]    seconds to fade out (default: 1.0)
-     * @param {number} [opts.boost]           brightness multiplier in text region (default: 3.0)
+     * @param {string} [opts.font]             CSS font at renderer height (default: 'bold {8%h}px monospace')
+     * @param {string} [opts.align]            'left'|'center'|'right' (default: 'center')
+     * @param {number} [opts.yFrac]            vertical centre 0–1 (default: 0.5)
+     * @param {number} [opts.padding]          horizontal padding px (default: 48)
+     * @param {string} [opts.cascadeMode]      'wave'|'radial'|'column' (default: 'wave')
+     * @param {number} [opts.revealDuration]   seconds for cascade to complete (default: 1.5)
+     * @param {number} [opts.holdDuration]     seconds to hold after reveal (default: 3.0)
+     * @param {number} [opts.fadeDuration]     seconds to fade out (default: 1.0)
+     * @param {number} [opts.boost]            brightness multiplier during active reveal (default: 2.0)
+     * @param {number} [opts.settleSharpness]  how quickly per-cell crystallisation completes (default: 4.0)
      */
     showMessage(text, opts = {}) {
       if (msgTex) { try { msgTex.dispose(); } catch (_) {} }
@@ -1284,25 +2005,65 @@ export function initMatrixRain(element, opts = {}) {
       const h = renderer.domElement.height || element.clientHeight || 512;
 
       const {
-        font           = `bold ${Math.max(48, Math.round(h * 0.08))}px monospace`,
-        align          = 'center',
-        yFrac          = 0.5,
-        revealDuration = 1.5,
-        holdDuration   = 3.0,
-        fadeDuration   = 1.0,
-        boost          = 3.0,
+        font             = `bold ${Math.max(32, Math.round(h * 0.08))}px monospace`,
+        align            = 'center',
+        yFrac            = 0.5,
+        padding          = 48,
+        cascadeMode      = 'wave',
+        revealDuration   = 1.5,
+        holdDuration     = 3.0,
+        fadeDuration     = 1.0,
+        boost            = 2.0,
+        settleSharpness  = 4.0,
       } = opts;
 
-      msgTex = renderMessageToTexture(text, w, h, { font, align, yFrac });
-      uniforms.uMsgTex.value            = msgTex;
-      uniforms.uMsgRevealProgress.value = 0.0;
-      uniforms.uMsgWaveX.value          = 0.0;
-      uniforms.uMsgBoost.value          = boost;
+      const modeFloat = cascadeMode === 'radial' ? 1.0 : cascadeMode === 'column' ? 2.0 : 0.0;
+      msgCascadeMode = modeFloat;
+      uniforms.uMsgCascadeMode.value     = modeFloat;
+      uniforms.uMsgBoost.value           = boost;
+      uniforms.uMsgSettleSharpness.value = settleSharpness;
+      uniforms.uMsgCenter.value.set(
+        align === 'center' ? 0.5 : align === 'left' ? 0.15 : 0.85,
+        // CanvasTexture default flipY=true: screenUV.y=0 (top) maps to canvas bottom row.
+        // Canvas draws text at pixel y = h * yFrac, so GPU sees it at screenUV.y = 1 - yFrac.
+        1.0 - yFrac,
+      );
 
-      msgRevealSpeed = 1.0 / revealDuration;
-      msgHoldEnd     = holdDuration;        // tick() converts to absolute time on wave complete
-      msgFadeSpeed   = 1.0 / fadeDuration;
-      msgState       = 'revealing';
+      if (cascadeMode === 'column') {
+        uniforms.uMsgTex.value = dummyMsgTex;
+        const attr = mesh.geometry.getAttribute('aColMsgGlyph');
+        const colA = mesh.geometry.getAttribute('aColA');
+        if (attr && colA) {
+          projectMessageOntoColumns(
+            text, _activeCharSet, font, align, yFrac, padding,
+            camera, _columnOffset, colA, attr.array,
+            _geomParams.nCols, N_ROWS, w, h,
+          );
+          attr.needsUpdate = true;
+        }
+        if (colA) {
+          const colAArr = colA.array;
+          let xMin = Infinity, xMax = -Infinity;
+          for (let c = 0; c < _geomParams.nCols; c++) {
+            const wx = colAArr[c * N_ROWS * 4] + _columnOffset.x;
+            if (wx < xMin) xMin = wx;
+            if (wx > xMax) xMax = wx;
+          }
+          uniforms.uMsgWorldXMin.value = xMin;
+          uniforms.uMsgWorldXMax.value = xMax;
+        }
+      } else {
+        msgTex = renderMessageToTexture(text, w, h, { font, align, yFrac, padding }, _activeCharSet);
+        uniforms.uMsgTex.value = msgTex;
+      }
+
+      uniforms.uMsgRevealProgress.value = 0.0;
+      uniforms.uMsgWaveX.value  = 0.0;
+      uniforms.uMsgWaveR.value  = 0.0;
+      msgRevealSpeed   = 1.0 / revealDuration;
+      msgHoldDuration  = holdDuration;
+      msgFadeSpeed     = 1.0 / fadeDuration;
+      msgState         = 'revealing';
     },
 
     /**
@@ -1339,6 +2100,108 @@ export function initMatrixRain(element, opts = {}) {
      */
     onResize(w, h) { uAspect.value = w / h; },
 
+    // ── Camera controls ───────────────────────────────────────────────────
+    /**
+     * Set camera field of view. No-op when syncCamera is active.
+     * @param {number} deg  15–120 degrees
+     */
+    setFov(deg) {
+      if (activeSyncCamera) return;
+      camera.fov = Math.max(15, Math.min(120, deg));
+      camera.updateProjectionMatrix();
+    },
+
+    /**
+     * Enable/disable automatic orbit animation. No-op when syncCamera is active.
+     * @param {boolean} enabled
+     * @param {number}  [speed=0.015]   orbits per second
+     * @param {number}  [radius=6]      orbit radius in world units
+     */
+    setAutoOrbit(enabled, speed, radius) {
+      if (activeSyncCamera) return;
+      if (enabled) {
+        if (speed  !== undefined) camCtrl._orbitSpeed  = speed;
+        if (radius !== undefined) camCtrl._orbitRadius = radius;
+        camCtrl.setMode('orbit');
+      } else {
+        if (camCtrl._mode === 'orbit') camCtrl.setMode('none');
+        _resetFrustumVis();
+      }
+    },
+
+    /**
+     * Enable/disable Lissajous flythrough. No-op when syncCamera is active.
+     * @param {boolean} enabled
+     * @param {number}  [speed=0.008]   phase advance per second
+     * @param {number}  [radius=4.5]    path radius in world units
+     */
+    setFlythrough(enabled, speed, radius) {
+      if (activeSyncCamera) return;
+      if (speed  !== undefined) camCtrl._flySpeed  = Math.max(0.001, Math.min(0.2, speed));
+      if (radius !== undefined) camCtrl._flyRadius = Math.max(0.5,   Math.min(12,  radius));
+      if (enabled) {
+        // Start from current camera position with neutral heading
+        camCtrl._flyPos.copy(camera.position);
+        camCtrl._flyYaw   = 0;
+        camCtrl._flyPitch = 0;
+        camCtrl._flyPhase = 0;
+        camCtrl.setMode('fly');
+        // Auto-enable column follow so rain stays centred on camera
+        camCtrl._columnFollow = true;
+        uniforms.uColumnOffset.value.set(camera.position.x, camera.position.z);
+        _columnOffset.set(camera.position.x, camera.position.z);
+      } else {
+        if (camCtrl._mode === 'fly') {
+          camCtrl.setMode('none');
+          _resetFrustumVis();
+        }
+        // Auto-disable column follow
+        camCtrl._columnFollow = false;
+        uniforms.uColumnOffset.value.set(0, 0);
+        _columnOffset.set(0, 0);
+      }
+    },
+
+    /**
+     * Set orbit elevation angle. Clamped to ±60° to avoid gimbal collapse.
+     * @param {number} deg  −60 to 60
+     */
+    setOrbitElevation(deg) {
+      camCtrl._orbitElevDeg = Math.max(-60, Math.min(60, deg));
+    },
+
+    /**
+     * Enable/disable column-follow (infinite rain illusion).
+     * When enabled, the column field XZ offset tracks camera XZ position.
+     * @param {boolean} enabled
+     */
+    setColumnFollow(enabled) {
+      camCtrl._columnFollow = !!enabled;
+      if (!enabled) {
+        uniforms.uColumnOffset.value.set(0, 0);
+        _columnOffset.set(0, 0);
+      }
+    },
+
+    /**
+     * Stop auto-camera, disable column follow, reset camera to default pose.
+     */
+    resetCamera() {
+      camCtrl.setMode('none');
+      camCtrl._columnFollow = false;
+      camCtrl._flyPos.set(0, 0, 0);
+      camCtrl._flyYaw   = 0;
+      camCtrl._flyPitch = 0;
+      camCtrl._flyPhase = 0;
+      uniforms.uColumnOffset.value.set(0, 0);
+      _columnOffset.set(0, 0);
+      _resetFrustumVis();
+      camera.position.set(0, 0, 6);
+      camera.lookAt(0, 0, 0);
+      camera.fov = 45;
+      camera.updateProjectionMatrix();
+    },
+
     // ── Scene/camera/renderer getters (for bridge use) ────────────────────
     get scene()    { return scene; },
     get camera()   { return camera; },
@@ -1357,6 +2220,84 @@ export function initMatrixRain(element, opts = {}) {
      * and in non-CRT modes.
      */
     get crt() { return crtHandle; },
+
+    // ── CCP easter egg handle methods ──────────────────────────────────────
+
+    /** Activate (true) or deactivate (false) CCP mode. */
+    setCCPMode(on) {
+      _ccpActive = on;
+      if (on) {
+        _initCCPPanels();
+        _initCCPExtras();
+        _ccpFadeDir = 1;
+        // Save current rain state
+        _ccpSaved = {
+          colorR:        uniforms.uColor.value.x,
+          colorG:        uniforms.uColor.value.y,
+          colorB:        uniforms.uColor.value.z,
+          color2R:       uniforms.uColor2.value.x,
+          color2G:       uniforms.uColor2.value.y,
+          color2B:       uniforms.uColor2.value.z,
+          charSet:       _currentCharSet,
+          reverseChance: uniforms.uReverseChance.value,
+          vignette:      _ppState.vignette,
+          aberration:    _ppState.aberration,
+        };
+        if (_ccpRainOverride) {
+          handle.setColor('#DE2910');
+          handle.setColor2('#FFDE00');
+          handle.setCharSet('chinese');
+          handle.setReverseChance(1.0);
+          handle.setVignette(0.85);
+          handle.setHoloAberration(0.012);
+          handle.triggerSpeedRamp(3.0, 1.2);
+        }
+        _startSlogans();
+      } else {
+        _ccpFadeDir = -1;
+        clearTimeout(_ccpSloganTimer);
+        _ccpSloganTimer = null;
+        if (_ccpSaved) {
+          handle.setColor(toHex(_ccpSaved.colorR, _ccpSaved.colorG, _ccpSaved.colorB));
+          handle.setColor2(toHex(_ccpSaved.color2R, _ccpSaved.color2G, _ccpSaved.color2B));
+          handle.setCharSet(_ccpSaved.charSet);
+          handle.setReverseChance(_ccpSaved.reverseChance);
+          handle.setVignette(_ccpSaved.vignette);
+          handle.setHoloAberration(_ccpSaved.aberration);
+          _ccpSaved = null;
+        }
+      }
+    },
+
+    /** Flash frequency 0.1–4 Hz (default 1.2). */
+    setCCPFlashRate(hz) { _ccpFlashHz = Math.max(0.1, Math.min(4, hz)); },
+
+    /** Peak opacity 0–1 (default 0.72). */
+    setCCPOpacity(v) { _ccpPeakOpacity = Math.max(0, Math.min(1, v)); },
+
+    /** Panel size multiplier 0.5–3. Recreates panels if active. */
+    setCCPScale(v) {
+      _ccpScale = Math.max(0.5, Math.min(3, v));
+      if (_ccpActive) { _destroyCCPPanels(); _initCCPPanels(); _destroyCCPExtras(); _initCCPExtras(); }
+    },
+
+    /** Active panels 1–3 (default 3). Recreates panels if active. */
+    setCCPPanelCount(n) {
+      _ccpPanelCount = Math.max(1, Math.min(3, Math.round(n)));
+      if (_ccpActive) { _destroyCCPPanels(); _initCCPPanels(); }
+    },
+
+    /** Azimuthal orbit speed rad/s (default 0). */
+    setCCPOrbitSpeed(v) { _ccpOrbitSpeed = v; },
+
+    /** Whether rain overrides are applied on next activation. */
+    setCCPRainOverride(on) { _ccpRainOverride = !!on; },
+
+    /** Whether CCP slogans cycle while active. */
+    setCCPSlogans(on) {
+      _ccpSloganActive = !!on;
+      if (!on) { clearTimeout(_ccpSloganTimer); _ccpSloganTimer = null; }
+    },
   };
   return handle;
 }

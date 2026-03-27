@@ -123,6 +123,43 @@
       letter-spacing: 0.08em;
       pointer-events: none;
     }
+
+    /* ── CCP easter egg DOM elements ─────────────────────────────── */
+    #ccp-hud {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      z-index: 200;
+      background: rgba(0,0,0,0.82);
+      border-bottom: 1px solid #DE2910;
+      color: #ff4040;
+      font-family: 'Courier New', monospace;
+      font-size: 11px;
+      letter-spacing: 0.1em;
+      padding: 4px 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      pointer-events: none;
+    }
+
+    #ccp-tint {
+      position: fixed;
+      inset: 0;
+      background: rgba(222, 41, 16, 0.06);
+      pointer-events: none;
+      z-index: 10;
+    }
+
+    .ccp-sweep {
+      position: fixed;
+      left: 0; right: 0;
+      height: 2px;
+      background: linear-gradient(to right,
+        transparent 0%, rgba(222,41,16,0.7) 15%, rgba(222,41,16,0.7) 85%, transparent 100%);
+      pointer-events: none;
+      z-index: 15;
+      top: -4px;
+    }
   </style>
 
   <script type="importmap">
@@ -142,6 +179,17 @@
   <strong>WebGPU and WebGL2 unavailable</strong>
   <small>Try Chrome 113+, Edge 113+, or Firefox 120+ with a compatible GPU</small>
 </div>
+
+<!-- CCP easter egg DOM overlay elements (hidden until activated) -->
+<div id="ccp-hud" style="display:none">
+  <span id="ccp-hud-left">&#x2682; CAM-01 &middot; <span id="ccp-rec">&#x25CF;REC</span></span>
+  <span id="ccp-hud-center">SOCIAL CREDIT: <span id="ccp-score">---</span></span>
+  <span id="ccp-coords">(X:0000 Y:0000) &middot; <span id="ccp-time">--:--:--</span></span>
+  <span style="margin-left:8px;">&#x2682;</span>
+</div>
+<div id="ccp-tint" style="display:none"></div>
+<div class="ccp-sweep" id="ccp-sweep-0" style="display:none"></div>
+<div class="ccp-sweep" id="ccp-sweep-1" style="display:none"></div>
 
 <div id="rain-host"></div>
 
@@ -376,10 +424,31 @@
                style="background:#111;color:#00ff70;border:1px solid #00ff70;
                       font-family:'Courier New',monospace;font-size:10px;width:90px;padding:1px 4px;">
       </label>
+      <label>Cascade
+        <select id="ctl-msg-cascade"
+                style="background:#111;color:#00ff70;border:1px solid #00ff70;
+                       font-family:'Courier New',monospace;font-size:10px;padding:1px 2px;">
+          <option value="wave" selected>wave →</option>
+          <option value="radial">radial ◎</option>
+          <option value="column">column ↓ 3D</option>
+        </select>
+      </label>
+      <p id="ctl-msg-col-warn"
+         style="display:none;color:#ff8800;font-size:9px;margin:0;line-height:1.4;">
+        ⚠ Column mode is view-dependent: the glyph mapping is computed once at click time
+        from the current camera position. Moving the camera after clicking SHOW will
+        misalign the text. Not compatible with active flythrough/orbit.
+      </p>
       <label>Boost
         <span style="display:flex;align-items:center;gap:4px;">
-          <input id="ctl-msg-boost"     type="range"  min="1" max="6"  step="0.1" value="3">
-          <input id="ctl-msg-boost-num" type="number" min="1" max="6"  step="0.1" value="3">
+          <input id="ctl-msg-boost"     type="range"  min="1" max="6"  step="0.1" value="2">
+          <input id="ctl-msg-boost-num" type="number" min="1" max="6"  step="0.1" value="2">
+        </span>
+      </label>
+      <label>Settle
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-msg-settle"     type="range"  min="0.5" max="12" step="0.5" value="4">
+          <input id="ctl-msg-settle-num" type="number" min="0.5" max="12" step="0.5" value="4">
         </span>
       </label>
       <label>Reveal s
@@ -851,6 +920,55 @@
       </label>
     </div>
 
+    <!-- Camera sub-panel -->
+    <div style="border-top:1px solid #00ff7044;margin-top:4px;padding-top:4px;display:flex;flex-direction:column;gap:4px;">
+      <label style="color:#7fffaa;font-size:10px;letter-spacing:0.1em;text-transform:uppercase;">— Camera —</label>
+
+      <label>FOV
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-fov"     type="range"  min="15" max="120" step="1" value="45">
+          <input id="ctl-fov-num" type="number" min="15" max="120" step="1" value="45">
+        </span>
+      </label>
+
+      <label><input id="ctl-orbit" type="checkbox"> Auto-orbit
+      </label>
+
+      <label>Orbit speed
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-orbit-speed"     type="range"  min="0.001" max="0.1" step="0.001" value="0.015">
+          <input id="ctl-orbit-speed-num" type="number" min="0.001" max="0.1" step="0.001" value="0.015">
+        </span>
+      </label>
+
+      <label>Orbit elevation
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-orbit-elev"     type="range"  min="-60" max="60" step="1" value="0">
+          <input id="ctl-orbit-elev-num" type="number" min="-60" max="60" step="1" value="0">
+        </span>
+      </label>
+
+      <label><input id="ctl-flythrough" type="checkbox"> Flythrough
+      </label>
+
+      <label>Fly speed
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-fly-speed"     type="range"  min="0.001" max="0.05" step="0.001" value="0.008">
+          <input id="ctl-fly-speed-num" type="number" min="0.001" max="0.05" step="0.001" value="0.008">
+        </span>
+      </label>
+
+      <label><input id="ctl-column-follow" type="checkbox"> Column follow
+      </label>
+
+      <button id="ctl-reset-camera"
+              style="background:#111;color:#00ff70;border:1px solid #00ff70;
+                     font-family:'Courier New',monospace;font-size:10px;cursor:pointer;
+                     padding:2px 0;letter-spacing:0.1em;">
+        RESET CAMERA
+      </button>
+    </div>
+
     <!-- Import / Export -->
     <div style="border-top:1px solid #00ff7044;margin-top:6px;padding-top:6px;
                 display:flex;gap:6px;">
@@ -867,6 +985,78 @@
         IMPORT
       </button>
       <input id="ctl-import-file" type="file" accept=".json" style="display:none">
+    </div>
+
+    <!-- CCP Mode easter egg sub-panel (hidden until xijinping sequence typed) -->
+    <div id="ccp-panel" style="display:none;border-top:1px solid #ff202044;margin-top:6px;padding-top:6px;flex-direction:column;gap:4px;">
+      <label style="color:#ff6060;font-size:10px;letter-spacing:0.1em;text-transform:uppercase;">&#x2604; CCP MODE &#x2604;</label>
+
+      <!-- Billboard controls -->
+      <label style="color:#ff9090;">Flash rate
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ccp-flash-rate" type="range" min="0.1" max="4" step="0.1" value="1.2" style="accent-color:#ff2020;">
+          <input id="ccp-flash-rate-num" type="number" min="0.1" max="4" step="0.1" value="1.2" style="background:#200;color:#ff4040;border:1px solid #ff202055;font-family:'Courier New',monospace;font-size:10px;padding:1px 3px;width:46px;">
+        </span>
+      </label>
+      <label style="color:#ff9090;">Peak opacity
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ccp-opacity" type="range" min="0" max="1" step="0.01" value="0.72" style="accent-color:#ff2020;">
+          <input id="ccp-opacity-num" type="number" min="0" max="1" step="0.01" value="0.72" style="background:#200;color:#ff4040;border:1px solid #ff202055;font-family:'Courier New',monospace;font-size:10px;padding:1px 3px;width:46px;">
+        </span>
+      </label>
+      <label style="color:#ff9090;">Scale
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ccp-scale" type="range" min="0.5" max="3" step="0.1" value="1" style="accent-color:#ff2020;">
+          <input id="ccp-scale-num" type="number" min="0.5" max="3" step="0.1" value="1" style="background:#200;color:#ff4040;border:1px solid #ff202055;font-family:'Courier New',monospace;font-size:10px;padding:1px 3px;width:46px;">
+        </span>
+      </label>
+      <label style="color:#ff9090;">Panel count
+        <select id="ccp-panel-count" style="background:#200;color:#ff4040;border:1px solid #ff202055;font-family:'Courier New',monospace;font-size:10px;padding:1px 4px;">
+          <option value="1">1</option>
+          <option value="2">2</option>
+          <option value="3" selected>3</option>
+        </select>
+      </label>
+      <label style="color:#ff9090;">Orbit speed
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ccp-orbit-speed" type="range" min="0" max="0.5" step="0.01" value="0" style="accent-color:#ff2020;">
+          <input id="ccp-orbit-speed-num" type="number" min="0" max="0.5" step="0.01" value="0" style="background:#200;color:#ff4040;border:1px solid #ff202055;font-family:'Courier New',monospace;font-size:10px;padding:1px 3px;width:46px;">
+        </span>
+      </label>
+
+      <!-- Rain override -->
+      <label style="color:#ff9090;"><input id="ccp-rain-override" type="checkbox" checked style="accent-color:#ff2020;"> Rain override</label>
+
+      <!-- Ambiance -->
+      <label style="color:#ff9090;">Tint opacity
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ccp-tint-opacity" type="range" min="0" max="0.20" step="0.005" value="0.06" style="accent-color:#ff2020;">
+          <input id="ccp-tint-opacity-num" type="number" min="0" max="0.20" step="0.005" value="0.06" style="background:#200;color:#ff4040;border:1px solid #ff202055;font-family:'Courier New',monospace;font-size:10px;padding:1px 3px;width:46px;">
+        </span>
+      </label>
+
+      <!-- Content -->
+      <label style="color:#ff9090;"><input id="ccp-slogans" type="checkbox" checked style="accent-color:#ff2020;"> Slogans</label>
+      <label style="color:#ff9090;"><input id="ccp-audio" type="checkbox" style="accent-color:#ff2020;"> Anthem &#x1F508;</label>
+
+      <!-- Score -->
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-top:2px;">
+        <span style="color:#ff9090;">Score: <span id="ccp-score-display" style="color:#ff4040;">---</span></span>
+        <button id="ccp-deduct"
+                style="background:#200;color:#ff4040;border:1px solid #ff202055;
+                       font-family:'Courier New',monospace;font-size:10px;cursor:pointer;
+                       padding:2px 6px;letter-spacing:0.08em;">
+          DEDUCT 50
+        </button>
+      </div>
+
+      <!-- Disable button -->
+      <button id="ccp-disable"
+              style="margin-top:4px;background:#200;color:#ff4040;border:1px solid #ff2020;
+                     font-family:'Courier New',monospace;font-size:10px;cursor:pointer;
+                     padding:2px 0;letter-spacing:0.1em;">
+        [DISABLE]
+      </button>
     </div>
 
   </div>
@@ -960,7 +1150,8 @@
     if (_keys['KeyS'] || _keys['ArrowDown'])  dz = -1;
     if (_keys['KeyA'] || _keys['ArrowLeft'])  dx = -1;
     if (_keys['KeyD'] || _keys['ArrowRight']) dx =  1;
-    if (dx || dz) {
+    const autoCamActive = document.getElementById('ctl-orbit')?.checked || document.getElementById('ctl-flythrough')?.checked;
+    if (!autoCamActive && (dx || dz)) {
       const speed = (_keys['ShiftLeft'] || _keys['ShiftRight']) ? MOVE_SPEED * 2 : MOVE_SPEED;
       const delta = _fwd.clone().multiplyScalar(dz * speed).addScaledVector(_right, dx * speed);
       cam.position.add(delta);
@@ -1077,12 +1268,18 @@
   });
 
   // Message reveal buttons
+  document.getElementById('ctl-msg-cascade').addEventListener('change', () => {
+    const isCol = document.getElementById('ctl-msg-cascade').value === 'column';
+    document.getElementById('ctl-msg-col-warn').style.display = isCol ? '' : 'none';
+  });
   document.getElementById('ctl-msg-show').addEventListener('click', () => {
     rain.showMessage(document.getElementById('ctl-msg-text').value, {
-      boost:          parseFloat(document.getElementById('ctl-msg-boost').value),
-      revealDuration: parseFloat(document.getElementById('ctl-msg-reveal').value),
-      holdDuration:   parseFloat(document.getElementById('ctl-msg-hold').value),
-      fadeDuration:   parseFloat(document.getElementById('ctl-msg-fade').value),
+      cascadeMode:     document.getElementById('ctl-msg-cascade').value,
+      boost:           parseFloat(document.getElementById('ctl-msg-boost').value),
+      settleSharpness: parseFloat(document.getElementById('ctl-msg-settle').value),
+      revealDuration:  parseFloat(document.getElementById('ctl-msg-reveal').value),
+      holdDuration:    parseFloat(document.getElementById('ctl-msg-hold').value),
+      fadeDuration:    parseFloat(document.getElementById('ctl-msg-fade').value),
     });
   });
   document.getElementById('ctl-msg-clear').addEventListener('click', () => {
@@ -1090,6 +1287,7 @@
   });
   // Message sliders — sync range↔number, no live callback (values read on button click)
   linkSlider('ctl-msg-boost',  'ctl-msg-boost-num',  () => {});
+  linkSlider('ctl-msg-settle', 'ctl-msg-settle-num', () => {});
   linkSlider('ctl-msg-reveal', 'ctl-msg-reveal-num', () => {});
   linkSlider('ctl-msg-hold',   'ctl-msg-hold-num',   () => {});
   linkSlider('ctl-msg-fade',   'ctl-msg-fade-num',   () => {});
@@ -1258,6 +1456,34 @@
   linkSlider('ctl-pom-steps',  'ctl-pom-steps-num',  v => rain.setPomSteps(v));
   linkSlider('ctl-hue-range',  'ctl-hue-range-num',  v => rain.setColorBlend(v));
   linkSlider('ctl-burst-prob', 'ctl-burst-prob-num', v => rain.setBurstProb(v));
+
+  // Camera controls
+  linkSlider('ctl-fov', 'ctl-fov-num', v => rain.setFov(v));
+  bind('ctl-orbit', on => rain.setAutoOrbit(on,
+    parseFloat(document.getElementById('ctl-orbit-speed').value)));
+  linkSlider('ctl-orbit-speed', 'ctl-orbit-speed-num', v => {
+    if (document.getElementById('ctl-orbit').checked) rain.setAutoOrbit(true, v);
+  });
+  linkSlider('ctl-orbit-elev', 'ctl-orbit-elev-num', v => rain.setOrbitElevation(v));
+  bind('ctl-flythrough', on => {
+    rain.setFlythrough(on, parseFloat(document.getElementById('ctl-fly-speed').value));
+    // Column follow auto-enables with flythrough — keep checkbox in sync
+    document.getElementById('ctl-column-follow').checked = on;
+  });
+  linkSlider('ctl-fly-speed', 'ctl-fly-speed-num', v => {
+    if (document.getElementById('ctl-flythrough').checked) rain.setFlythrough(true, v);
+  });
+  bind('ctl-column-follow', on => rain.setColumnFollow(on));
+  document.getElementById('ctl-reset-camera').addEventListener('click', () => {
+    rain.resetCamera();
+    document.getElementById('ctl-orbit').checked      = false;
+    document.getElementById('ctl-flythrough').checked = false;
+    document.getElementById('ctl-column-follow').checked = false;
+    document.getElementById('ctl-fov').value      = '45';
+    document.getElementById('ctl-fov-num').value  = '45';
+    document.getElementById('ctl-orbit-elev').value     = '0';
+    document.getElementById('ctl-orbit-elev-num').value = '0';
+  });
 
   // Animation controls
   bind('ctl-frozen',         on  => rain.setFrozen(on));
@@ -1627,6 +1853,253 @@
       if (g.exposure  !== undefined) document.getElementById('ctl-gr-exposure').value = g.exposure;
     }
   });
+
+  // ══════════════════════════════════════════════════════════════════════
+  // CCP EASTER EGG — demo-side JS
+  // ══════════════════════════════════════════════════════════════════════
+
+  // ── Demo-local state ──────────────────────────────────────────────────
+  let _ccpEnabled  = false;  // mirrors library _ccpActive for DOM animation guards
+  let _ccpScore    = 0;
+  let _ccpHudTimer = null;
+  let _sweepRafId  = null;
+  let _mx = 0, _my = 0;
+
+  document.addEventListener('mousemove', e => { _mx = e.clientX; _my = e.clientY; });
+
+  // ── HUD ───────────────────────────────────────────────────────────────
+  function _startHUD() {
+    _ccpScore = 700 + Math.floor(Math.random() * 200);
+    document.getElementById('ccp-score').textContent      = _ccpScore;
+    document.getElementById('ccp-score-display').textContent = _ccpScore;
+    document.getElementById('ccp-hud').style.display = 'flex';
+    _ccpHudTimer = setInterval(() => {
+      _ccpScore++;
+      document.getElementById('ccp-score').textContent      = _ccpScore;
+      document.getElementById('ccp-score-display').textContent = _ccpScore;
+      const now = new Date();
+      document.getElementById('ccp-time').textContent = now.toTimeString().slice(0, 8);
+    }, 2000);
+  }
+
+  function _stopHUD() {
+    clearInterval(_ccpHudTimer);
+    _ccpHudTimer = null;
+    document.getElementById('ccp-hud').style.display = 'none';
+  }
+
+  // HUD coord update
+  setInterval(() => {
+    if (!_ccpEnabled) return;
+    document.getElementById('ccp-coords').textContent =
+      '(X:' + String(_mx).padStart(4,'0') + ' Y:' + String(_my).padStart(4,'0') + ')';
+  }, 100);
+
+  // ── Censorship sweep bars ──────────────────────────────────────────────
+  const _sweepPhase  = [0.0, 0.5];
+  const SWEEP_PERIOD = 11000;
+
+  function _animateSweep(now) {
+    if (!_ccpEnabled) return;
+    for (let i = 0; i < 2; i++) {
+      const t   = ((now % SWEEP_PERIOD) / SWEEP_PERIOD + _sweepPhase[i]) % 1.0;
+      const pct = t * 105 - 2;
+      document.getElementById('ccp-sweep-' + i).style.top = pct + 'vh';
+    }
+    _sweepRafId = requestAnimationFrame(_animateSweep);
+  }
+
+  function _startSweep() {
+    document.querySelectorAll('.ccp-sweep').forEach(el => el.style.display = 'block');
+    _sweepRafId = requestAnimationFrame(_animateSweep);
+  }
+
+  function _stopSweep() {
+    cancelAnimationFrame(_sweepRafId);
+    _sweepRafId = null;
+    document.querySelectorAll('.ccp-sweep').forEach(el => el.style.display = 'none');
+  }
+
+  // ── National anthem audio ──────────────────────────────────────────────
+  class SafeMelodyPlayer {
+    constructor() { this.ctx = null; this.loopId = null; }
+
+    init() {
+      if (this.ctx) return this.ctx;
+      try {
+        this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+      } catch (e) { console.warn('[ccp-audio] no AudioContext', e); }
+      return this.ctx;
+    }
+
+    playNote(freq, dur, startTime) {
+      if (!this.ctx || freq <= 0) return;
+      const osc  = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+      osc.type            = 'square';
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0, startTime);
+      gain.gain.linearRampToValueAtTime(0.12, startTime + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.001, startTime + dur - 0.02);
+      osc.start(startTime);
+      osc.stop(startTime + dur);
+    }
+
+    playMelody(notes) {
+      const ctx = this.init();
+      if (!ctx) return 0;
+      if (ctx.state === 'suspended') ctx.resume();
+      let t = ctx.currentTime + 0.05;
+      for (const [freq, dur] of notes) {
+        this.playNote(freq, dur, t);
+        t += dur;
+      }
+      return t - ctx.currentTime;
+    }
+
+    stop() {
+      clearTimeout(this.loopId);
+      this.loopId = null;
+      if (this.ctx) { this.ctx.close(); this.ctx = null; }
+    }
+
+    startLoop(notes) {
+      const schedule = () => {
+        const dur = this.playMelody(notes);
+        this.loopId = setTimeout(schedule, (dur + 2.0) * 1000);
+      };
+      schedule();
+    }
+  }
+
+  // March of the Volunteers — opening phrase, C major, 120 BPM
+  const CCP_ANTHEM_NOTES = [
+    [262,0.50],[262,0.25],[330,0.25],[392,0.50],[392,0.25],[440,0.25],
+    [494,0.50],[523,0.50],[523,0.25],[494,0.25],[440,0.50],[440,0.25],
+    [392,0.75],[330,0.25],[330,0.25],[294,0.25],[262,0.50],[0,0.50],
+    [262,0.50],[294,0.25],[330,0.25],[392,0.50],[440,0.25],[494,0.25],
+    [523,0.50],[659,0.50],[659,0.25],[587,0.25],[523,0.50],[494,0.50],
+    [440,1.00],[0,0.50],
+  ];
+
+  const _melodyPlayer = new SafeMelodyPlayer();
+
+  function _stopAllCCPAudio() {
+    _melodyPlayer.stop();
+    document.getElementById('ccp-audio').checked = false;
+  }
+
+  // ── CCP panel control wiring ───────────────────────────────────────────
+  function _linkSliderCCP(rangeId, numId, fn) {
+    const range = document.getElementById(rangeId);
+    const num   = document.getElementById(numId);
+    if (!range || !num) return;
+    range.addEventListener('input', e => { num.value = e.target.value; fn(parseFloat(e.target.value)); });
+    num.addEventListener('input',   e => { range.value = e.target.value; fn(parseFloat(e.target.value)); });
+  }
+
+  _linkSliderCCP('ccp-flash-rate',   'ccp-flash-rate-num',   v => rain.setCCPFlashRate(v));
+  _linkSliderCCP('ccp-opacity',      'ccp-opacity-num',      v => rain.setCCPOpacity(v));
+  _linkSliderCCP('ccp-scale',        'ccp-scale-num',        v => rain.setCCPScale(v));
+  _linkSliderCCP('ccp-orbit-speed',  'ccp-orbit-speed-num',  v => rain.setCCPOrbitSpeed(v));
+  _linkSliderCCP('ccp-tint-opacity', 'ccp-tint-opacity-num', v => {
+    document.getElementById('ccp-tint').style.background = 'rgba(222, 41, 16, ' + v + ')';
+  });
+
+  document.getElementById('ccp-panel-count').addEventListener('change', e =>
+    rain.setCCPPanelCount(parseInt(e.target.value, 10)));
+
+  document.getElementById('ccp-rain-override').addEventListener('change', e =>
+    rain.setCCPRainOverride(e.target.checked));
+
+  document.getElementById('ccp-slogans').addEventListener('change', e =>
+    rain.setCCPSlogans(e.target.checked));
+
+  document.getElementById('ccp-audio').addEventListener('change', e => {
+    if (e.target.checked && _ccpEnabled) {
+      _melodyPlayer.startLoop(CCP_ANTHEM_NOTES);
+    } else {
+      _melodyPlayer.stop();
+    }
+  });
+
+  document.getElementById('ccp-deduct').addEventListener('click', () => {
+    _ccpScore = Math.max(0, _ccpScore - 50);
+    document.getElementById('ccp-score').textContent      = _ccpScore;
+    document.getElementById('ccp-score-display').textContent = _ccpScore;
+    const hud = document.getElementById('ccp-hud');
+    hud.style.borderColor = '#ff0000';
+    hud.style.color       = '#ff0000';
+    setTimeout(() => {
+      hud.style.borderColor = '#DE2910';
+      hud.style.color       = '#ff4040';
+    }, 800);
+  });
+
+  document.getElementById('ccp-disable').addEventListener('click', () => {
+    _ccpEnabled = false;
+    rain.setCCPMode(false);
+    document.getElementById('ccp-panel').style.display = 'none';
+    _stopHUD();
+    _stopSweep();
+    _stopAllCCPAudio();
+    document.getElementById('ccp-tint').style.display = 'none';
+    // show hint
+    const hint     = document.getElementById('hint');
+    const prevText = hint.textContent;
+    const prevCol  = hint.style.color;
+    hint.textContent = '[ CCP MODE DEACTIVATED ]';
+    hint.style.color   = '#ff2020';
+    hint.style.opacity = '0.9';
+    setTimeout(() => {
+      hint.textContent = prevText;
+      hint.style.color   = prevCol;
+      hint.style.opacity = '0.35';
+    }, 2000);
+  });
+
+  // ── Keylogger ──────────────────────────────────────────────────────────
+  let _kbuf   = '';
+  let _kTimer = null;
+
+  document.addEventListener('keydown', e => {
+    if (e.ctrlKey || e.altKey || e.metaKey || e.key.length !== 1) return;
+    _kbuf = (_kbuf + e.key.toLowerCase()).slice(-9);
+    clearTimeout(_kTimer);
+    _kTimer = setTimeout(() => { _kbuf = ''; }, 3000);
+    if (_kbuf === 'xijinping') {
+      _kbuf = '';
+      _ccpEnabled = !_ccpEnabled;
+      rain.setCCPMode(_ccpEnabled);
+      const ccpPanelEl = document.getElementById('ccp-panel');
+      if (_ccpEnabled) {
+        ccpPanelEl.style.display = 'flex';
+        _startHUD();
+        _startSweep();
+        document.getElementById('ccp-tint').style.display = 'block';
+      } else {
+        ccpPanelEl.style.display = 'none';
+        _stopHUD();
+        _stopSweep();
+        _stopAllCCPAudio();
+        document.getElementById('ccp-tint').style.display = 'none';
+      }
+      const hint     = document.getElementById('hint');
+      const prevText = hint.textContent;
+      const prevCol  = hint.style.color;
+      hint.textContent = _ccpEnabled ? '[ CCP MODE ACTIVATED ]' : '[ CCP MODE DEACTIVATED ]';
+      hint.style.color   = '#ff2020';
+      hint.style.opacity = '0.9';
+      setTimeout(() => {
+        hint.textContent = prevText;
+        hint.style.color   = prevCol;
+        hint.style.opacity = '0.35';
+      }, 2000);
+    }
+  });
+
 </script>
 </body>
 </html>

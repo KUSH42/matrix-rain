@@ -147,3 +147,8 @@ All items go in `specs/` before implementation.
 - [ ] `prefers-reduced-motion` — disable/reduce heat, god rays, burst bloom
 - [ ] README.md — public documentation before any npm/gh-pages publish
 - [ ] `package.json` npm publish — subpath exports already wired
+
+- [x] **SPEC-message-reveal** — message reveal rework: glyph crystallisation + 3 cascade modes
+  - `matrix-rain-tsl.js`: 6 new uniforms (`uMsgWaveR`, `uMsgCenter`, `uMsgSettleSharpness`, `uMsgCascadeMode`, `uMsgWorldXMin`, `uMsgWorldXMax`); `aColMsgGlyphAttr` attribute; `vColCenterX` varying; replaced message reveal block with cascade-aware stagger + per-cell settle; replaced glyphIdx select with probabilistic target-glyph resolve; `uMsgBoost` default changed 3.0→2.0
+  - `matrix-rain-webgpu.js`: `charToGlyphIdx` helper; `renderMessageToTexture` rewritten (dual-channel R=mask G=glyphIdx, 1/4 res, bilinear soft edges); `projectMessageOntoColumns` helper (3D column→screen projection); `aColMsgGlyph` attribute added at init + `rebuildGeom()`; `_activeCharSet` mutable variable + `setCharSet()` update; state vars split into `msgHoldDuration`+`msgHoldEnd`+`msgCascadeMode`; tick() handles radial wave front; `showMessage()` extended with `cascadeMode`, `padding`, `settleSharpness` opts
+  - `matrix-3d.html`: cascade mode `<select>`, column mode warning `<p>`, settle sharpness slider + number input; updated show-button handler; new `linkSlider` call for settle
