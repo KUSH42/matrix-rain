@@ -135,6 +135,52 @@ function buildGeometry() {
 // ── Instance registry ─────────────────────────────────────────────────────
 const _state = new Map();
 
+// ── Canvas text → GPU texture helper ─────────────────────────────────────
+/**
+ * Render a message string to a CanvasTexture sized to the renderer output.
+ * Returns a THREE.CanvasTexture ready to assign to uniforms.uMsgTex.value.
+ *
+ * @param {string} text
+ * @param {number} w   renderer pixel width
+ * @param {number} h   renderer pixel height
+ * @param {object} [opts]
+ * @param {string} [opts.font]    CSS font string (default: 'bold 80px monospace')
+ * @param {string} [opts.align]   'left'|'center'|'right' (default: 'center')
+ * @param {number} [opts.yFrac]   vertical position 0–1 (default: 0.5)
+ * @param {number} [opts.padding] horizontal padding px (default: 48)
+ * @returns {THREE.CanvasTexture}
+ */
+function renderMessageToTexture(text, w, h, opts = {}) {
+  const {
+    font    = 'bold 80px monospace',
+    align   = 'center',
+    yFrac   = 0.5,
+    padding = 48,
+  } = opts;
+
+  const canvas  = document.createElement('canvas');
+  canvas.width  = w;
+  canvas.height = h;
+  const ctx     = canvas.getContext('2d');
+
+  ctx.fillStyle = 'black';
+  ctx.fillRect(0, 0, w, h);
+
+  ctx.fillStyle    = 'white';
+  ctx.font         = font;
+  ctx.textAlign    = align;
+  ctx.textBaseline = 'middle';
+
+  const x = align === 'center' ? w / 2
+          : align === 'left'   ? padding
+          :                      w - padding;
+  ctx.fillText(text, x, h * yFrac);
+
+  const tex       = new THREE.CanvasTexture(canvas);
+  tex.needsUpdate = true;
+  return tex;
+}
+
 // ═════════════════════════════════════════════════════════════════════════
 // PUBLIC API
 // ═════════════════════════════════════════════════════════════════════════
@@ -201,7 +247,14 @@ export function initMatrixRain(element, opts = {}) {
 
   // ── Atlas & material ──────────────────────────────────────────────────
   const atlasTex = loadMSDF(resolvedPath);
-  const uniforms = makeUniforms(resolvedCount, resolvedGridW, resolvedGridH);
+
+  // Dummy 1×1 black CanvasTexture — satisfies uMsgTex before any message is shown
+  const dummyMsgCanvas   = document.createElement('canvas');
+  dummyMsgCanvas.width   = 1;
+  dummyMsgCanvas.height  = 1;
+  const dummyMsgTex      = new THREE.CanvasTexture(dummyMsgCanvas);
+
+  const uniforms = makeUniforms(resolvedCount, resolvedGridW, resolvedGridH, dummyMsgTex);
 
   // Apply opts
   const rgb = new THREE.Color(color);
@@ -337,6 +390,13 @@ export function initMatrixRain(element, opts = {}) {
     return pipeline;
   }
 
+  // ── Message reveal state ──────────────────────────────────────────────
+  let msgState       = 'idle';  // 'idle' | 'revealing' | 'holding' | 'fading'
+  let msgRevealSpeed = 0;       // wave units per second (screen widths)
+  let msgHoldEnd     = 0;       // absolute time (s) when hold ends
+  let msgFadeSpeed   = 0;       // progress units per second
+  let msgTex         = null;    // current CanvasTexture; disposed on new message / idle
+
   // ── Animate ───────────────────────────────────────────────────────────
   const animRef = { id: 0 };
   let prevTs = 0;
@@ -389,6 +449,31 @@ export function initMatrixRain(element, opts = {}) {
         }
       } else {
         bloomNode.threshold.value = bloomThreshold;
+      }
+    }
+
+    // ── Message state machine ────────────────────────────────────────────
+    if (msgState !== 'idle') {
+      const u = uniforms;
+      if (msgState === 'revealing') {
+        u.uMsgWaveX.value = Math.min(1.0, u.uMsgWaveX.value + msgRevealSpeed * dt);
+        u.uMsgRevealProgress.value = 1.0;
+        if (u.uMsgWaveX.value >= 1.0) {
+          msgState   = 'holding';
+          msgHoldEnd = t + msgHoldEnd;  // msgHoldEnd held the duration; now absolute time
+        }
+      } else if (msgState === 'holding') {
+        if (t >= msgHoldEnd) {
+          msgState = 'fading';
+        }
+      } else if (msgState === 'fading') {
+        u.uMsgRevealProgress.value = Math.max(0.0, u.uMsgRevealProgress.value - msgFadeSpeed * dt);
+        if (u.uMsgRevealProgress.value <= 0.0) {
+          msgState           = 'idle';
+          u.uMsgWaveX.value  = 0.0;
+          if (msgTex) { try { msgTex.dispose(); } catch (_) {} msgTex = null; }
+          u.uMsgTex.value    = dummyMsgTex;
+        }
       }
     }
   }
@@ -518,8 +603,9 @@ export function initMatrixRain(element, opts = {}) {
   function _cleanup() {
     currentRainNodes?.dispose();
     crtHandle?.destroy?.();
+    if (msgTex) { try { msgTex.dispose(); } catch (_) {} msgTex = null; }
   }
-  const s = { renderer, ro, animRef, geom, material, atlasTex, dummyRT, uniforms, mesh, _cleanup };
+  const s = { renderer, ro, animRef, geom, material, atlasTex, dummyRT, dummyMsgTex, uniforms, mesh, _cleanup };
   _state.set(element, s);
 
   // ── Control handle ────────────────────────────────────────────────────
@@ -705,6 +791,60 @@ export function initMatrixRain(element, opts = {}) {
       if (p.charSet         !== undefined) handle.setCharSet(p.charSet);
     },
 
+    // ── Message reveal API ────────────────────────────────────────────────
+    /**
+     * Display a message by brightening rain glyphs in the text region.
+     *
+     * @param {string} text
+     * @param {object} [opts]
+     * @param {string} [opts.font]            CSS font for canvas rendering (default: 'bold 80px monospace')
+     * @param {string} [opts.align]           'left'|'center'|'right' (default: 'center')
+     * @param {number} [opts.yFrac]           vertical centre 0–1 (default: 0.5)
+     * @param {number} [opts.revealDuration]  seconds for wave to sweep screen (default: 1.5)
+     * @param {number} [opts.holdDuration]    seconds to hold after reveal (default: 3.0)
+     * @param {number} [opts.fadeDuration]    seconds to fade out (default: 1.0)
+     * @param {number} [opts.boost]           brightness multiplier in text region (default: 3.0)
+     */
+    showMessage(text, opts = {}) {
+      const {
+        font           = 'bold 80px monospace',
+        align          = 'center',
+        yFrac          = 0.5,
+        revealDuration = 1.5,
+        holdDuration   = 3.0,
+        fadeDuration   = 1.0,
+        boost          = 3.0,
+      } = opts;
+
+      if (msgTex) { try { msgTex.dispose(); } catch (_) {} }
+
+      const w = renderer.domElement.width  || element.clientWidth  || 512;
+      const h = renderer.domElement.height || element.clientHeight || 512;
+
+      msgTex = renderMessageToTexture(text, w, h, { font, align, yFrac });
+      uniforms.uMsgTex.value            = msgTex;
+      uniforms.uMsgRevealProgress.value = 0.0;
+      uniforms.uMsgWaveX.value          = 0.0;
+      uniforms.uMsgBoost.value          = boost;
+
+      msgRevealSpeed = 1.0 / revealDuration;
+      msgHoldEnd     = holdDuration;        // tick() converts to absolute time on wave complete
+      msgFadeSpeed   = 1.0 / fadeDuration;
+      msgState       = 'revealing';
+    },
+
+    /**
+     * Interrupt the current message and fade it out immediately.
+     * @param {object} [opts]
+     * @param {number} [opts.fadeDuration]  seconds to fade (default: 0.8)
+     */
+    clearMessage(opts = {}) {
+      const { fadeDuration = 0.8 } = opts;
+      if (msgState === 'idle') return;
+      msgFadeSpeed = 1.0 / fadeDuration;
+      msgState     = 'fading';
+    },
+
     // ── externalLoop API ──────────────────────────────────────────────────
     /**
      * Build the rain PP node chain on top of an external scene colour node.
@@ -754,6 +894,7 @@ export function destroyMatrixRain(element) {
   s.geom.dispose();
   s.atlasTex.dispose();
   s.dummyRT.dispose();
+  s.dummyMsgTex?.dispose();
   s._cleanup?.();
   s.renderer.dispose();
   s.renderer.domElement.remove();

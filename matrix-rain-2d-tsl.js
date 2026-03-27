@@ -278,7 +278,7 @@ export function buildRain2DNode(uniforms, atlasTexNode, weightLutTexNode) {
     const cx       = mod(gIdx, uniforms.uAtlasGridW);
     const cy       = floor(gIdx.div(uniforms.uAtlasGridW));
     const sampleUV = vec2(cx, cy).add(cellUV).div(vec2(uniforms.uAtlasGridW, uniforms.uAtlasGridH));
-    const samp     = atlasTexNode.uv(sampleUV);
+    const samp     = texture(atlasTexNode, sampleUV);
     // MSDF: median of RGB channels → crisp glyph edges
     const r   = samp.r, g = samp.g, b = samp.b;
     const med = max(min(r, g), min(max(r, g), b));
@@ -297,7 +297,7 @@ export function buildRain2DNode(uniforms, atlasTexNode, weightLutTexNode) {
         for (let step = 0; step < 7; step++) {
           const mid  = floor(lo.add(hi).div(2.0));
           // Texel centres: U = (i + 0.5) / glyphCount
-          const cdfV = weightLutTexNode.uv(vec2(mid.add(0.5).div(uniforms.uGlyphCount), 0.5)).r;
+          const cdfV = texture(weightLutTexNode, vec2(mid.add(0.5).div(uniforms.uGlyphCount), 0.5)).r;
           If(cdfV.lessThan(rand), () => { lo.assign(mid.add(1.0)); })
             .Else(() => { hi.assign(mid); });
         }
@@ -742,7 +742,7 @@ export async function init2DRain(element, opts = {}) {
       animRef.id = requestAnimationFrame(animate);
       if (_frozen) return;
       uniforms._time.value = (ts / 1000.0) % WRAP_S;
-      renderer.renderAsync(scene, camera);
+      renderer.render(scene, camera);
     }
     animRef.id = requestAnimationFrame(animate);
 
@@ -976,7 +976,7 @@ export async function init2DRain(element, opts = {}) {
     animRef.id = requestAnimationFrame(animate);
     const t = (ts / 1000.0) % WRAP_S;
     for (const ln of LAYER_NAMES) layerUniformMap[ln]._time.value = t;
-    renderer.renderAsync(scene, camera);
+    renderer.render(scene, camera);
   }
   animRef.id = requestAnimationFrame(animate);
 

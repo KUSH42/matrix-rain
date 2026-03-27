@@ -14,7 +14,7 @@ import {
   floor, fract, mod, step, smoothstep, clamp, mix,
   abs, max, min, sign, pow, atan,
   cameraViewMatrix, cameraProjectionMatrix, cameraPosition,
-  positionGeometry, uv, frontFacing,
+  positionGeometry, uv, frontFacing, screenUV,
   select, texture,
   If, Loop, Break, Discard,
   dFdx, dFdy,
@@ -35,12 +35,13 @@ const median3 = Fn(([a, b, c]) => max(min(a, b), min(max(a, b), c)));
 
 // ── Uniform factory ───────────────────────────────────────────────────────
 /**
- * @param {number} [glyphCount=56]  total glyphs in the MSDF atlas
- * @param {number} [gridW=8]       columns in atlas grid
- * @param {number} [gridH=8]       rows in atlas grid
+ * @param {number}              [glyphCount=56]  total glyphs in the MSDF atlas
+ * @param {number}              [gridW=8]        columns in atlas grid
+ * @param {number}              [gridH=8]        rows in atlas grid
+ * @param {THREE.CanvasTexture} [dummyMsgTex]    1×1 black canvas texture for uMsgTex initial value
  * @returns {object}  all mutable TSL uniform nodes
  */
-export function makeUniforms(glyphCount = 56, gridW = 8, gridH = 8) {
+export function makeUniforms(glyphCount = 56, gridW = 8, gridH = 8, dummyMsgTex) {
   return {
     uGlyphCount:     uniform(glyphCount),
     uAtlasGridW:     uniform(gridW),
@@ -62,6 +63,10 @@ export function makeUniforms(glyphCount = 56, gridW = 8, gridH = 8) {
     uFacingJitter:   uniform(0.1745), // ±jitter radians on each column's yaw (default ±5°)
     uFlatZ:          uniform(0.0),   // 0 = spherical shell, 1 = flat plane at Z=0
     uGlobeInteract:  uniform(1.0),   // 0 = off, 1 = on — gates globe proximity pulse
+    uMsgTex:            texture(dummyMsgTex, screenUV), // 1×1 black CanvasTexture; screenUV baked in
+    uMsgRevealProgress: uniform(0.0),                   // overall effect opacity 0–1
+    uMsgWaveX:          uniform(0.0),                   // leading-edge X in screen UV (0–1)
+    uMsgBoost:          uniform(3.0),                   // brightness multiplier in text region
   };
 }
 
@@ -80,6 +85,7 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     uColor, uGlobalAlpha, uDepth, uPomSteps, uNormalStrength,
     uLightDir, uGlyphChroma,
     uSpeedMul, uYawAligned, uFacingJitter, uFlatZ, uGlobeInteract,
+    uMsgTex, uMsgRevealProgress, uMsgWaveX, uMsgBoost,
   } = uniforms;
 
   // ── Per-instance buffer attributes ────────────────────────────────────
@@ -294,11 +300,22 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     const cellPhase   = h2(cellId.mul(0.37));
     const stability   = h2(cellId.mul(0.91));
     const holdSec     = float(0.45).add(h2(cellId.mul(0.29)).mul(7.15));
+
+    // ── Message reveal — scramble rate modulation ──────────────────────
+    // uMsgRevealProgress == 0 → settledHold == holdSec (no effect).
+    // uMsgTex has screenUV baked in; .r gives the mask value at this fragment's screen pos.
+    const msgMask      = uMsgTex.r;
+    const msgWavePast  = step(screenUV.x, uMsgWaveX);            // 1 where wave has passed
+    const msgActive    = msgMask.mul(msgWavePast).mul(uMsgRevealProgress);
+    const msgHoldSec   = mix(holdSec, float(0.05), msgActive);   // boost scramble rate ~20×
+    const waveGap      = clamp(uMsgWaveX.sub(screenUV.x).mul(6.0), 0.0, 1.0);
+    const settledHold  = mix(msgHoldSec, holdSec, waveGap.mul(uMsgRevealProgress));
+
     const burstOffset = select(
       vBurst.greaterThan(0.5), floor(uTime.mul(12.0)), float(0)
     );
     const changeTick  = floor(
-      cellPhase.mul(holdSec).add(uTime).div(holdSec)
+      cellPhase.mul(settledHold).add(uTime).div(settledHold)
     ).add(burstOffset);
     const baseGlyph   = floor(h2(cellId.mul(0.47).add(0.5)).mul(uGlyphCount));
     const mutGlyph    = floor(
@@ -348,6 +365,10 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     // Atmospheric depth tint — distant columns shift toward cyan
     const depthTint = smoothstep(3.0, 8.0, length(vWorldPos));
     col2.assign(mix(col2, col2.mul(vec3(0.6, 0.85, 1.1)), depthTint.mul(0.4)));
+
+    // ── Message reveal — brightness boost ─────────────────────────────
+    // msgActive is 0 when uMsgRevealProgress == 0, so no branch needed.
+    col2.mulAssign(float(1.0).add(msgActive.mul(uMsgBoost.sub(1.0))));
 
     // ── Panel tangent frame ────────────────────────────────────────────
     const panelRight = vec3(vOutward.z, 0.0, vOutward.x.negate());
