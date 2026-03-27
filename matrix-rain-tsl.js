@@ -105,6 +105,7 @@ export function makeUniforms(glyphCount = 56, gridW = 8, gridH = 8, dummyMsgTex,
     uGrainAmt:       uniform(0.07),  // film-grain strength              0–0.25
     uDepthTintAmt:   uniform(0.4),   // atmospheric depth-tint blend     0–1
     uBootEnabled:    uniform(1.0),   // startup cascade on/off           0 or 1
+    uBootStart:      uniform(0.0),   // uTime value when cascade was last triggered
     uStability:      uniform(0.30),  // fraction of stable cells         0–1
     uHoldMult:       uniform(1.0),   // hold-cycle duration multiplier   0.1–5
     uBurstGlyphRate: uniform(12.0),  // glyph-change rate during burst   1–30 Hz
@@ -136,7 +137,7 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     uDensityInner, uDensityOuter,
     uSectorCenter, uSectorWidth, uSectorStrength, uHeightFade,
     uDripAmt, uEdgeGlow, uZRotRange, uGrainAmt, uDepthTintAmt,
-    uBootEnabled, uStability, uHoldMult, uBurstGlyphRate,
+    uBootEnabled, uBootStart, uStability, uHoldMult, uBurstGlyphRate,
     uColor2, uHueRange, uBurstProb,
   } = uniforms;
 
@@ -209,7 +210,8 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
 
     // ── Startup cascade — columns boot over 2.5 s ─────────────────────
     const bootDelay   = h2(vec2(aColIdxAttr.mul(0.31), 0.77)).mul(2.5);
-    const bootFadeRaw = smoothstep(bootDelay, bootDelay.add(0.3), uTime);
+    const bootElapsed = uTime.sub(uBootStart);
+    const bootFadeRaw = smoothstep(bootDelay, bootDelay.add(0.3), bootElapsed);
     const bootFadeVal = mix(float(1), bootFadeRaw, uBootEnabled);
     vBootFade.assign(bootFadeVal);
 

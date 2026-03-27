@@ -1024,7 +1024,10 @@ export function initMatrixRain(element, opts = {}) {
     setZRotation(deg)     { uniforms.uZRotRange.value      = deg * Math.PI / 180; },
     setFilmGrain(v)       { uniforms.uGrainAmt.value       = v; },
     setDepthTint(v)       { uniforms.uDepthTintAmt.value   = v; },
-    setStartupCascade(on) { uniforms.uBootEnabled.value    = on ? 1.0 : 0.0; },
+    setStartupCascade(on) {
+      uniforms.uBootEnabled.value = on ? 1.0 : 0.0;
+      if (on) uniforms.uBootStart.value = uniforms.uTime.value;
+    },
     setStability(v)       { uniforms.uStability.value      = v; },
     setHoldMult(v)        { uniforms.uHoldMult.value       = v; },
     setBurstGlyphRate(v)  { uniforms.uBurstGlyphRate.value = v; },
