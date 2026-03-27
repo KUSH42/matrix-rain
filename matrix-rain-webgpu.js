@@ -456,6 +456,53 @@ export function initMatrixRain(element, opts = {}) {
   // Track factory result so resize path can dispose all RTTNodes (not just phosphor RT)
   let currentRainNodes = null;
 
+  // ── PP state mirror — survives pass-builder rebuilds (e.g. on fullscreen) ──
+  // Initialised to pass-builder defaults; updated by every set*() that touches nodes.
+  const _ppState = {
+    bloomStrength:  1.15,
+    softenStrength: 0.002,
+    heatAmt:        0.004,
+    streakAmt:      0.055,
+    vignette:       0.42,
+    scanlines:      0.045,
+    aberration:     0.0025,
+    godRays: {
+      enabled: true,
+      lightX:  0.5,
+      lightY:  0.75,
+      density: 0.93,
+      decay:   0.96,
+      weight:  0.35,
+      exposure: 0.45,
+    },
+  };
+
+  function _restorePP(nodes) {
+    const pb = nodes.passBuilders;
+    if (pb._bloomNode) {
+      pb._bloomNode.strength.value  = _ppState.bloomStrength;
+      pb._bloomNode.threshold.value = bloomThreshold;
+    }
+    if (pb._softenBuild)  pb._softenBuild.uBlurStrength.value = _ppState.softenStrength;
+    if (pb._heatBuild)    pb._heatBuild.uHeatAmt.value        = _ppState.heatAmt;
+    if (pb._streakBuild)  pb._streakBuild.uStreakAmt.value    = _ppState.streakAmt;
+    if (pb._holoBuild) {
+      pb._holoBuild.uVignetteStrength.value = _ppState.vignette;
+      pb._holoBuild.uScanlineOpacity.value  = _ppState.scanlines;
+      pb._holoBuild.uAberrationAmt.value    = _ppState.aberration;
+    }
+    if (pb._godRaysBuild) {
+      const g = _ppState.godRays;
+      pb._godRaysBuild.uEnabled.value    = g.enabled ? 1.0 : 0.0;
+      pb._godRaysBuild.uLightPos.value.x = g.lightX;
+      pb._godRaysBuild.uLightPos.value.y = g.lightY;
+      pb._godRaysBuild.uDensity.value    = g.density;
+      pb._godRaysBuild.uDecay.value      = g.decay;
+      pb._godRaysBuild.uWeight.value     = g.weight;
+      pb._godRaysBuild.uExposure.value   = g.exposure;
+    }
+  }
+
   // ── Post-processing pipeline object (THREE.RenderPipeline) ───────────
   // Named 'pp' to avoid collision with the 'postProcessing' option string.
   let pp            = null;
@@ -520,10 +567,12 @@ export function initMatrixRain(element, opts = {}) {
     };
   }
 
-  // Stores result in currentRainNodes so tick() and resize path can access it
+  // Stores result in currentRainNodes so tick() and resize path can access it.
+  // Re-applies _ppState so rebuilds (e.g. on fullscreen resize) restore user settings.
   function buildNodesInternal(sceneColorNode) {
     const nodes = buildMatrixRainNodes(sceneColorNode);
     currentRainNodes = nodes;
+    _restorePP(nodes);
     return nodes;
   }
 
@@ -796,23 +845,21 @@ export function initMatrixRain(element, opts = {}) {
     setSoften(on, strength) {
       if (postProcessing !== 'rain') return;
       const b = pp?._softenBuild ?? currentRainNodes?.passBuilders?._softenBuild;
-      if (!b) return;
-      if (strength !== undefined) b.uBlurStrength.value = strength;
-      // Note: disabling soften requires rebuilding the PostProcessing graph.
-      // For now, setting strength to 0 effectively disables it.
-      if (!on) b.uBlurStrength.value = 0;
+      const v = on ? (strength ?? _ppState.softenStrength) : 0;
+      _ppState.softenStrength = on ? (strength ?? _ppState.softenStrength) : _ppState.softenStrength;
+      if (b) b.uBlurStrength.value = v;
     },
     setHeat(on, amt) {
       if (postProcessing !== 'rain') return;
       const b = pp?._heatBuild ?? currentRainNodes?.passBuilders?._heatBuild;
-      if (!b) return;
-      b.uHeatAmt.value = on ? (amt ?? 0.004) : 0;
+      _ppState.heatAmt = on ? (amt ?? _ppState.heatAmt) : 0;
+      if (b) b.uHeatAmt.value = _ppState.heatAmt;
     },
     setStreaks(on, amt) {
       if (postProcessing !== 'rain') return;
       const b = pp?._streakBuild ?? currentRainNodes?.passBuilders?._streakBuild;
-      if (!b) return;
-      b.uStreakAmt.value = on ? (amt ?? 0.055) : 0;
+      _ppState.streakAmt = on ? (amt ?? _ppState.streakAmt) : 0;
+      if (b) b.uStreakAmt.value = _ppState.streakAmt;
     },
     setBurstBloom(on) {
       if (postProcessing !== 'rain') return;
@@ -835,15 +882,23 @@ export function initMatrixRain(element, opts = {}) {
      */
     setGodRays(enabled, lightX, lightY, density, decay, weight, exposure) {
       if (postProcessing !== 'rain') return;
+      const gr = _ppState.godRays;
+      gr.enabled = enabled;
+      if (lightX   !== undefined) gr.lightX   = lightX;
+      if (lightY   !== undefined) gr.lightY   = lightY;
+      if (density  !== undefined) gr.density  = density;
+      if (decay    !== undefined) gr.decay    = decay;
+      if (weight   !== undefined) gr.weight   = weight;
+      if (exposure !== undefined) gr.exposure = exposure;
       const g = pp?._godRaysBuild ?? currentRainNodes?.passBuilders?._godRaysBuild;
       if (!g) return;
-      g.uEnabled.value = enabled ? 1.0 : 0.0;
-      if (lightX    !== undefined) g.uLightPos.value.x = lightX;
-      if (lightY    !== undefined) g.uLightPos.value.y = lightY;
-      if (density   !== undefined) g.uDensity.value   = density;
-      if (decay     !== undefined) g.uDecay.value     = decay;
-      if (weight    !== undefined) g.uWeight.value    = weight;
-      if (exposure  !== undefined) g.uExposure.value  = exposure;
+      g.uEnabled.value    = enabled ? 1.0 : 0.0;
+      g.uLightPos.value.x = gr.lightX;
+      g.uLightPos.value.y = gr.lightY;
+      g.uDensity.value    = gr.density;
+      g.uDecay.value      = gr.decay;
+      g.uWeight.value     = gr.weight;
+      g.uExposure.value   = gr.exposure;
     },
 
     setPhosphorDecay(v) {
@@ -1018,6 +1073,7 @@ export function initMatrixRain(element, opts = {}) {
 
     setBloomStrength(v) {
       if (postProcessing !== 'rain') return;
+      _ppState.bloomStrength = v;
       if (pp?._bloomNode) pp._bloomNode.strength.value = v;
       if (currentRainNodes?.passBuilders?._bloomNode)
         currentRainNodes.passBuilders._bloomNode.strength.value = v;
@@ -1070,12 +1126,14 @@ export function initMatrixRain(element, opts = {}) {
 
     /** Sets vignette strength. Range 0–1, default 0.42. */
     setVignette(v) {
+      _ppState.vignette = v;
       const b = pp?._holoBuild ?? currentRainNodes?.passBuilders?._holoBuild;
       if (b) b.uVignetteStrength.value = v;
     },
 
     /** Sets scrolling scanline opacity. Range 0–0.2, default 0.045. */
     setScanlines(v) {
+      _ppState.scanlines = v;
       const b = pp?._holoBuild ?? currentRainNodes?.passBuilders?._holoBuild;
       if (b) b.uScanlineOpacity.value = v;
     },
@@ -1083,6 +1141,7 @@ export function initMatrixRain(element, opts = {}) {
     /** Sets screen-space chromatic aberration in the holo pass. Range 0–0.015, default 0.0025. */
     setHoloAberration(v) {
       if (postProcessing !== 'rain') return;
+      _ppState.aberration = v;
       const b = pp?._holoBuild ?? currentRainNodes?.passBuilders?._holoBuild;
       if (b) b.uAberrationAmt.value = v;
     },
