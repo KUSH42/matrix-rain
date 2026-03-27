@@ -594,8 +594,8 @@
         <div style="display:flex;flex-direction:column;gap:4px;margin-top:4px;">
           <label>Hue range °
             <span style="display:flex;align-items:center;gap:4px;">
-              <input id="ctl-hue-range"     type="range"  min="0" max="45" step="1" value="8">
-              <input id="ctl-hue-range-num" type="number" min="0" max="45" step="1" value="8">
+              <input id="ctl-hue-range"     type="range"  min="0" max="180" step="1" value="8">
+              <input id="ctl-hue-range-num" type="number" min="0" max="180" step="1" value="8">
             </span>
           </label>
           <label>Burst prob
@@ -822,6 +822,9 @@
   import { OrbitControls }   from 'three/addons/controls/OrbitControls.js';
   import { Vector3 }         from 'three/webgpu';
 
+  // ── Load defaults from ../def.json ────────────────────────────────────
+  const defaults = await fetch('../def.json').then(r => r.json()).catch(() => ({}));
+
   // ── WebGPU check ──────────────────────────────────────────────────────
   const noWebGpu = document.getElementById('no-webgpu');
   if (!navigator.gpu) {
@@ -833,9 +836,8 @@
   // ── Init ──────────────────────────────────────────────────────────────
   const host = document.getElementById('rain-host');
   let rain = initMatrixRain(host, {
-    color:     '#00ff70',
-    opacity:    0.82,
-    atlasPath: './data/matrixcode_msdf.png',
+    charSet:        defaults.charSet        ?? 'matrixcode',
+    postProcessing: defaults.ppmode         ?? 'rain',
   });
 
   // ── Orbit controls ────────────────────────────────────────────────────
@@ -1459,6 +1461,12 @@
   });
 
   // ── Preset selector ───────────────────────────────────────────────────
+  // ── Apply startup defaults ────────────────────────────────────────────
+  if (Object.keys(defaults).length) {
+    applySettings(defaults);
+    updateCrtPanelVisibility(defaults.ppmode ?? 'rain');
+  }
+
   document.getElementById('ctl-preset').addEventListener('change', e => {
     const name = e.target.value;
     if (!name) return;
