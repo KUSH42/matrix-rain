@@ -921,10 +921,20 @@
   host.addEventListener('contextmenu', e => e.preventDefault());
   makeControls(rain);
   window._rain = rain;   // console: _rain.camera.position, _rain.camera.rotation
+  window.campos = () => {
+    const p = rain.camera.position;
+    console.log(`camera: x=${p.x.toFixed(3)}  y=${p.y.toFixed(3)}  z=${p.z.toFixed(3)}`);
+  };
 
   // ── WASD fly ──────────────────────────────────────────────────────────
   const _keys = {};
-  document.addEventListener('keydown', e => { _keys[e.code] = true;  });
+  document.addEventListener('keydown', e => {
+    _keys[e.code] = true;
+    if (e.code === 'KeyH' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      const panel = document.getElementById('controls');
+      panel.style.display = panel.style.display === 'none' ? '' : 'none';
+    }
+  });
   document.addEventListener('keyup',   e => { _keys[e.code] = false; });
 
   const _fwd   = new Vector3();
