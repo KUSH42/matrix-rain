@@ -543,9 +543,13 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     // Column mode: decode aColMsgGlyph attribute
     const rawGCol     = floor(aColMsgGlyphAttr.mul(256.0).add(0.5)); // 0 = none, 1–255 = glyphIdx+1
     const targetGCol  = rawGCol.sub(1.0);                            // -1 = none, 0–254 = valid
+    // Gate column target on Y-band: cells outside the message's vertical region must not
+    // resolve to the target glyph — otherwise the letter repeats the full column height.
+    // inMsgYBand is computed above from uMsgCenter.y ± uMsgHalfH.
+    const targetGColBanded = select(inMsgYBand, targetGCol, float(-1.0));
 
     // Select target source by cascade mode
-    const targetGlyph = select(isColumn, targetGCol, targetGScr);
+    const targetGlyph = select(isColumn, targetGColBanded, targetGScr);
     const hasTarget   = targetGlyph.greaterThanEqual(float(0.0));
 
     // Probabilistic resolve: coin flip per cell per changeTick.
@@ -746,6 +750,7 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
   const material = new THREE.MeshBasicNodeMaterial({
     transparent:        true,
     depthWrite:         false,
+    depthTest:          false,
     // Additive RGB, max-equation alpha — order-independent, no z-sort artifacts
     blending:           THREE.CustomBlending,
     blendEquation:      THREE.AddEquation,

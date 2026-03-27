@@ -2031,7 +2031,7 @@ export function initMatrixRain(element, opts = {}) {
         uniforms.uDensity.value = msgDensityBoost;
         msgDensityBoost = null;
       }
-      if (msgDensity !== null && msgDensity > uniforms.uDensity.value) {
+      if (msgDensity !== null) {
         msgDensityBoost         = uniforms.uDensity.value;
         uniforms.uDensity.value = Math.min(1.0, msgDensity);
       }
