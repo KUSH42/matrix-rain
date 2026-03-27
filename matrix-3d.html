@@ -790,11 +790,8 @@
         </span>
       </label>
 
-      <label>Sector strength
-        <span style="display:flex;align-items:center;gap:4px;">
-          <input id="ctl-sector-strength"     type="range"  min="0" max="1" step="0.01" value="0">
-          <input id="ctl-sector-strength-num" type="number" min="0" max="1" step="0.01" value="0">
-        </span>
+      <label>Sector on
+        <input id="ctl-sector-strength" type="checkbox">
       </label>
 
       <label>Sector center °
@@ -1176,9 +1173,7 @@
   linkSlider('ctl-cluster-uniform', 'ctl-cluster-uniform-num', () => {
     debounceRebuild(() => rain.setClusterUniform(parseFloat(document.getElementById('ctl-cluster-uniform').value)));
   });
-  linkSlider('ctl-sector-strength', 'ctl-sector-strength-num', () => {
-    rain.setSectorStrength(parseFloat(document.getElementById('ctl-sector-strength').value));
-  });
+  bind('ctl-sector-strength', on => rain.setSectorStrength(on ? 1 : 0));
   linkSlider('ctl-sector-center', 'ctl-sector-center-num', () => {
     rain.setSectorCenter(parseFloat(document.getElementById('ctl-sector-center').value));
   });
@@ -1317,7 +1312,7 @@
       densityIn:     fv('ctl-density-in'),
       densityOut:    fv('ctl-density-out'),
       clusterUniform:  fv('ctl-cluster-uniform'),
-      sectorStrength:  fv('ctl-sector-strength'),
+      sectorStrength:  cb('ctl-sector-strength'),
       sectorCenter:    fv('ctl-sector-center'),
       sectorWidth:     fv('ctl-sector-width'),
       heightFade:      fv('ctl-height-fade'),
@@ -1494,7 +1489,7 @@
     set('ctl-density-in',     s.densityIn);
     set('ctl-density-out',    s.densityOut);
     set('ctl-cluster-uniform',  s.clusterUniform);
-    set('ctl-sector-strength',  s.sectorStrength);
+    chk('ctl-sector-strength',  s.sectorStrength);
     set('ctl-sector-center',    s.sectorCenter);
     set('ctl-sector-width',     s.sectorWidth);
     set('ctl-height-fade',      s.heightFade);
@@ -1519,7 +1514,7 @@
       s.densityIn  ?? parseFloat(document.getElementById('ctl-density-in').value),
       s.densityOut ?? parseFloat(document.getElementById('ctl-density-out').value),
     );
-    if (s.sectorStrength !== undefined) rain.setSectorStrength(s.sectorStrength);
+    if (s.sectorStrength !== undefined) rain.setSectorStrength(s.sectorStrength ? 1 : 0);
     if (s.sectorCenter   !== undefined) rain.setSectorCenter(s.sectorCenter);
     if (s.sectorWidth    !== undefined) rain.setSectorWidth(s.sectorWidth);
     if (s.heightFade     !== undefined) rain.setHeightFade(s.heightFade);
