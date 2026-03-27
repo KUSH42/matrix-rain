@@ -214,6 +214,10 @@ function buildGeometry({
     const clustered    = clusterThetas[Math.floor(Math.random() * nClusters)] + _gaussRand() * sigma;
     const uniformTheta = Math.random() * Math.PI * 2;
     const theta        = clustered + (uniformTheta - clustered) * clusterUniform;
+    // Normalize theta to [-1, 1] for linear topologies (curtain/rectangle X axis).
+    // fmod into [0, 2π] first so the mapping is uniform when clusterUniform=1.
+    const TWO_PI   = Math.PI * 2;
+    const thetaNorm = (((theta % TWO_PI) + TWO_PI) % TWO_PI) / TWO_PI * 2 - 1;  // [-1, 1]
     let r        = inner + Math.pow(Math.random(), exp_) * (outer - inner);
 
     let wx, wz;
@@ -225,12 +229,12 @@ function buildGeometry({
         break;
       }
       case 'curtain': {
-        wx = (Math.random() * 2 - 1) * outer;
+        wx = thetaNorm * outer;
         wz = 0;
         break;
       }
       case 'rectangle': {
-        wx = (Math.random() * 2 - 1) * rectW;
+        wx = thetaNorm * rectW;
         wz = (Math.random() * 2 - 1) * rectH;
         break;
       }
