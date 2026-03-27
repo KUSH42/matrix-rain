@@ -18,6 +18,11 @@
  *   setGodRays(enabled, lightX, lightY, density, decay, weight, exposure),
  *   setBloomThreshold(v), setVignette(v), setScanlines(v), setHoloAberration(v),
  *   applyPreset(name)
+ *
+ * postProcessing modes
+ *   'rain'  — default 7-stage pipeline (bloom → heat → phosphor → soften → streaks → holo → god rays → FXAA)
+ *   'crt'   — rain chain + CRT (telescreen-crt-webgpu); handle.crt exposes the CRT handle
+ *   'none'  — raw scene pass + FXAA only (diagnostic; no bloom, no glow)
  */
 
 import * as THREE from 'three/webgpu';
@@ -145,6 +150,8 @@ const _state = new Map();
  * @param {string}  [opts.atlasPath=null]          explicit atlas path — overrides charSet
  * @param {string}  [opts.preset=null]             named preset applied after PP graph is ready
  * @param {object|null} [opts.syncCamera=null]     THREE.Camera to mirror
+ * @param {string}  [opts.postProcessing='rain']   pipeline mode: 'rain' | 'crt' | 'none'
+ * @param {object}  [opts.crtOpts={}]              options forwarded to buildCRTNodesFromSource; ignored unless postProcessing='crt'
  * @returns {object}  control handle
  */
 export function initMatrixRain(element, opts = {}) {
@@ -153,13 +160,15 @@ export function initMatrixRain(element, opts = {}) {
   if (stale) stale.remove();
 
   const {
-    color        = '#00ff70',
-    opacity      = 0.82,
-    charSet      = 'matrixcode',
-    atlasPath    = null,
-    preset       = null,
-    syncCamera   = null,
-    externalLoop = false,
+    color          = '#00ff70',
+    opacity        = 0.82,
+    charSet        = 'matrixcode',
+    atlasPath      = null,
+    preset         = null,
+    syncCamera     = null,
+    externalLoop   = false,
+    postProcessing = 'rain',
+    crtOpts        = {},
   } = opts;
 
   // Resolve atlas path + grid dimensions from charSet or explicit opts
@@ -240,8 +249,11 @@ export function initMatrixRain(element, opts = {}) {
   // Track factory result so resize path can dispose all RTTNodes (not just phosphor RT)
   let currentRainNodes = null;
 
-  // ── Post-processing (built lazily after renderer.init()) ──────────────
-  let postProcessing  = null;
+  // ── Post-processing pipeline object (THREE.RenderPipeline) ───────────
+  // Named 'pp' to avoid collision with the 'postProcessing' option string.
+  let pp            = null;
+  let pp_rainNodes  = null;   // rain node chain in 'crt' mode
+  let crtHandle     = null;   // CRT handle in 'crt' mode
   let firstRenderDone = false;
   let bloomThreshold  = 0.20;   // static threshold; burst bloom overrides transiently
 
@@ -312,17 +324,17 @@ export function initMatrixRain(element, opts = {}) {
   function buildPP() {
     const sceneColorNode = pass(scene, camera).getTextureNode('output');
     const nodes = buildNodesInternal(sceneColorNode);
-    const pp    = new THREE.RenderPipeline(renderer);
-    pp.outputNode    = fxaa(nodes.outputNode);
-    pp._rttPhosphor  = nodes.rttPhosphor;
-    pp._bloomNode    = nodes.passBuilders._bloomNode;
-    pp._heatBuild    = nodes.passBuilders._heatBuild;
-    pp._softenBuild  = nodes.passBuilders._softenBuild;
-    pp._streakBuild  = nodes.passBuilders._streakBuild;
-    pp._holoBuild    = nodes.passBuilders._holoBuild;
-    pp._godRaysBuild = nodes.passBuilders._godRaysBuild;
-    pp._bloomNode.threshold.value = bloomThreshold;
-    return pp;
+    const pipeline    = new THREE.RenderPipeline(renderer);
+    pipeline.outputNode    = fxaa(nodes.outputNode);
+    pipeline._rttPhosphor  = nodes.rttPhosphor;
+    pipeline._bloomNode    = nodes.passBuilders._bloomNode;
+    pipeline._heatBuild    = nodes.passBuilders._heatBuild;
+    pipeline._softenBuild  = nodes.passBuilders._softenBuild;
+    pipeline._streakBuild  = nodes.passBuilders._streakBuild;
+    pipeline._holoBuild    = nodes.passBuilders._holoBuild;
+    pipeline._godRaysBuild = nodes.passBuilders._godRaysBuild;
+    pipeline._bloomNode.threshold.value = bloomThreshold;
+    return pipeline;
   }
 
   // ── Animate ───────────────────────────────────────────────────────────
@@ -385,31 +397,57 @@ export function initMatrixRain(element, opts = {}) {
     animRef.id = requestAnimationFrame(animate);
     tick(ts * 0.001);
 
-    if (!postProcessing) return;
+    if (!pp) return;
 
-    // RTT resize detection (telescreen pattern)
     const rdrW = renderer.domElement.width;
     const rdrH = renderer.domElement.height;
-    const rttRT = postProcessing._rttPhosphor?.renderTarget;
+
+    // 'rain' mode RTT resize detection (telescreen pattern) — unchanged
+    const rttRT = pp._rttPhosphor?.renderTarget;
     if (firstRenderDone && rttRT && (rttRT.width !== rdrW || rttRT.height !== rdrH)) {
-      currentRainNodes?.dispose();   // dispose all RTTNodes before rebuild (not just phosphor)
+      currentRainNodes?.dispose();
       if (prevRT) { try { prevRT.dispose(); } catch (_) {} prevRT = null; prevW = 0; prevH = 0; }
-      postProcessing = buildPP();
+      pp = buildPP();
       firstRenderDone = false;
       return;
+    }
+
+    // 'crt' mode RTT resize detection
+    if (postProcessing === 'crt' && firstRenderDone && crtHandle) {
+      const rttRainRT = pp_rainNodes?.rttPhosphor?.renderTarget;
+      if (rttRainRT && (rttRainRT.width !== rdrW || rttRainRT.height !== rdrH)) {
+        pp_rainNodes.dispose();
+        const sceneColor = pass(scene, camera).getTextureNode('output');
+        pp_rainNodes = buildNodesInternal(sceneColor);
+        crtHandle.setSourceNode(pp_rainNodes.outputNode);
+        firstRenderDone = false;
+        return;
+      }
+    }
+
+    // 'crt' mode: drive CRT tick and handle its rebuild signal
+    if (postProcessing === 'crt' && crtHandle) {
+      const signal = crtHandle.tick(ts);
+      if (signal.skipRender) {
+        if (signal.newOutputNode) {
+          pp.outputNode = fxaa(rtt(signal.newOutputNode));
+        }
+        return;
+      }
     }
 
     ensurePrevRT();
 
     try {
-      await postProcessing.render();
+      await pp.render();
       firstRenderDone = true;
-      if (postProcessing._rttPhosphor?.renderTarget && prevRT) {
-        renderer.copyTextureToTexture(
-          postProcessing._rttPhosphor.renderTarget.texture,
-          prevRT.texture
-        );
-      }
+
+      // Phosphor feedback copy — rain and crt both have the rain node chain
+      if (postProcessing === 'rain') currentRainNodes?.postRender(renderer);
+      if (postProcessing === 'crt')  pp_rainNodes?.postRender(renderer);
+
+      // CRT postRender hook
+      if (postProcessing === 'crt')  crtHandle?.postRender?.(renderer);
     } catch (e) {
       console.warn('matrix-rain-webgpu: render threw:', e);
     }
@@ -419,12 +457,43 @@ export function initMatrixRain(element, opts = {}) {
   let handle;
 
   // Init renderer then kick off animation
-  renderer.init().then(() => {
-    if (!externalLoop) {
-      postProcessing = buildPP();
-      animRef.id = requestAnimationFrame(animate);
+  renderer.init().then(async () => {
+    try {
+      switch (postProcessing) {
+
+        case 'rain':
+          pp = buildPP();
+          break;
+
+        case 'crt': {
+          const { buildCRTNodesFromSource } =
+            await import('../telescreen-crt-webgpu/telescreen-crt-webgpu.js');
+          const sceneColor = pass(scene, camera).getTextureNode('output');
+          pp_rainNodes = buildNodesInternal(sceneColor);
+          crtHandle    = buildCRTNodesFromSource(renderer, pp_rainNodes.outputNode, crtOpts);
+          pp           = new THREE.RenderPipeline(renderer);
+          pp.outputNode = fxaa(rtt(crtHandle.outputNode));
+          break;
+        }
+
+        case 'none': {
+          pp = new THREE.RenderPipeline(renderer);
+          pp.outputNode = fxaa(pass(scene, camera).getTextureNode('output'));
+          break;
+        }
+
+        default:
+          console.warn(`[matrix-rain] unknown postProcessing mode '${postProcessing}', falling back to 'rain'`);
+          pp = buildPP();
+          break;
+      }
+
+      if (!externalLoop) ro.observe(element);
+      if (preset) handle?.applyPreset(preset);
+      if (!externalLoop) animRef.id = requestAnimationFrame(animate);
+    } catch (err) {
+      console.error('[matrix-rain] init failed:', err);
     }
-    if (preset) handle?.applyPreset(preset);
   });
 
   // ── Resize ────────────────────────────────────────────────────────────
@@ -443,10 +512,14 @@ export function initMatrixRain(element, opts = {}) {
       // PostProcessing RTT resize is handled in the render loop
     });
   });
-  if (!externalLoop) ro.observe(element);
 
   // ── State object ──────────────────────────────────────────────────────
-  const s = { renderer, ro, animRef, geom, material, atlasTex, dummyRT, uniforms, mesh };
+  // _cleanup captures closure vars for destroyMatrixRain
+  function _cleanup() {
+    currentRainNodes?.dispose();
+    crtHandle?.destroy?.();
+  }
+  const s = { renderer, ro, animRef, geom, material, atlasTex, dummyRT, uniforms, mesh, _cleanup };
   _state.set(element, s);
 
   // ── Control handle ────────────────────────────────────────────────────
@@ -462,7 +535,8 @@ export function initMatrixRain(element, opts = {}) {
     setNormalStrength(v)   { uniforms.uNormalStrength.value = v; },
 
     setSoften(on, strength) {
-      const b = postProcessing?._softenBuild ?? currentRainNodes?.passBuilders?._softenBuild;
+      if (postProcessing !== 'rain') return;
+      const b = pp?._softenBuild ?? currentRainNodes?.passBuilders?._softenBuild;
       if (!b) return;
       if (strength !== undefined) b.uBlurStrength.value = strength;
       // Note: disabling soften requires rebuilding the PostProcessing graph.
@@ -470,16 +544,21 @@ export function initMatrixRain(element, opts = {}) {
       if (!on) b.uBlurStrength.value = 0;
     },
     setHeat(on, amt) {
-      const b = postProcessing?._heatBuild ?? currentRainNodes?.passBuilders?._heatBuild;
+      if (postProcessing !== 'rain') return;
+      const b = pp?._heatBuild ?? currentRainNodes?.passBuilders?._heatBuild;
       if (!b) return;
       b.uHeatAmt.value = on ? (amt ?? 0.004) : 0;
     },
     setStreaks(on, amt) {
-      const b = postProcessing?._streakBuild ?? currentRainNodes?.passBuilders?._streakBuild;
+      if (postProcessing !== 'rain') return;
+      const b = pp?._streakBuild ?? currentRainNodes?.passBuilders?._streakBuild;
       if (!b) return;
       b.uStreakAmt.value = on ? (amt ?? 0.055) : 0;
     },
-    setBurstBloom(on) { burstBloomActive = on; },
+    setBurstBloom(on) {
+      if (postProcessing !== 'rain') return;
+      burstBloomActive = on;
+    },
     setGlobeInteract(on)   { uniforms.uGlobeInteract.value = on ? 1.0 : 0.0; },
 
     setGlyphChroma(on, scale) {
@@ -496,7 +575,8 @@ export function initMatrixRain(element, opts = {}) {
      * @param {number}  [exposure]  0–2 final exposure
      */
     setGodRays(enabled, lightX, lightY, density, decay, weight, exposure) {
-      const g = postProcessing?._godRaysBuild ?? currentRainNodes?.passBuilders?._godRaysBuild;
+      if (postProcessing !== 'rain') return;
+      const g = pp?._godRaysBuild ?? currentRainNodes?.passBuilders?._godRaysBuild;
       if (!g) return;
       g.uEnabled.value = enabled ? 1.0 : 0.0;
       if (lightX    !== undefined) g.uLightPos.value.x = lightX;
@@ -507,7 +587,10 @@ export function initMatrixRain(element, opts = {}) {
       if (exposure  !== undefined) g.uExposure.value  = exposure;
     },
 
-    setPhosphorDecay(v) { phosphorDecay.value = v; },
+    setPhosphorDecay(v) {
+      if (postProcessing !== 'rain') return;
+      phosphorDecay.value = v;
+    },
 
     setSpeed(v)        { uniforms.uSpeedMul.value = v; },
     setYawAligned(v)   { uniforms.uYawAligned.value = v; },
@@ -515,7 +598,8 @@ export function initMatrixRain(element, opts = {}) {
     setFlatZ(on)       { uniforms.uFlatZ.value = on ? 1.0 : 0.0; },
 
     setBloomStrength(v) {
-      if (postProcessing?._bloomNode) postProcessing._bloomNode.strength.value = v;
+      if (postProcessing !== 'rain') return;
+      if (pp?._bloomNode) pp._bloomNode.strength.value = v;
       if (currentRainNodes?.passBuilders?._bloomNode)
         currentRainNodes.passBuilders._bloomNode.strength.value = v;
     },
@@ -557,27 +641,29 @@ export function initMatrixRain(element, opts = {}) {
 
     /** Sets the static bloom threshold. Range 0–1, default 0.20. */
     setBloomThreshold(v) {
+      if (postProcessing !== 'rain') return;
       bloomThreshold = v;
-      if (postProcessing?._bloomNode) postProcessing._bloomNode.threshold.value = v;
+      if (pp?._bloomNode) pp._bloomNode.threshold.value = v;
       if (currentRainNodes?.passBuilders?._bloomNode)
         currentRainNodes.passBuilders._bloomNode.threshold.value = v;
     },
 
     /** Sets vignette strength. Range 0–1, default 0.42. */
     setVignette(v) {
-      const b = postProcessing?._holoBuild ?? currentRainNodes?.passBuilders?._holoBuild;
+      const b = pp?._holoBuild ?? currentRainNodes?.passBuilders?._holoBuild;
       if (b) b.uVignetteStrength.value = v;
     },
 
     /** Sets scrolling scanline opacity. Range 0–0.2, default 0.045. */
     setScanlines(v) {
-      const b = postProcessing?._holoBuild ?? currentRainNodes?.passBuilders?._holoBuild;
+      const b = pp?._holoBuild ?? currentRainNodes?.passBuilders?._holoBuild;
       if (b) b.uScanlineOpacity.value = v;
     },
 
     /** Sets screen-space chromatic aberration in the holo pass. Range 0–0.015, default 0.0025. */
     setHoloAberration(v) {
-      const b = postProcessing?._holoBuild ?? currentRainNodes?.passBuilders?._holoBuild;
+      if (postProcessing !== 'rain') return;
+      const b = pp?._holoBuild ?? currentRainNodes?.passBuilders?._holoBuild;
       if (b) b.uAberrationAmt.value = v;
     },
 
@@ -645,6 +731,12 @@ export function initMatrixRain(element, opts = {}) {
     get scene()    { return scene; },
     get camera()   { return camera; },
     get renderer() { return renderer; },
+
+    /**
+     * Returns the CRT handle after renderer.init() resolves; null before that
+     * and in non-CRT modes.
+     */
+    get crt() { return crtHandle; },
   };
   return handle;
 }
@@ -662,6 +754,7 @@ export function destroyMatrixRain(element) {
   s.geom.dispose();
   s.atlasTex.dispose();
   s.dummyRT.dispose();
+  s._cleanup?.();
   s.renderer.dispose();
   s.renderer.domElement.remove();
   _state.delete(element);

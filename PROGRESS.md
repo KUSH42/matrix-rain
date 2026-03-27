@@ -51,6 +51,11 @@ All items go in `specs/` before implementation.
   - `matrix-rain-crt-bridge.js`: glue module (single RAF loop, ResizeObserver, re-entry guard, `pp.outputNode` swap on CRT rebuild)
   - `demo-crt.html`: standalone demo with rain + CRT + signal preset stacking
 
+- [x] **SPEC-pp-mode** — `postProcessing` mode selector for `initMatrixRain`
+  - `matrix-rain-webgpu.js`: renamed internal `let postProcessing` → `let pp` to avoid opt name collision; added `postProcessing` ('rain'|'crt'|'none') + `crtOpts` opts; `let pp_rainNodes`, `let crtHandle`; PP-pass method guards (`if (postProcessing !== 'rain') return`) on `setHeat`, `setSoften`, `setStreaks`, `setHoloAberration`, `setGodRays`, `setBurstBloom`, `setPhosphorDecay`, `setBloomThreshold`, `setBloomStrength`; `renderer.init().then()` branched into switch with async try/catch; `ro.observe` moved inside init callback; `animate()` extended with CRT tick + skipRender/newOutputNode handling, per-mode phosphor postRender + CRT postRender; CRT RTT resize detection; `handle.crt` getter; `_cleanup()` closure stored in state for `destroyMatrixRain`
+  - `matrix-rain-crt-bridge.js`: replaced body with backward-compat shim delegating to `initMatrixRain({postProcessing:'crt'})` with `handle.rain = handle` self-reference
+  - `demo.html`: PP mode dropdown (rain/crt/none diagnostic); mode-switch re-inits with current charSet, all other params reset; CRT sub-panel (initially hidden, shows when mode='crt') with shader dropdown; `updateCrtPanelVisibility` helper; CRT shader wired through `rain.crt?.setShader()`
+
 - [ ] Tests — `tests/` for any pure-JS logic extracted to a `matrix-rain-math.js`
 - [ ] `prefers-reduced-motion` — disable/reduce heat, god rays, burst bloom
 - [ ] README.md — public documentation before any npm/gh-pages publish

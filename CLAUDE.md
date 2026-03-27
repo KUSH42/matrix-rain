@@ -121,6 +121,8 @@ async function animate(ts) {
 | `opts.charSet` | `string` | `'matrixcode'` | Named glyph set; see `CHAR_SETS` |
 | `opts.atlasPath` | `string\|null` | `null` | Explicit atlas URL — overrides `charSet` |
 | `opts.syncCamera` | `THREE.Camera\|null` | `null` | External camera to mirror |
+| `opts.postProcessing` | `'rain'\|'crt'\|'none'` | `'rain'` | Pipeline mode. `'rain'`: 7-stage rain pipeline. `'crt'`: rain chain + CRT (telescreen). `'none'`: raw scene + FXAA (diagnostic) |
+| `opts.crtOpts` | `object` | `{}` | Options forwarded to `buildCRTNodesFromSource`; ignored unless `postProcessing: 'crt'` |
 
 Returns a control handle with methods below.
 
@@ -147,6 +149,9 @@ Returns a control handle with methods below.
 | `setScanlines(v)` | Scanline opacity 0–0.2 |
 | `setHoloAberration(v)` | Screen-space chromatic aberration in holo pass 0–0.015 |
 | `applyPreset(name)` | Apply named preset: `'default'`\|`'matrix1999'`\|`'ghost'`\|`'overdrive'` |
+| `get crt` | CRT handle after `renderer.init()` resolves in `'crt'` mode; `null` otherwise |
+
+**Note**: `setHeat`, `setSoften`, `setStreaks`, `setHoloAberration`, `setGodRays`, `setBurstBloom`, `setPhosphorDecay`, `setBloomThreshold`, `setBloomStrength` are no-ops (silent) in `'crt'` and `'none'` modes.
 
 ### `destroyMatrixRain(element)`
 

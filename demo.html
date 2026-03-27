@@ -133,6 +133,14 @@
   <summary>Matrix Rain</summary>
   <div style="margin-top:8px;display:flex;flex-direction:column;gap:4px;">
 
+    <label>Post-processing
+      <select id="ctl-ppmode">
+        <option value="rain" selected>rain</option>
+        <option value="crt">crt</option>
+        <option value="none">none (diagnostic)</option>
+      </select>
+    </label>
+
     <label>Preset
       <select id="ctl-preset">
         <option value="">— custom —</option>
@@ -260,6 +268,19 @@
       </select>
     </label>
 
+    <!-- CRT sub-panel — shown only in 'crt' mode -->
+    <div id="crt-controls" style="display:none;border-top:1px solid #00ff7044;margin-top:4px;padding-top:4px;flex-direction:column;gap:4px;">
+      <label style="color:#7fffaa;font-size:10px;letter-spacing:0.1em;text-transform:uppercase;">— CRT —</label>
+      <label>CRT shader
+        <select id="ctl-crt-shader">
+          <option value="default" selected>default</option>
+          <option value="phosphor">phosphor</option>
+          <option value="sharp">sharp</option>
+          <option value="lcd">lcd</option>
+        </select>
+      </label>
+    </div>
+
   </div>
 </details>
 
@@ -279,10 +300,32 @@
 
   // ── Init ──────────────────────────────────────────────────────────────
   const host = document.getElementById('rain-host');
-  const rain = initMatrixRain(host, {
+  let rain = initMatrixRain(host, {
     color:     '#00ff70',
     opacity:    0.82,
     atlasPath: './data/matrixcode_msdf.png',
+  });
+
+  // ── PP mode switching ─────────────────────────────────────────────────
+  // On mode change: preserve only charSet; all other params reset to defaults.
+  // 'none' is a diagnostic mode — glyphs render without glow.
+  const crtPanel  = document.getElementById('crt-controls');
+  const ppmodeEl  = document.getElementById('ctl-ppmode');
+
+  function updateCrtPanelVisibility(mode) {
+    crtPanel.style.display = mode === 'crt' ? 'flex' : 'none';
+  }
+
+  ppmodeEl.addEventListener('change', () => {
+    const newMode    = ppmodeEl.value;
+    const currentSet = document.getElementById('ctl-charset').value;
+    rain.destroy();
+    // All existing control handlers close over the 'rain' let-variable and pick up the new value.
+    rain = initMatrixRain(host, {
+      charSet:        currentSet,
+      postProcessing: newMode,
+    });
+    updateCrtPanelVisibility(newMode);
   });
 
   // ── Controls ──────────────────────────────────────────────────────────
@@ -342,6 +385,12 @@
 
   document.getElementById('ctl-charset').addEventListener('change', e => {
     rain.setCharSet(e.target.value);
+  });
+
+  // CRT shader selector — rain.crt is null until renderer.init() resolves in 'crt' mode;
+  // optional chaining makes these calls safe at any time.
+  document.getElementById('ctl-crt-shader').addEventListener('change', e => {
+    rain.crt?.setShader(e.target.value);
   });
 
   // ── Preset selector ───────────────────────────────────────────────────
