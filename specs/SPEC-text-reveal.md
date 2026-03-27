@@ -1,6 +1,6 @@
 # SPEC-text-reveal — Message reveal animation for the 3D rain
 
-**Status**: Approved
+**Status**: Implemented
 **Priority**: P2
 
 ---
