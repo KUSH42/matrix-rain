@@ -156,6 +156,7 @@ Returns a control handle with methods below.
 | `setWaveAmt(v)` | Wave offset amplitude 0–1 (0=off, 1=±4 world units) |
 | `setWeightedGlyphs(v)` | Glyph weight LUT blend 0–1 (0=uniform, 1=full LUT) |
 | `setCellSize(w, h)` | Cell world-unit dimensions (default 0.12, 0.08) |
+| `setReverseChance(v)` | Fraction of columns falling upward 0–1 (0=all down, 1=all up) |
 | `setSpeedRange(min, max)` | Per-column speed range — triggers geometry rebuild |
 | `setTrailRange(min, max)` | Per-column trail bounds (world units) — triggers geometry rebuild |
 | `setDensity(v)` | Fraction of columns active 0.1–1.0 (uniform, no rebuild) |

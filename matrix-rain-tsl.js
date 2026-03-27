@@ -84,6 +84,7 @@ export function makeUniforms(glyphCount = 56, gridW = 8, gridH = 8, dummyMsgTex,
     uWaveSpeed:      uniform(0.15),  // wave crest angular speed in rad/s (hardcoded was 0.15)
     uWaveAmt:        uniform(1.0),   // wave offset amplitude scale — 0 = off, 1 = ±4 world units
     uWeightedGlyphs: uniform(1.0),  // LUT weight blend — 0 = uniform sampling, 1 = full LUT
+    uReverseChance:  uniform(0.0),  // fraction of columns that fall upward — 0 = all down, 1 = all up
     uDensity:        uniform(1.0),   // fraction of columns active — range [0.1, 1.0]
     uZoneSpeedInner: uniform(1.0),   // speed bias at r = R_MIN  (inner / close)
     uZoneSpeedOuter: uniform(1.0),   // speed bias at r = R_MAX  (outer / far)
@@ -109,7 +110,7 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     uSpeedMul, uYawAligned, uFacingJitter, uFlatZ, uGlobeInteract, uSwayAmt, uSwayDecay,
     uMsgTex, uMsgRevealProgress, uMsgWaveX, uMsgBoost,
     uGlyphWeightLUT,
-    uBrightness, uBreathAmt, uWaveSpeed, uWaveAmt, uWeightedGlyphs,
+    uBrightness, uBreathAmt, uWaveSpeed, uWaveAmt, uWeightedGlyphs, uReverseChance,
     uDensity,
     uZoneSpeedInner, uZoneSpeedOuter, uZoneBrightInner, uZoneBrightOuter,
   } = uniforms;
@@ -250,8 +251,11 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
       const thetaWave  = atan(aWZ, aWX);                           // −π..π
       const wavePhase  = thetaWave.mul(3.0).add(uTime.mul(uWaveSpeed));
       const waveOffset = sin(wavePhase).mul(uWaveAmt.mul(4.0));
+
+      // waveOffset is applied to headY *outside* mod so that the wave's
+      // time-derivative never flips a column's fall direction.
       const cyclePos  = mod(
-        uTime.mul(aSpeed).mul(speedMul).add(aSeed.mul(cycleH)).add(waveOffset),
+        uTime.mul(aSpeed).mul(speedMul).add(aSeed.mul(cycleH)),
         cycleH
       );
       const cyclePhase = cyclePos.div(cycleH);
@@ -260,8 +264,18 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
       const deathRamp = smoothstep(0.88, 1.0, cyclePhase);
       vDeathFade.assign(float(1).sub(deathRamp));
 
-      const headY = aYOff.add(uWorldH.mul(0.5)).sub(cyclePos);
-      const dist  = cellY.sub(headY).div(cellStep);
+      // Per-column reverse: stable per-column hash decides direction.
+      // uReverseChance = 0 → all fall down; 1 → all fall up.
+      const revH  = h2(vec2(aColIdxAttr.mul(0.23), 0.69));
+      const isRev = step(float(1).sub(uReverseChance), revH);
+      // Reverse columns invert cyclePos so head sweeps bottom→top.
+      const revCyclePos = select(isRev, cycleH.sub(cyclePos), cyclePos);
+
+      const headY = aYOff.add(uWorldH.mul(0.5)).sub(revCyclePos).add(waveOffset);
+      // Signed trail distance: positive = behind head (in the trail).
+      // Forward: trail is above head (cellY > headY). Reverse: below (headY > cellY).
+      const rawDist = cellY.sub(headY).div(cellStep);
+      const dist    = select(isRev, rawDist.negate(), rawDist);
       vDist.assign(dist);
 
       // Cull glyphs outside the visible trail window

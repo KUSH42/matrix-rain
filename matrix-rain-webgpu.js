@@ -802,6 +802,7 @@ export function initMatrixRain(element, opts = {}) {
     setWaveAmt(v)        { uniforms.uWaveAmt.value = v; },
     setWeightedGlyphs(v) { uniforms.uWeightedGlyphs.value = v; },
     setCellSize(w, h)    { uniforms.uCellW.value = w; uniforms.uCellH.value = h; },
+    setReverseChance(v)  { uniforms.uReverseChance.value = v; },
 
     setSpeedRange(min, max) {
       _geomParams.speedMin = min;

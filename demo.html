@@ -387,6 +387,10 @@
       <label>Weighted glyphs
         <input id="ctl-weighted" type="checkbox" checked>
       </label>
+
+      <label>Reverse chance
+        <input id="ctl-reverse" type="range" min="0" max="1" step="0.05" value="0">
+      </label>
     </div>
 
     <!-- Columns sub-panel -->
@@ -640,6 +644,7 @@
   bind('ctl-wave-speed',  v  => rain.setWaveSpeed(v));
   bind('ctl-wave-amt',    v  => rain.setWaveAmt(v));
   bind('ctl-weighted',    on => rain.setWeightedGlyphs(on ? 1.0 : 0.0));
+  bind('ctl-reverse',     v  => rain.setReverseChance(v));
   document.getElementById('ctl-cellw').addEventListener('input', () => {
     rain.setCellSize(
       parseFloat(document.getElementById('ctl-cellw').value),
@@ -715,6 +720,7 @@
       waveSpeed:      fv('ctl-wave-speed'),
       waveAmt:        fv('ctl-wave-amt'),
       weightedGlyphs: cb('ctl-weighted'),
+      reverseChance:  fv('ctl-reverse'),
       spdMin:      fv('ctl-spd-min'),
       spdMax:      fv('ctl-spd-max'),
       trlMin:      fv('ctl-trl-min'),
@@ -776,6 +782,7 @@
     set('ctl-wave-speed',  s.waveSpeed);
     set('ctl-wave-amt',    s.waveAmt);
     chk('ctl-weighted',    s.weightedGlyphs);
+    set('ctl-reverse',     s.reverseChance);
 
     // ── Rebuild if ppmode changed ────────────────────────────────────────
     if (s.ppmode !== undefined && s.ppmode !== prevMode) {
@@ -820,6 +827,7 @@
     if (s.waveSpeed      !== undefined) rain.setWaveSpeed(s.waveSpeed);
     if (s.waveAmt        !== undefined) rain.setWaveAmt(s.waveAmt);
     if (s.weightedGlyphs !== undefined) rain.setWeightedGlyphs(s.weightedGlyphs ? 1.0 : 0.0);
+    if (s.reverseChance  !== undefined) rain.setReverseChance(s.reverseChance);
     set('ctl-spd-min',      s.spdMin);
     set('ctl-spd-max',      s.spdMax);
     set('ctl-trl-min',      s.trlMin);
