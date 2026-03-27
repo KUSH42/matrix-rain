@@ -1175,6 +1175,7 @@ export function initMatrixRain(element, opts = {}) {
   let msgFadeSpeed    = 0;       // progress units per second
   let msgTex          = null;    // current CanvasTexture; disposed on new message / idle
   let msgCascadeMode  = 0;       // mirror of uMsgCascadeMode.value for tick() branching
+  let msgDensityBoost = null;    // saved uDensity.value before boost; null = no boost active
 
   // ── CCP easter egg state ───────────────────────────────────────────────
   let _ccpActive      = false;
@@ -1295,6 +1296,11 @@ export function initMatrixRain(element, opts = {}) {
           // Reset column mode attribute
           const attr = mesh.geometry.getAttribute('aColMsgGlyph');
           if (attr) { attr.array.fill(0); attr.needsUpdate = true; }
+          // Restore density if it was boosted
+          if (msgDensityBoost !== null) {
+            u.uDensity.value = msgDensityBoost;
+            msgDensityBoost  = null;
+          }
         }
       }
     }
@@ -1997,6 +2003,7 @@ export function initMatrixRain(element, opts = {}) {
      * @param {number} [opts.fadeDuration]     seconds to fade out (default: 1.0)
      * @param {number} [opts.boost]            brightness multiplier during active reveal (default: 2.0)
      * @param {number} [opts.settleSharpness]  how quickly per-cell crystallisation completes (default: 4.0)
+     * @param {number|null} [opts.msgDensity]  temporarily override uDensity for reveal+hold (null = no change)
      */
     showMessage(text, opts = {}) {
       if (msgTex) { try { msgTex.dispose(); } catch (_) {} }
@@ -2015,7 +2022,19 @@ export function initMatrixRain(element, opts = {}) {
         fadeDuration     = 1.0,
         boost            = 2.0,
         settleSharpness  = 4.0,
+        msgDensity       = null,   // null = don't touch uDensity; number = override for the reveal
       } = opts;
+
+      // Density boost — save current value and override for reveal+hold; restored on idle
+      if (msgDensityBoost !== null) {
+        // A previous message's boost is still active — restore before applying the new one
+        uniforms.uDensity.value = msgDensityBoost;
+        msgDensityBoost = null;
+      }
+      if (msgDensity !== null && msgDensity > uniforms.uDensity.value) {
+        msgDensityBoost         = uniforms.uDensity.value;
+        uniforms.uDensity.value = Math.min(1.0, msgDensity);
+      }
 
       const modeFloat = cascadeMode === 'radial' ? 1.0 : cascadeMode === 'column' ? 2.0 : 0.0;
       msgCascadeMode = modeFloat;

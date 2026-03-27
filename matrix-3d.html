@@ -451,6 +451,12 @@
           <input id="ctl-msg-settle-num" type="number" min="0.5" max="12" step="0.5" value="4">
         </span>
       </label>
+      <label>Msg Density
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-msg-density"     type="range"  min="0.1" max="1" step="0.05" value="1">
+          <input id="ctl-msg-density-num" type="number" min="0.1" max="1" step="0.05" value="1">
+        </span>
+      </label>
       <label>Reveal s
         <span style="display:flex;align-items:center;gap:4px;">
           <input id="ctl-msg-reveal"     type="range"  min="0.3" max="4" step="0.1" value="1.5">
@@ -1277,6 +1283,7 @@
       cascadeMode:     document.getElementById('ctl-msg-cascade').value,
       boost:           parseFloat(document.getElementById('ctl-msg-boost').value),
       settleSharpness: parseFloat(document.getElementById('ctl-msg-settle').value),
+      msgDensity:      parseFloat(document.getElementById('ctl-msg-density').value),
       revealDuration:  parseFloat(document.getElementById('ctl-msg-reveal').value),
       holdDuration:    parseFloat(document.getElementById('ctl-msg-hold').value),
       fadeDuration:    parseFloat(document.getElementById('ctl-msg-fade').value),
@@ -1286,9 +1293,10 @@
     rain.clearMessage();
   });
   // Message sliders — sync range↔number, no live callback (values read on button click)
-  linkSlider('ctl-msg-boost',  'ctl-msg-boost-num',  () => {});
-  linkSlider('ctl-msg-settle', 'ctl-msg-settle-num', () => {});
-  linkSlider('ctl-msg-reveal', 'ctl-msg-reveal-num', () => {});
+  linkSlider('ctl-msg-boost',   'ctl-msg-boost-num',   () => {});
+  linkSlider('ctl-msg-settle',  'ctl-msg-settle-num',  () => {});
+  linkSlider('ctl-msg-density', 'ctl-msg-density-num', () => {});
+  linkSlider('ctl-msg-reveal',  'ctl-msg-reveal-num',  () => {});
   linkSlider('ctl-msg-hold',   'ctl-msg-hold-num',   () => {});
   linkSlider('ctl-msg-fade',   'ctl-msg-fade-num',   () => {});
 

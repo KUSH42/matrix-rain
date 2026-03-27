@@ -271,7 +271,10 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
       .mul(sectorMask)
       .mul(heightMask)
       .clamp(0.0, 1.0);
-    const densityPasses = h2(vec2(aColIdxAttr.mul(0.137).add(0.5), float(42.7))).lessThanEqual(zonedDensity);
+    const densityHash   = h2(vec2(aColIdxAttr.mul(0.137).add(0.5), float(42.7)));
+    // Columns assigned a message glyph (column cascade mode) always bypass density cull.
+    const isMsgCol     = aColMsgGlyphAttr.greaterThan(float(0.001));
+    const densityPasses = densityHash.lessThanEqual(zonedDensity).or(isMsgCol);
     If(densityPasses.and(aFrustumVisAttr.greaterThan(float(0.5))), () => {
 
     If(bootFadeVal.greaterThanEqual(0.001), () => {
