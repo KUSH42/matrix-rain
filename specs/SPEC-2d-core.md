@@ -1,6 +1,6 @@
 # SPEC-2d-core
 
-**Status**: Ready for implementation
+**Status**: IMPLEMENTED
 **Priority**: P0 — prerequisite for SPEC-2d-layers and SPEC-2d-organic
 **Reference**: `specs/matrix-rain-analysis.md` §3, §5.1–5.3; `specs/AUDIT-analysis-vs-code.md` §3
 

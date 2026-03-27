@@ -125,6 +125,27 @@ export const GLYPH_SETS = {
    */
   matrix1999: {
     gridW: 8, gridH: 8,
+    /**
+     * Per-glyph complexity weights for weighted glyph sampling (SPEC-2d-organic §4).
+     * Three classes: complex (≥8 strokes) = 2.5 | medium = 1.0 | simple (≤4 strokes) = 0.5
+     * One entry per glyph slot, length = gridW * gridH = 64.
+     */
+    weights: [
+      1.0, 1.0, 1.0, 1.0, 1.0,  // 0–4  vowels (ｱｲｳｴｵ) — medium
+      1.0, 1.0, 1.0, 1.0, 1.0,  // 5–9  K-row — medium
+      1.0, 1.0, 1.0, 1.0, 1.0,  // 10–14 S-row — medium
+      1.0, 1.0, 1.0, 2.5, 1.0,  // 15–19 T-row; ﾃ=18 complex (≥8 strokes)
+      1.0, 2.5, 1.0, 1.0, 1.0,  // 20–24 N-row; ﾆ=21 complex
+      2.5, 1.0, 1.0, 1.0, 2.5,  // 25–29 H-row; ﾊ=25 ﾎ=29 complex
+      1.0, 1.0, 1.0, 1.0, 1.0,  // 30–34 M-row — medium
+      1.0, 1.0, 1.0,             // 35–37 Y-row — medium
+      1.0, 2.5, 2.5, 2.5, 2.5,  // 38–42 R-row; ﾘ=39 ﾙ=40 ﾚ=41 ﾛ=42 complex
+      1.0, 1.0, 0.5,             // 43–45 WA/N/prolonged; ｰ=45 simple
+      0.5, 0.5, 0.5, 0.5, 0.5,  // 46–50 numerals 0–4 — simple
+      0.5, 0.5, 0.5, 0.5, 0.5,  // 51–55 numerals 5–9 — simple
+      1.0, 1.0, 1.0, 1.0,        // 56–59 custom glyphs (ψ Ω ⌐ ⌐) — medium
+      1.0, 1.0, 1.0, 1.0,        // 60–63 custom glyphs (◇ ⌐¬ ≡ ) — medium
+    ],
     glyphs: [
       // ── Half-width katakana — vowel row ─────────────────────────────
       { char: 'ｱ', mirror: false },  // 0  A
@@ -207,9 +228,11 @@ export const GLYPH_SETS = {
 
   /**
    * latin — uppercase A–Z plus digits 0–9. 36 glyphs in an 8×8 grid (28 slots unused).
+   * Uniform weights (all 1.0) — no complexity bias for latin characters.
    */
   latin: {
     gridW: 8, gridH: 8,
+    weights: Array.from({ length: 36 }, () => 1.0),
     glyphs: [
       ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').map(c => ({ char: c, mirror: false })),
       ...'0123456789'.split('').map(c => ({ char: c, mirror: false })),
@@ -219,9 +242,11 @@ export const GLYPH_SETS = {
   /**
    * ascii — all 95 printable ASCII characters (U+0020–U+007E).
    * Requires a 10×10 grid (100 slots, 5 unused) and the uAtlasGridW/H shader fix.
+   * Uniform weights (all 1.0) — no complexity bias for ASCII characters.
    */
   ascii: {
     gridW: 10, gridH: 10,
+    weights: Array.from({ length: 95 }, () => 1.0),
     glyphs: Array.from({ length: 95 }, (_, i) => ({
       char: String.fromCharCode(0x20 + i),
       mirror: false,

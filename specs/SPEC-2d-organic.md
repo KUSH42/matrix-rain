@@ -1,6 +1,6 @@
 # SPEC-2d-organic
 
-**Status**: Ready for implementation
+**Status**: IMPLEMENTED
 **Priority**: P2 — depends on SPEC-2d-core; independent of SPEC-2d-layers
 **Reference**: `specs/matrix-rain-analysis.md` §6 "Experimental Directions";
 `specs/AUDIT-analysis-vs-code.md` §3.3–3.7

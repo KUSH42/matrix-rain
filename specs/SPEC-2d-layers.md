@@ -1,6 +1,6 @@
 # SPEC-2d-layers
 
-**Status**: Ready for implementation
+**Status**: IMPLEMENTED
 **Priority**: P1 — depends on SPEC-2d-core
 **Reference**: `specs/matrix-rain-analysis.md` §5.5 "Variations — Multi-Layer Depth Pass";
 `specs/AUDIT-analysis-vs-code.md` §3.6
