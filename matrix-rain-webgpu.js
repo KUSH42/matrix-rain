@@ -180,11 +180,13 @@ function buildGeometry({
   geom.setAttribute('uv',       base.getAttribute('uv').clone());
   base.dispose();
 
-  const total   = nCols * N_ROWS;
-  const colBuf  = new Float32Array(total);
-  const rowBuf  = new Float32Array(total);
-  const colABuf = new Float32Array(total * 4);  // wx, wz, speed, seed
-  const colBBuf = new Float32Array(total * 4);  // yOff, scale, alpha, trail
+  const total      = nCols * N_ROWS;
+  const colBuf     = new Float32Array(total);
+  const rowBuf     = new Float32Array(total);
+  const colABuf    = new Float32Array(total * 4);  // wx, wz, speed, seed
+  const colBBuf    = new Float32Array(total * 4);  // yOff, scale, alpha, trail
+  const rawSpeedBuf = new Float32Array(nCols);     // raw [0,1] for speed — kept for in-place range updates
+  const rawTrailBuf = new Float32Array(nCols);     // raw [0,1] for trail
 
   // Per-instance cluster centers — fresh per buildGeometry() call so each
   // initMatrixRain() gets its own independent pattern.
@@ -227,12 +229,15 @@ function buildGeometry({
 
     const yOff  = (Math.random() - 0.5) * WORLD_H;
     const sr    = Math.random();
+    rawSpeedBuf[c] = sr;
     const speed = sMin + sr * sr * (sMax - sMin);  // log-biased over range
     const seed  = Math.random();
     const t     = (r - inner) / (outer - inner);           // 0 = inner (close), 1 = outer (far)
     const scale = (1.45 - t * 0.95) + (Math.random() - 0.5) * 0.2;
     const alpha = 0.18 + Math.random() * 0.72;
-    const trail = tMin + Math.random() * (tMax - tMin);
+    const tr    = Math.random();
+    rawTrailBuf[c] = tr;
+    const trail = tMin + tr * (tMax - tMin);
 
     for (let row = 0; row < N_ROWS; row++) {
       const idx = c * N_ROWS + row;
@@ -255,6 +260,8 @@ function buildGeometry({
   geom.setAttribute('aColA',   new THREE.InstancedBufferAttribute(colABuf, 4));
   geom.setAttribute('aColB',   new THREE.InstancedBufferAttribute(colBBuf, 4));
   geom.instanceCount = total;
+  geom._rawSpeed = rawSpeedBuf;
+  geom._rawTrail = rawTrailBuf;
   return geom;
 }
 
@@ -857,12 +864,30 @@ export function initMatrixRain(element, opts = {}) {
     setSpeedRange(min, max) {
       _geomParams.speedMin = min;
       _geomParams.speedMax = max;
-      rebuildGeom();
+      const sMin = Math.min(min, max);
+      const sMax = Math.max(min, max);
+      const g   = mesh.geometry;
+      const arr = g.getAttribute('aColA').array;
+      for (let c = 0; c < _geomParams.nCols; c++) {
+        const sr    = g._rawSpeed[c];
+        const speed = sMin + sr * sr * (sMax - sMin);
+        for (let row = 0; row < N_ROWS; row++) arr[(c * N_ROWS + row) * 4 + 2] = speed;
+      }
+      g.getAttribute('aColA').needsUpdate = true;
     },
     setTrailRange(min, max) {
       _geomParams.trailMin = min;
       _geomParams.trailMax = max;
-      rebuildGeom();
+      const tMin = Math.min(min, max);
+      const tMax = Math.max(min, max);
+      const g   = mesh.geometry;
+      const arr = g.getAttribute('aColB').array;
+      for (let c = 0; c < _geomParams.nCols; c++) {
+        const tr    = g._rawTrail[c];
+        const trail = tMin + tr * (tMax - tMin);
+        for (let row = 0; row < N_ROWS; row++) arr[(c * N_ROWS + row) * 4 + 3] = trail;
+      }
+      g.getAttribute('aColB').needsUpdate = true;
     },
     setColumnCount(n) {
       _geomParams.nCols = Math.max(50, Math.min(1200, Math.round(n)));
