@@ -178,6 +178,7 @@ function buildGeometry({
   clusterCount  = 12,
   clusterSpread = 0.017,      // σ as fraction of full circle; 0.017 ≈ 6°
   radialBias    = 0.0,        // −1 = inner-concentrated, 0 = uniform, +1 = outer-concentrated
+  clusterUniform = 0.0,       // 0 = clustered, 1 = fully uniform angular scatter
 } = {}) {
   // Guard against inverted ranges
   const sMin = Math.min(speedMin, speedMax);
@@ -210,7 +211,9 @@ function buildGeometry({
   const clusterThetas = Array.from({ length: nClusters }, () => Math.random() * Math.PI * 2);
 
   for (let c = 0; c < nCols; c++) {
-    const theta  = clusterThetas[Math.floor(Math.random() * nClusters)] + _gaussRand() * sigma;
+    const clustered    = clusterThetas[Math.floor(Math.random() * nClusters)] + _gaussRand() * sigma;
+    const uniformTheta = Math.random() * Math.PI * 2;
+    const theta        = clustered + (uniformTheta - clustered) * clusterUniform;
     let r        = inner + Math.pow(Math.random(), exp_) * (outer - inner);
 
     let wx, wz;
@@ -380,6 +383,7 @@ export function initMatrixRain(element, opts = {}) {
     clusterCount: 12,
     clusterSpread: 0.017,
     radialBias:   0.0,
+    clusterUniform: 0.0,
   };
 
   // Resolve atlas path + grid dimensions from charSet or explicit opts
@@ -995,6 +999,11 @@ export function initMatrixRain(element, opts = {}) {
       uniforms.uDensityInner.value = inner;
       uniforms.uDensityOuter.value = outer;
     },
+    setClusterUniform(v) { _geomParams.clusterUniform = Math.max(0, Math.min(1, v)); rebuildGeom(); },
+    setSectorCenter(deg)  { uniforms.uSectorCenter.value   = deg * Math.PI / 180; },
+    setSectorWidth(deg)   { uniforms.uSectorWidth.value    = Math.max(1, deg) * Math.PI / 180; },
+    setSectorStrength(v)  { uniforms.uSectorStrength.value = Math.max(0, Math.min(1, v)); },
+    setHeightFade(v)      { uniforms.uHeightFade.value     = Math.max(0, Math.min(1, v)); },
     setDensity(v) { uniforms.uDensity.value = v; },
     setZoneSpeed(inner, outer) {
       uniforms.uZoneSpeedInner.value = inner;

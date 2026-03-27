@@ -177,6 +177,11 @@ Returns a control handle with methods below.
 | `setPomSteps(n)` | POM ray-march step count 3–12 (default 6; clamped to min 3) |
 | `setHueRange(deg)` | Per-column G-B hue rotation max 0–45° (default 8°) |
 | `setBurstProb(v)` | Fraction of columns that burst per 4 s cycle 0–1 (default 0.005) |
+| `setClusterUniform(v)` | Cluster-to-uniform angular blend 0–1 (0=clustered, 1=scatter) — triggers geometry rebuild |
+| `setSectorCenter(deg)` | World XZ angle of sector center −180–180° (default 0 = +Z axis) |
+| `setSectorWidth(deg)` | Half-angle of active sector 1–180° (default 180 = widest arc) |
+| `setSectorStrength(v)` | Fraction masked outside sector 0–1 (0 = off, default) |
+| `setHeightFade(v)` | Sine density fade at vertical poles 0–1 (0 = off) |
 
 **Note**: `setHeat`, `setSoften`, `setStreaks`, `setHoloAberration`, `setGodRays`, `setBurstBloom`, `setPhosphorDecay`, `setBloomThreshold`, `setBloomStrength` are no-ops (silent) in `'crt'` and `'none'` modes.
 

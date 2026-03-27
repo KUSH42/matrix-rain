@@ -94,6 +94,10 @@ export function makeUniforms(glyphCount = 56, gridW = 8, gridH = 8, dummyMsgTex,
     uZoneBrightOuter: uniform(1.0),  // brightness bias at r = R_MAX
     uDensityInner:   uniform(1.0),   // radial density multiplier at inner shell (t_zone=0)
     uDensityOuter:   uniform(1.0),   // radial density multiplier at outer shell (t_zone=1)
+    uSectorCenter:   uniform(0.0),   // world XZ angle of arc center (radians)
+    uSectorWidth:    uniform(Math.PI), // half-angle of arc (radians); default π = widest single arc
+    uSectorStrength: uniform(0.0),   // 0 = off (default), 1 = full mask outside arc
+    uHeightFade:     uniform(0.0),   // 0 = off, 1 = full sine density envelope; range 0–1
     // Glyph FX controls
     uDripAmt:        uniform(0.35),  // drip-stretch Y-scale amplitude  0–0.8
     uEdgeGlow:       uniform(0.4),   // edge-emission corona intensity   0–1.5
@@ -130,6 +134,7 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     uDensity,
     uZoneSpeedInner, uZoneSpeedOuter, uZoneBrightInner, uZoneBrightOuter,
     uDensityInner, uDensityOuter,
+    uSectorCenter, uSectorWidth, uSectorStrength, uHeightFade,
     uDripAmt, uEdgeGlow, uZRotRange, uGrainAmt, uDepthTintAmt,
     uBootEnabled, uStability, uHoldMult, uBurstGlyphRate,
     uColor2, uHueRange, uBurstProb,
@@ -220,7 +225,24 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     // placement work. Return() is intentionally avoided; WGSL vertex functions
     // cannot early-return — they must reach the final return statement.
     // uDensityInner/uDensityOuter radially bias the per-column cull threshold.
-    const zonedDensity = uDensity.mul(mix(uDensityInner, uDensityOuter, t_zone)).clamp(0.0, 1.0);
+    // Option G: angular sector mask — world-fixed, operates on baked XZ column position.
+    // uSectorStrength=0 (default) keeps sectorMask=1 so the feature is a no-op until enabled.
+    const colAngle    = atan(aColAAttr.y, aColAAttr.x);               // atan2(wz, wx) → [−π, π]
+    const TWO_PI      = float(Math.PI * 2);
+    const rawDiff     = colAngle.sub(uSectorCenter);
+    const wrapped     = fract(rawDiff.div(TWO_PI).add(0.5)).mul(TWO_PI).sub(Math.PI); // [−π, π]
+    const sectorMask  = float(1).sub(
+      uSectorStrength.mul(smoothstep(uSectorWidth.mul(0.85), uSectorWidth, abs(wrapped)))
+    );
+    // Option H: height fade — sine envelope zeroing density at vertical poles.
+    // aColBAttr.x = aYOff, baked range [−WORLD_H/2, WORLD_H/2]; uWorldH matches build-time WORLD_H.
+    const normY       = aColBAttr.x.div(uWorldH).add(0.5);            // [0, 1] bottom→top
+    const heightMask  = mix(float(1), sin(normY.mul(Math.PI)), uHeightFade);
+    const zonedDensity = uDensity
+      .mul(mix(uDensityInner, uDensityOuter, t_zone))
+      .mul(sectorMask)
+      .mul(heightMask)
+      .clamp(0.0, 1.0);
     If(h2(vec2(aColIdxAttr.mul(0.137).add(0.5), float(42.7))).lessThanEqual(zonedDensity), () => {
 
     If(bootFadeVal.greaterThanEqual(0.001), () => {

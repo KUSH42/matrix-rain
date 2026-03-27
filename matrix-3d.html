@@ -755,6 +755,13 @@
         </span>
       </label>
 
+      <label id="lbl-cluster-uniform" title="Rebuilds geometry">Cluster uniform ⟳
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-cluster-uniform"     type="range"  min="0" max="1" step="0.01" value="0">
+          <input id="ctl-cluster-uniform-num" type="number" min="0" max="1" step="0.01" value="0">
+        </span>
+      </label>
+
       <label id="lbl-rect-w" title="Rebuilds geometry">Rect width X ⟳
         <span style="display:flex;align-items:center;gap:4px;">
           <input id="ctl-rect-w"     type="range"  min="0.5" max="16.0" step="0.5" value="8.0">
@@ -769,6 +776,10 @@
         </span>
       </label>
 
+      <label style="color:#7fffaa;font-size:9px;letter-spacing:0.08em;margin-top:2px;">
+        — Runtime (no rebuild) —
+      </label>
+
       <label id="lbl-density-in">Density inner
         <span style="display:flex;align-items:center;gap:4px;">
           <input id="ctl-density-in"     type="range"  min="0" max="2" step="0.05" value="1.0">
@@ -780,6 +791,34 @@
         <span style="display:flex;align-items:center;gap:4px;">
           <input id="ctl-density-out"     type="range"  min="0" max="2" step="0.05" value="1.0">
           <input id="ctl-density-out-num" type="number" min="0" max="2" step="0.05" value="1.0">
+        </span>
+      </label>
+
+      <label>Sector strength
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-sector-strength"     type="range"  min="0" max="1" step="0.01" value="0">
+          <input id="ctl-sector-strength-num" type="number" min="0" max="1" step="0.01" value="0">
+        </span>
+      </label>
+
+      <label>Sector center °
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-sector-center"     type="range"  min="-180" max="180" step="1" value="0">
+          <input id="ctl-sector-center-num" type="number" min="-180" max="180" step="1" value="0">
+        </span>
+      </label>
+
+      <label>Sector width °
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-sector-width"     type="range"  min="1" max="180" step="1" value="180">
+          <input id="ctl-sector-width-num" type="number" min="1" max="180" step="1" value="180">
+        </span>
+      </label>
+
+      <label>Height fade
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-height-fade"     type="range"  min="0" max="1" step="0.01" value="0">
+          <input id="ctl-height-fade-num" type="number" min="0" max="1" step="0.01" value="0">
         </span>
       </label>
     </div>
@@ -1145,6 +1184,21 @@
   linkSlider('ctl-radial-bias', 'ctl-radial-bias-num', () => {
     debounceRebuild(() => rain.setRadialBias(parseFloat(document.getElementById('ctl-radial-bias').value)));
   });
+  linkSlider('ctl-cluster-uniform', 'ctl-cluster-uniform-num', () => {
+    debounceRebuild(() => rain.setClusterUniform(parseFloat(document.getElementById('ctl-cluster-uniform').value)));
+  });
+  linkSlider('ctl-sector-strength', 'ctl-sector-strength-num', () => {
+    rain.setSectorStrength(parseFloat(document.getElementById('ctl-sector-strength').value));
+  });
+  linkSlider('ctl-sector-center', 'ctl-sector-center-num', () => {
+    rain.setSectorCenter(parseFloat(document.getElementById('ctl-sector-center').value));
+  });
+  linkSlider('ctl-sector-width', 'ctl-sector-width-num', () => {
+    rain.setSectorWidth(parseFloat(document.getElementById('ctl-sector-width').value));
+  });
+  linkSlider('ctl-height-fade', 'ctl-height-fade-num', () => {
+    rain.setHeightFade(parseFloat(document.getElementById('ctl-height-fade').value));
+  });
   function pushDensityTaper() {
     rain.setRadialDensityTaper(
       parseFloat(document.getElementById('ctl-density-in').value),
@@ -1274,6 +1328,11 @@
       radialBias:    fv('ctl-radial-bias'),
       densityIn:     fv('ctl-density-in'),
       densityOut:    fv('ctl-density-out'),
+      clusterUniform:  fv('ctl-cluster-uniform'),
+      sectorStrength:  fv('ctl-sector-strength'),
+      sectorCenter:    fv('ctl-sector-center'),
+      sectorWidth:     fv('ctl-sector-width'),
+      heightFade:      fv('ctl-height-fade'),
       // Glyph FX
       drip:           fv('ctl-drip'),
       edgeGlow:       fv('ctl-edge-glow'),
@@ -1447,6 +1506,11 @@
     set('ctl-radial-bias',    s.radialBias);
     set('ctl-density-in',     s.densityIn);
     set('ctl-density-out',    s.densityOut);
+    set('ctl-cluster-uniform',  s.clusterUniform);
+    set('ctl-sector-strength',  s.sectorStrength);
+    set('ctl-sector-center',    s.sectorCenter);
+    set('ctl-sector-width',     s.sectorWidth);
+    set('ctl-height-fade',      s.heightFade);
     if (s.topology      !== undefined) { rain.setTopology(s.topology); updateDistControls(s.topology); }
     if (s.forwardFacing !== undefined) rain.setForwardFacing(s.forwardFacing);
     if (s.nCols         !== undefined) rain.setColumnCount(s.nCols);
@@ -1462,11 +1526,16 @@
       s.clusters      ?? parseFloat(document.getElementById('ctl-clusters').value),
       s.clusterSpread ?? parseFloat(document.getElementById('ctl-cluster-spread').value),
     );
-    if (s.radialBias    !== undefined) rain.setRadialBias(s.radialBias);
+    if (s.radialBias      !== undefined) rain.setRadialBias(s.radialBias);
+    if (s.clusterUniform  !== undefined) rain.setClusterUniform(s.clusterUniform);
     if (s.densityIn     !== undefined || s.densityOut     !== undefined) rain.setRadialDensityTaper(
       s.densityIn  ?? parseFloat(document.getElementById('ctl-density-in').value),
       s.densityOut ?? parseFloat(document.getElementById('ctl-density-out').value),
     );
+    if (s.sectorStrength !== undefined) rain.setSectorStrength(s.sectorStrength);
+    if (s.sectorCenter   !== undefined) rain.setSectorCenter(s.sectorCenter);
+    if (s.sectorWidth    !== undefined) rain.setSectorWidth(s.sectorWidth);
+    if (s.heightFade     !== undefined) rain.setHeightFade(s.heightFade);
   }
 
   document.getElementById('ctl-export').addEventListener('click', () => {

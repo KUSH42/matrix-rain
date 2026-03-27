@@ -1,6 +1,6 @@
 # SPEC-column-distribution
 
-**Status**: Approved
+**Status**: Implemented
 **Priority**: P1
 
 ---

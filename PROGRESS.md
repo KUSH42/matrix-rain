@@ -94,6 +94,37 @@ All items go in `specs/` before implementation.
   - `matrix-rain-webgpu.js`: `buildGeometry(params)` parameterised with `speedMin/Max`, `trailMin/Max`; `_geomParams` closure state; `rebuildGeom()` helper; `speedRange`/`trailRange` opts; 5 new handle methods (`setSpeedRange`, `setTrailRange`, `setDensity`, `setZoneSpeed`, `setZoneBrightness`)
   - `demo.html`: "Columns" sub-panel (5 controls); "Radial zones" sub-panel (4 controls); JS wiring; collectSettings/applySettings extended
 
+- [x] **SPEC-text-reveal** — `handle.showMessage(text, opts?)` API
+  - Left-to-right wave sweep crystallises glyphs out of rain chaos, holds, then dissolves back
+  - `uRevealActive`, `uRevealProgress`, `uRevealCols`, `uRevealMap` uniforms; `DataTexture` column map; `showMessage` queues by column x-position; auto-cancels on destroy
+
+- [x] **SPEC-2d-core** — `matrix-rain-2d-tsl.js` flat fullscreen rain component
+  - `initMatrix2DRain(canvas, opts)` / `destroyMatrix2DRain(canvas)` public API
+  - Per-column state (seed, phase, speed, trail length) baked into `DataTexture`; TSL node graph renders on a single full-screen quad
+  - Handles resize, RAF ref pattern, column rebuild on resize
+
+- [x] **SPEC-2d-organic** — film-accurate 2D organic behaviour additions
+  - Per-column speed micro-oscillation (breathing), wave phase correlation, Gaussian cluster placement
+  - Glitch displacement (`uGlitchAmt`), speed-ramp trigger (`uSpeedRamp`), weighted glyph sampling via LUT
+
+- [x] **SPEC-2d-layers** — multi-layer parallax depth compositing for 2D rain
+  - Three independently-animated depth layers (near/mid/far) blended additively
+  - `buildLayeredRain2DNode(layers, opts)` composites layers with per-layer cell size, speed, brightness, density
+
+- [x] **SPEC-glyph-fx-controls** — expose 10 hardcoded shader constants as uniforms
+  - `matrix-rain-tsl.js`: 11 new uniforms (`uDripAmt`, `uEdgeGlow`, `uZRotRange`, `uGrainAmt`, `uDepthTintAmt`, `uBootEnabled`, `uStability`, `uHoldMult`, `uBurstGlyphRate`, `uHueRange`, `uBurstProb`)
+  - `matrix-rain-webgpu.js`: `setDrip`, `setEdgeGlow`, `setZRotation`, `setFilmGrain`, `setDepthTint`, `setStartupCascade`, `setStability`, `setHoldMult`, `setBurstGlyphRate`, `setPomSteps`, `setHueRange`, `setBurstProb`
+  - `demo.html`: "Glyph FX" sub-panel + debug `<details>` block; companion numeric inputs on all sliders
+
+- [x] **SPEC-column-distribution** — column placement distribution controls
+  - `matrix-rain-webgpu.js`: `setColumnCount`, `setTopology` (`'sphere'`|`'cylinder'`|`'curtain'`), `setShellRadii`, `setClusterParams`, `setRadialBias`, `setRadialDensityTaper` (no-rebuild)
+  - Options C (uniform blend), G (angular sector), H (height fade) deferred per spec
+
+- [x] **SPEC-column-distribution-extra** — deferred column distribution options C, G, H
+  - `matrix-rain-tsl.js`: 4 new uniforms (`uSectorCenter`, `uSectorWidth`, `uSectorStrength`, `uHeightFade`); combined `zonedDensity` with sector mask (`atan2` wrap + `smoothstep` falloff) and height fade (`sin` envelope)
+  - `matrix-rain-webgpu.js`: `clusterUniform` param in `buildGeometry` + `_geomParams`; lerp between clustered and uniform theta; `setClusterUniform`, `setSectorCenter`, `setSectorWidth`, `setSectorStrength`, `setHeightFade` handle methods
+  - `matrix-3d.html`: cluster uniform slider (rebuild); divider label; sector strength/center/width + height fade sliders (runtime); `collectSettings`/`applySettings` wired
+
 - [ ] Tests — `tests/` for any pure-JS logic extracted to a `matrix-rain-math.js`
 - [ ] `prefers-reduced-motion` — disable/reduce heat, god rays, burst bloom
 - [ ] README.md — public documentation before any npm/gh-pages publish

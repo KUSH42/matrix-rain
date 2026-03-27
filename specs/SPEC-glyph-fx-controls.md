@@ -1,6 +1,6 @@
 # SPEC-glyph-fx-controls
 
-**Status**: Approved
+**Status**: Implemented
 **Priority**: P1
 
 ---
