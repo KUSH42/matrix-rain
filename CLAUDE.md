@@ -164,6 +164,7 @@ Returns a control handle with methods below.
 | `setZoneBrightness(inner, outer)` | Radial brightness multiplier inner/outer shell (default 1.0, 1.0) |
 | `applyPreset(name)` | Apply named preset: `'default'`\|`'matrix1999'`\|`'ghost'`\|`'overdrive'` |
 | `get crt` | CRT handle after `renderer.init()` resolves in `'crt'` mode; `null` otherwise |
+| `backend` | `null` until init resolves, then `'webgpu'` or `'webgl2'`; listen for `'matrixrain:ready'` on the host element |
 | `setDrip(v)` | Y-stretch amplitude at column head 0–0.8 (0 = off) |
 | `setEdgeGlow(v)` | Edge-emission corona intensity 0–1.5 (0 = off) |
 | `setZRotation(deg)` | Per-column panel tilt max angle 0–30° (0 = upright) |

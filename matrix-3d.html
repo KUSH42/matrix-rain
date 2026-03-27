@@ -494,8 +494,8 @@
 
       <label>Breath amount
         <span style="display:flex;align-items:center;gap:4px;">
-          <input id="ctl-breath-amt"     type="range"  min="0" max="1" step="0.05" value="1.0">
-          <input id="ctl-breath-amt-num" type="number" min="0" max="1" step="0.05" value="1.0">
+          <input id="ctl-breath-amt"     type="range"  min="0" max="0.2" step="0.005" value="1.0">
+          <input id="ctl-breath-amt-num" type="number" min="0" max="0.2" step="0.005" value="1.0">
         </span>
       </label>
 
@@ -839,6 +839,25 @@
 
   // ── Init ──────────────────────────────────────────────────────────────
   const host = document.getElementById('rain-host');
+
+  // Register a one-shot 'matrixrain:ready' listener that shows the backend badge.
+  // Called before each initMatrixRain so re-inits also refresh the badge.
+  function registerBadge() {
+    host.addEventListener('matrixrain:ready', ({ detail }) => {
+      let badge = document.getElementById('backend-badge');
+      if (!badge) {
+        badge = document.createElement('div');
+        badge.id = 'backend-badge';
+        badge.style.cssText =
+          'position:fixed;bottom:8px;right:12px;font:11px/1 monospace;' +
+          'color:rgba(0,255,112,0.4);pointer-events:none;z-index:9999;';
+        document.body.appendChild(badge);
+      }
+      badge.textContent = detail.backend === 'webgpu' ? 'WebGPU' : 'WebGL2';
+    }, { once: true });
+  }
+
+  registerBadge();
   let rain = initMatrixRain(host, {
     charSet:        defaults.charSet        ?? 'matrixcode',
     postProcessing: defaults.ppmode         ?? 'rain',
@@ -903,6 +922,7 @@
     const currentSet = document.getElementById('ctl-charset').value;
     rain.destroy();
     // All existing control handlers close over the 'rain' let-variable and pick up the new value.
+    registerBadge();
     rain = initMatrixRain(host, {
       charSet:        currentSet,
       postProcessing: newMode,
@@ -1344,6 +1364,7 @@
     // ── Rebuild if ppmode changed ────────────────────────────────────────
     if (s.ppmode !== undefined && s.ppmode !== prevMode) {
       rain.destroy();
+      registerBadge();
       rain = initMatrixRain(host, {
         charSet:        s.charSet ?? el('ctl-charset').value,
         postProcessing: s.ppmode,

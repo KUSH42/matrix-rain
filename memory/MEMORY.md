@@ -3,6 +3,13 @@
 This file persists across agent runs. Read at session start for recent context.
 Append notable events at session end. Prune entries older than 30 days.
 
+- 2026-03-27: **SPEC-webgl-fallback** implemented. Three.js WebGPURenderer auto-falls
+  back to WebGL2 — the only required fix is the TextureNode sampler patch (appended to
+  module preamble of `matrix-rain-webgpu.js`). Added `handle.backend` property (null →
+  'webgpu'|'webgl2') and `'matrixrain:ready'` CustomEvent dispatch in `renderer.init()`.
+  `matrix-3d.html` gets `registerBadge()` helper wired to all 3 `initMatrixRain` call sites.
+  Note: `demo.html` does not exist in this project (only `matrix-3d.html` and `demo-crt.html`).
+
 - 2026-03-23: Project bootstrapped as Three.js WebGPU matrix rain. All core files created:
   `matrix-rain-tsl.js` (glyph material), `matrix-rain-passes-tsl.js` (6 post-processing passes),
   `matrix-rain-webgpu.js` (public API, 9-stage pipeline), `demo.html`.

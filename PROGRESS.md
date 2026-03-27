@@ -40,6 +40,10 @@
   - `bloomThreshold` variable replaces hardcoded `0.20` in burst bloom logic; survives PP graph rebuilds
   - `demo.html`: preset dropdown with full UI sync, 4 new sliders (bloom threshold, vignette, scanlines, holo aberration)
 
+- [x] **SPEC-webgl-fallback** — WebGL2 fallback support
+  - `matrix-rain-webgpu.js`: TextureNode sampler patch at module preamble; `handle.backend` property (null → 'webgpu'|'webgl2'); `_isWebGPU` detection + `'matrixrain:ready'` CustomEvent dispatch inside `renderer.init().then()`
+  - `matrix-3d.html`: `registerBadge()` helper + backend badge (bottom-right, low-opacity, reused on re-init)
+
 ## Backlog
 
 All items go in `specs/` before implementation.

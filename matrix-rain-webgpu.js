@@ -42,6 +42,20 @@ import {
   buildGodRaysPass,
 } from './matrix-rain-passes-tsl.js';
 
+// ── WebGL2 TextureNode sampler fix (Three.js r183) ────────────────────────
+// On WebGL2, TextureNode.generate('sampler2D') appends '_sampler' to the
+// uniform name; WebGL2 GLSL has no separate sampler binding.
+// Redirecting to 'property' returns the bare name, which is correct.
+{
+  const _orig = THREE.TextureNode.prototype.generate;
+  THREE.TextureNode.prototype.generate = function _patchedGenerate(builder, output) {
+    if (/^sampler/.test(output) && builder.renderer?.backend?.isWebGPUBackend !== true) {
+      return _orig.call(this, builder, 'property');
+    }
+    return _orig.call(this, builder, output);
+  };
+}
+
 // ── Glyph set (Matrix-Code.ttf — Rezmason/matrix, MIT) ────────────────────
 // Character inventory documented in data/matrixcode-glyph-manifest.json.
 const GLYPHS = [
@@ -785,6 +799,11 @@ export function initMatrixRain(element, opts = {}) {
 
       if (!externalLoop) ro.observe(element);
       if (preset) handle?.applyPreset(preset);
+      const _isWebGPU = renderer.backend?.isWebGPUBackend === true;
+      handle.backend  = _isWebGPU ? 'webgpu' : 'webgl2';
+      element.dispatchEvent(
+        new CustomEvent('matrixrain:ready', { bubbles: false, detail: { backend: handle.backend } })
+      );
       if (!externalLoop) animRef.id = requestAnimationFrame(animate);
     } catch (err) {
       console.error('[matrix-rain] init failed:', err);
@@ -1264,6 +1283,14 @@ export function initMatrixRain(element, opts = {}) {
     get scene()    { return scene; },
     get camera()   { return camera; },
     get renderer() { return renderer; },
+
+    /**
+     * Active rendering backend. null until renderer.init() resolves, then
+     * 'webgpu' or 'webgl2'. Listen for 'matrixrain:ready' on the host element
+     * to know when this is set.
+     * @type {'webgpu'|'webgl2'|null}
+     */
+    backend: null,
 
     /**
      * Returns the CRT handle after renderer.init() resolves; null before that
