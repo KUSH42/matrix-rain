@@ -24,14 +24,14 @@ import * as THREE from 'three/webgpu';
 // ── Stable 2-component hash ───────────────────────────────────────────────
 // Identical to H2_GLSL in the original — keeps inputs small with fract() to
 // avoid GPU sin() precision issues at large t values.
-const h2 = Fn(([v]) => {
+export const h2 = Fn(([v]) => {
   const s = fract(v.mul(vec2(0.1031, 0.1030))).toVar();
   s.addAssign(dot(s, s.yx.add(33.33)));
   return fract(s.x.add(s.y).mul(s.x));
 });
 
 // ── MSDF median — preserves sharp corners ────────────────────────────────
-const median3 = Fn(([a, b, c]) => max(min(a, b), min(max(a, b), c)));
+export const median3 = Fn(([a, b, c]) => max(min(a, b), min(max(a, b), c)));
 
 // ── Uniform factory ───────────────────────────────────────────────────────
 /**
@@ -39,9 +39,18 @@ const median3 = Fn(([a, b, c]) => max(min(a, b), min(max(a, b), c)));
  * @param {number}              [gridW=8]        columns in atlas grid
  * @param {number}              [gridH=8]        rows in atlas grid
  * @param {THREE.CanvasTexture} [dummyMsgTex]    1×1 black canvas texture for uMsgTex initial value
+ * @param {THREE.DataTexture}   [lutTexture]     256×1 glyph weight LUT; built as uniform identity if null
  * @returns {object}  all mutable TSL uniform nodes
  */
-export function makeUniforms(glyphCount = 56, gridW = 8, gridH = 8, dummyMsgTex) {
+export function makeUniforms(glyphCount = 56, gridW = 8, gridH = 8, dummyMsgTex, lutTexture = null) {
+  // Build a uniform identity LUT if none supplied (placeholder; replaced via applyGlyphWeightLUT).
+  if (!lutTexture) {
+    const lut = new Uint8Array(256);
+    for (let i = 0; i < 256; i++) lut[i] = Math.floor(i * glyphCount / 256);
+    lutTexture = new THREE.DataTexture(lut, 256, 1, THREE.RedFormat, THREE.UnsignedByteType);
+    lutTexture.minFilter = lutTexture.magFilter = THREE.NearestFilter;
+    lutTexture.needsUpdate = true;
+  }
   return {
     uGlyphCount:     uniform(glyphCount),
     uAtlasGridW:     uniform(gridW),
@@ -69,6 +78,7 @@ export function makeUniforms(glyphCount = 56, gridW = 8, gridH = 8, dummyMsgTex)
     uMsgRevealProgress: uniform(0.0),                   // overall effect opacity 0–1
     uMsgWaveX:          uniform(0.0),                   // leading-edge X in screen UV (0–1)
     uMsgBoost:          uniform(3.0),                   // brightness multiplier in text region
+    uGlyphWeightLUT:    texture(lutTexture),             // 256×1 inverse-CDF glyph weight LUT
   };
 }
 
@@ -88,6 +98,7 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     uLightDir, uGlyphChroma,
     uSpeedMul, uYawAligned, uFacingJitter, uFlatZ, uGlobeInteract, uSwayAmt, uSwayDecay,
     uMsgTex, uMsgRevealProgress, uMsgWaveX, uMsgBoost,
+    uGlyphWeightLUT,
   } = uniforms;
 
   // ── Per-instance buffer attributes ────────────────────────────────────
@@ -193,13 +204,26 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
       const burstPhase  = fract(uTime.div(burstCycle));
       const burstFrac   = smoothstep(0.0, 0.1, burstPhase)
         .mul(float(1).sub(smoothstep(0.25, 0.35, burstPhase)));
-      const speedMul    = float(1).add(burstActive.mul(burstFrac).mul(2)).mul(uSpeedMul);
+      // Per-column breathing: fv ∈ [0.1, 0.5] Hz, random phase — derived from aSeed
+      const breathFreq  = float(0.1).add(h2(vec2(aSeed.mul(13.7), float(0.1))).mul(0.4));
+      const breathPhase = h2(vec2(aSeed.mul(7.3), float(0.5))).mul(6.2832);
+      const breathMul   = float(1).add(
+        sin(uTime.mul(breathFreq).mul(6.2832).add(breathPhase)).mul(0.15)
+      );
+      const speedMul    = breathMul
+        .mul(float(1).add(burstActive.mul(burstFrac).mul(2)))
+        .mul(uSpeedMul);
       vBurst.assign(burstActive.mul(burstFrac));
 
       // ── Head sweep ──────────────────────────────────────────────────
       const cycleH    = uWorldH.add(uNRows.mul(cellStep));
+      // Traveling wave: 3 crests sweep around the shell at ~42 s/revolution.
+      // aWX = aColAAttr.x, aWZ = aColAAttr.y — angular position on XZ shell.
+      const thetaWave  = atan(aWZ, aWX);                           // −π..π
+      const wavePhase  = thetaWave.mul(3.0).add(uTime.mul(0.15));  // 3 crests, 0.15 rad/s
+      const waveOffset = sin(wavePhase).mul(4.0);                   // ±4 world units
       const cyclePos  = mod(
-        uTime.mul(aSpeed).mul(speedMul).add(aSeed.mul(cycleH)),
+        uTime.mul(aSpeed).mul(speedMul).add(aSeed.mul(cycleH)).add(waveOffset),
         cycleH
       );
       const cyclePhase = cyclePos.div(cycleH);
@@ -329,10 +353,8 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     const changeTick  = floor(
       cellPhase.mul(settledHold).add(uTime).div(settledHold)
     ).add(burstOffset);
-    const baseGlyph   = floor(h2(cellId.mul(0.47).add(0.5)).mul(uGlyphCount));
-    const mutGlyph    = floor(
-      h2(cellId.mul(0.37).add(changeTick.mul(vec2(0.11, 0.07)))).mul(uGlyphCount)
-    );
+    const baseGlyph   = texture(uGlyphWeightLUT, vec2(h2(cellId.mul(0.47).add(0.5)), 0.5)).r.mul(255.0).floor();
+    const mutGlyph    = texture(uGlyphWeightLUT, vec2(h2(cellId.mul(0.37).add(changeTick.mul(vec2(0.11, 0.07)))), 0.5)).r.mul(255.0).floor();
     // Burst columns override static: during a burst the whole column is "active".
     const isDeepTrail = d.greaterThanEqual(halfDist).and(vBurst.lessThan(0.5));
     const glyphIdx    = select(

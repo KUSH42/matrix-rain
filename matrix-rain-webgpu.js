@@ -63,14 +63,84 @@ const CHAR_SETS = {
   ascii:      { path: '/data/ascii_msdf.png',      glyphCount: 95,            gridW: 10, gridH: 10 },
 };
 
+// ── Glyph weight tables ────────────────────────────────────────────────────
+// Per-glyph relative sampling weights. Higher = appears more often.
+// Ordering matches atlas left-to-right, top-to-bottom. null → uniform identity LUT.
+const GLYPH_WEIGHTS = {
+  // matrix1999: 64 half-width katakana in atlas row order.
+  // Rows 0–1 (ｦ–ｯ): mostly vowels/sparse — downweighted.
+  // Rows 2–5 (ｶ–ﾓ): dense consonant forms — upweighted.
+  // Rows 6–7 (ﾔ–custom): mixed / symbol — moderate.
+  matrix1999: [
+    0.4, 0.4, 0.4, 0.4, 0.4, 0.4, 0.4, 0.4,  // ｦ ｧ ｨ ｩ ｪ ｫ ｬ ｭ
+    0.4, 0.4, 0.4, 0.4, 0.6, 0.6, 0.6, 0.6,  // ｮ ｯ ｰ ｱ ｲ ｳ ｴ ｵ
+    1.5, 1.5, 1.5, 1.5, 1.5, 1.5, 1.5, 1.5,  // ｶ ｷ ｸ ｹ ｺ ｻ ｼ ｽ
+    1.5, 1.5, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0,  // ｾ ｿ ﾀ ﾁ ﾂ ﾃ ﾄ ﾅ
+    2.0, 2.0, 2.0, 2.0, 1.5, 1.5, 1.5, 1.5,  // ﾆ ﾇ ﾈ ﾉ ﾊ ﾋ ﾌ ﾍ
+    1.5, 1.5, 2.0, 2.0, 2.0, 2.0, 1.5, 1.5,  // ﾎ ﾏ ﾐ ﾑ ﾒ ﾓ ﾔ ﾕ
+    1.5, 1.5, 1.5, 2.0, 2.0, 2.0, 1.5, 1.5,  // ﾖ ﾗ ﾘ ﾙ ﾚ ﾛ ﾜ ﾝ
+    0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8,  // ﾞ ﾟ + custom path glyphs
+  ],
+  matrixcode: null,  // uniform — pending glyph manifest review
+  latin:      null,  // uniform — alpha-numeric strokes are similar density
+  ascii:      null,  // uniform
+};
+
+/**
+ * Build a 256-sample inverse-CDF glyph weight LUT as a DataTexture.
+ * @param {number[]|null} weights  per-glyph relative weights, or null for uniform
+ * @param {number}        glyphCount
+ * @returns {THREE.DataTexture}
+ */
+function buildGlyphWeightLUT(weights, glyphCount) {
+  const lut = new Uint8Array(256);
+  if (!weights) {
+    for (let i = 0; i < 256; i++) lut[i] = Math.floor(i * glyphCount / 256);
+  } else {
+    const total = weights.reduce((a, b) => a + b, 0);
+    const pdf   = weights.map(w => w / total);
+    let cumul = 0, glyphIdx = 0;
+    for (let i = 0; i < 256; i++) {
+      const target = (i + 0.5) / 256;
+      while (glyphIdx < glyphCount - 1 && cumul + pdf[glyphIdx] < target) {
+        cumul += pdf[glyphIdx++];
+      }
+      lut[i] = glyphIdx;
+    }
+  }
+  const tex = new THREE.DataTexture(lut, 256, 1, THREE.RedFormat, THREE.UnsignedByteType);
+  tex.minFilter = tex.magFilter = THREE.NearestFilter;
+  tex.needsUpdate = true;
+  return tex;
+}
+
+/**
+ * Upload the correct weight LUT for charSet into the uniforms node.
+ * @param {string} charSet    key from CHAR_SETS (or any string; unknown keys get uniform LUT)
+ * @param {number} glyphCount resolved glyph count for this atlas
+ * @param {object} uniforms   result of makeUniforms()
+ */
+function applyGlyphWeightLUT(charSet, glyphCount, uniforms) {
+  const w = GLYPH_WEIGHTS[charSet] ?? null;
+  uniforms.uGlyphWeightLUT.value = buildGlyphWeightLUT(w, glyphCount);
+}
+
 // ── Scene constants ────────────────────────────────────────────────────────
-const N_COLS  = 600;
-const N_ROWS  = 120;
-const CELL_W  = 0.12;
-const CELL_H  = 0.08;
-const WORLD_H = 16;
-const R_MIN   = 3.5;
-const R_MAX   = 8.0;
+const N_COLS     = 600;
+const N_ROWS     = 120;
+const CELL_W     = 0.12;
+const CELL_H     = 0.08;
+const WORLD_H    = 16;
+const R_MIN      = 3.5;
+const R_MAX      = 8.0;
+const N_CLUSTERS = 12;   // angular cluster count for rivulet grouping
+
+// Box-Muller Gaussian random — used for cluster angular jitter
+function _gaussRand() {
+  const u = 1 - Math.random(); // (0, 1] avoids log(0)
+  const v = Math.random();
+  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+}
 
 // ── MSDF atlas ────────────────────────────────────────────────────────────
 function loadMSDF(path) {
@@ -98,8 +168,13 @@ function buildGeometry() {
   const colABuf = new Float32Array(total * 4);  // wx, wz, speed, seed
   const colBBuf = new Float32Array(total * 4);  // yOff, scale, alpha, trail
 
+  // Per-instance cluster centers — fresh per buildGeometry() call so each
+  // initMatrixRain() gets its own independent pattern.
+  const clusterThetas = Array.from({ length: N_CLUSTERS }, () => Math.random() * Math.PI * 2);
+
   for (let c = 0; c < N_COLS; c++) {
-    const theta = Math.random() * Math.PI * 2;
+    const theta = clusterThetas[Math.floor(Math.random() * N_CLUSTERS)]
+                  + _gaussRand() * (6 * Math.PI / 180);  // σ = 6° per cluster
     const r     = R_MIN + Math.random() * (R_MAX - R_MIN);
     const wx    = Math.cos(theta) * r;
     const wz    = Math.sin(theta) * r;
@@ -107,7 +182,8 @@ function buildGeometry() {
     const sr = Math.random();
     const speed = 1.2 + sr * sr * 6.8;  // [1.2, 8.0], log-biased: mode ≈ 1.2, median ≈ 2.9, mean ≈ 3.5
     const seed  = Math.random();
-    const scale = 0.5 + Math.random() * 1.0;
+    const t     = (r - R_MIN) / (R_MAX - R_MIN);           // 0 = inner (close), 1 = outer (far)
+    const scale = (1.45 - t * 0.95) + (Math.random() - 0.5) * 0.2;
     const alpha = 0.18 + Math.random() * 0.72;
     const trail = 0.015 + Math.random() * 0.035;
 
@@ -271,6 +347,7 @@ export function initMatrixRain(element, opts = {}) {
   uniforms.uAtlasGridH.value  = resolvedGridH;
 
   const material = buildGlyphMaterial(uniforms, atlasTex);
+  applyGlyphWeightLUT(charSet, resolvedCount, uniforms);
   const geom     = buildGeometry();
   const mesh     = new THREE.Mesh(geom, material);
   mesh.frustumCulled = false;
@@ -799,6 +876,7 @@ export function initMatrixRain(element, opts = {}) {
         uniforms.uGlyphCount.value = descriptor.glyphCount;
         uniforms.uAtlasGridW.value = descriptor.gridW;
         uniforms.uAtlasGridH.value = descriptor.gridH;
+        applyGlyphWeightLUT(name, descriptor.glyphCount, uniforms);
       });
     },
 

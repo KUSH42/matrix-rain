@@ -1031,3 +1031,57 @@ export function destroy2DRain(element) {
   const h = _instances.get(element);
   if (h) h.destroy();
 }
+
+// ── Spec API aliases (SPEC-2d-rain names) ─────────────────────────────────
+// These thin wrappers expose the names used in specs/SPEC-2d-rain.md and the
+// CRT bridge integration example. The richer `init2DRain`/`buildRain2DNode`
+// API above remains the primary interface.
+
+/**
+ * Build a TSL uniform object + atlas texture for use with buildMatrix2DColorNode.
+ * Accepts the same opts as init2DRain where applicable.
+ *
+ * @param {object} [opts]
+ * @param {string} [opts.charSet='matrix1999']
+ * @param {number} [opts.brightness=1.0]
+ * @param {number} [opts.opacity=1.0]
+ * @param {number} [opts.speedMul=1.0]
+ * @returns {object}  uniforms with embedded ._atlasTexNode2d / ._weightLutTexNode2d
+ */
+export function makeUniforms2D(opts = {}) {
+  const { charSet = 'matrix1999' } = opts;
+  const csKey  = CHAR_SETS[charSet] ? charSet : 'matrix1999';
+  const csDesc = CHAR_SETS[csKey];
+  const atlasTex         = loadMSDF(csDesc.path);
+  const atlasTexNode_    = texture(atlasTex);
+  const lutTex           = buildWeightLUT(_weightsForCharSet(csKey, csDesc.glyphCount), csDesc.glyphCount);
+  const weightLutTexNode_ = texture(lutTex);
+  const u = makeRain2DUniforms();
+  u.uGlyphCount.value = csDesc.glyphCount;
+  u.uAtlasGridW.value = csDesc.gridW;
+  u.uAtlasGridH.value = csDesc.gridH;
+  if (opts.brightness !== undefined) u.uBrightness.value  = opts.brightness;
+  if (opts.opacity    !== undefined) u.uGlobalAlpha.value = opts.opacity;
+  if (opts.speedMul   !== undefined) u.uSpeedRamp.value   = opts.speedMul;
+  // Private: consumed by buildMatrix2DColorNode
+  u._atlasTexNode2d      = atlasTexNode_;
+  u._weightLutTexNode2d  = weightLutTexNode_;
+  return u;
+}
+
+/**
+ * Build an analytical 2D rain color node from a makeUniforms2D result.
+ * Returns a TSL vec4 node evaluated at screenUV — usable as a PostProcessing
+ * outputNode or as colorNode on a fullscreen quad.
+ *
+ * @param {ReturnType<makeUniforms2D>} uniforms2d
+ * @returns TSL node
+ */
+export function buildMatrix2DColorNode(uniforms2d) {
+  return buildRain2DNode(uniforms2d, uniforms2d._atlasTexNode2d, uniforms2d._weightLutTexNode2d);
+}
+
+/** Spec API alias for init2DRain. */
+export const initMatrix2DRain    = init2DRain;
+/** Spec API alias for destroy2DRain. */
+export const destroyMatrix2DRain = destroy2DRain;

@@ -60,6 +60,26 @@ All items go in `specs/` before implementation.
   - `matrix-rain-tsl.js`: position-based flicker rates (head ~15 Hz → near-head ~0.5 Hz → mid-trail ~0.1 Hz → deep-trail static, with burst override); two-stage colour ramp (dark-green floor `tintedColor×0.18` blending in past 50 % of `halfDist`)
   - `matrix-rain-webgpu.js`: speed range widened to `[1.2, 8.0]` c/s with `r²` log-bias (mode ≈ 1.2, median ≈ 2.9, mean ≈ 3.5)
 
+- [x] **SPEC-3d-feel** — speed micro-oscillation + scale-R correlation
+  - `matrix-rain-tsl.js`: per-column sinusoidal "breathing" `fv ∈ [0.1, 0.5]` Hz, ±15 % amplitude, derived from `aSeed` via `h2()` — multiplies into `speedMul` before burst factor
+  - `matrix-rain-webgpu.js`: `scale` now linearly correlated with shell radius R — inner columns (R_MIN) scale ≈ [1.35, 1.55], outer (R_MAX) scale ≈ [0.40, 0.60], with ±0.1 jitter
+
+- [x] **SPEC-traveling-waves** — inter-column phase correlation
+  - `matrix-rain-tsl.js`: `thetaWave = atan(aWZ, aWX)`, `wavePhase = thetaWave × 3 + uTime × 0.15` (3 crests, ~42 s/revolution), `waveOffset = sin(wavePhase) × 4` (±4 world units) added to `cyclePos`
+  - No new uniforms; wave parameters hardcoded per spec rationale
+
+- [x] **SPEC-column-clustering** — angular cluster placement
+  - `matrix-rain-webgpu.js`: `N_CLUSTERS = 12`; `_gaussRand()` Box-Muller helper; `clusterThetas` array inside `buildGeometry()` (per-instance random); `theta` now = random cluster center + σ=6° Gaussian jitter — 30° spacing, 6° visible gap between cluster bands
+
+- [x] **SPEC-glyph-weights** — weighted glyph sampling
+  - `matrix-rain-webgpu.js`: `GLYPH_WEIGHTS` map (matrix1999 64-entry weight table; others null/uniform); `buildGlyphWeightLUT(weights, glyphCount)` builds 256-sample inverse-CDF `DataTexture`; `applyGlyphWeightLUT(charSet, count, uniforms)` uploads LUT; called after init `buildGlyphMaterial` and inside `setCharSet` async callback
+  - `matrix-rain-tsl.js`: `uGlyphWeightLUT` added to `makeUniforms()` (placeholder built inline if null); `baseGlyph`/`mutGlyph` now sampled via `texture(uGlyphWeightLUT, vec2(hash, 0.5)).r.mul(255.0).floor()`
+  - `h2` and `median3` exported for 2D module use
+
+- [x] **SPEC-2d-rain** — 2D flat fullscreen rain component
+  - `matrix-rain-tsl.js`: `h2` and `median3` exported at module level
+  - `matrix-rain-2d-tsl.js`: existing rich implementation (`makeRain2DUniforms`, `buildRain2DNode`, `init2DRain`, `destroy2DRain`, `LAYER_PRESETS`, `buildLayeredRain2DNode`) augmented with spec API aliases: `makeUniforms2D`, `buildMatrix2DColorNode`, `initMatrix2DRain`, `destroyMatrix2DRain`
+
 - [ ] Tests — `tests/` for any pure-JS logic extracted to a `matrix-rain-math.js`
 - [ ] `prefers-reduced-motion` — disable/reduce heat, god rays, burst bloom
 - [ ] README.md — public documentation before any npm/gh-pages publish
