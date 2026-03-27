@@ -519,25 +519,17 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     // msgActive is 0 when uMsgRevealProgress == 0, so no branch needed.
     col2.mulAssign(float(1.0).add(msgActive.mul(uMsgBoost.sub(1.0))));
 
-    // ── Panel tangent frame ────────────────────────────────────────────
+    // ── Panel tangent frame (kept for lighting) ───────────────────────
     const panelRight = vec3(vOutward.z, 0.0, vOutward.x.negate());
 
-    // View ray in tangent space (viewDir re-used from globe occlusion above)
-    const tangentV = vec3(
-      dot(viewDir, panelRight),
-      viewDir.y,
-      dot(viewDir, vOutward),
-    );
-
-    // Skip POM when view is edge-on or glyph is far away
-    const pomActive = step(0.1, abs(tangentV.z)).mul(step(fragDist, 6.0));
-    const safeTZ    = sign(tangentV.z).mul(max(abs(tangentV.z), 0.1));
-
-    // Distance-adaptive POM step count
-    const pomLod   = clamp(float(1).sub(fragDist.mul(0.1)), 0.3, 1.0);
-    const numSteps = int(max(uPomSteps.mul(pomLod), 3.0));
+    // ── Screen-space parallax ─────────────────────────────────────────
+    // Traditional tangent-space POM is zero for camera-facing billboards.
+    // Instead: use the fragment's screen position relative to centre as the
+    // march direction — always non-zero, always produces visible displacement.
+    // Fragments far from screen centre get proportionally more parallax.
+    const numSteps = int(max(uPomSteps.toFloat(), 3.0));
     const stepSize = float(1).div(numSteps.toFloat());
-    const stepFace = tangentV.xy.negate().div(safeTZ).mul(uDepth).mul(stepSize);
+    const stepFace = screenUV.sub(0.5).mul(2.0).mul(uDepth).mul(stepSize);
 
     const currentFace = vUvRain.toVar('cfUV');
     const prevFace    = vUvRain.toVar('pfUV');
@@ -549,7 +541,7 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
       If(i.greaterThanEqual(numSteps), () => { Break(); });
       prevFace.assign(currentFace);
       prevH.assign(currentH);
-      currentFace.assign(clamp(currentFace.add(stepFace.mul(pomActive)), 0.005, 0.995));
+      currentFace.assign(clamp(currentFace.add(stepFace), 0.005, 0.995));
       currentH.subAssign(stepSize);
       If(sampleGlyph(currentFace, glyphIdx).greaterThanEqual(currentH), () => { Break(); });
     });
@@ -572,7 +564,7 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
       });
     });
 
-    const finalFace = mix(vUvRain, loFace.add(hiFace).mul(0.5), pomActive);
+    const finalFace = loFace.add(hiFace).mul(0.5);
 
     // MSDF anti-aliased mask at POM-displaced position
     const sdfG = sampleGlyph(finalFace, glyphIdx);
