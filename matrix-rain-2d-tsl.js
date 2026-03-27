@@ -23,7 +23,7 @@ import {
   sin, exp, max, min,
   smoothstep, mix, select,
   screenUV, screenSize,
-  If, Return, Discard,
+  If,
 } from 'three/tsl';
 import * as THREE from 'three/webgpu';
 import { PRESETS } from './matrix-rain-presets.js';
@@ -212,7 +212,7 @@ function getStreamNodes(col, sif, uniforms, t) {
   // Log-biased speed: squaring h.x concentrates weight toward speedMin
   const speedT = h.x.mul(h.x);
   // §1 — speed must be declared as mutable (toVar) so oscillation can assign into it
-  const speed  = mix(uSpeedMin, uSpeedMax, speedT).mul(uSpeedRamp).toVar('speed');
+  const speed  = mix(uSpeedMin, uSpeedMax, speedT).mul(uSpeedRamp).toVar();
 
   // §1 Speed micro-oscillation — fv in [0.1, 0.5] Hz seeded per (col, si)
   const fv   = h21(vec2(col.mul(3.71).add(sif.mul(19.13)), float(5.37)))
@@ -291,8 +291,8 @@ export function buildRain2DNode(uniforms, atlasTexNode, weightLutTexNode) {
   const sampleWeightedGlyph = weightLutTexNode
     ? Fn(([rand]) => {
         // Binary search: find lowest i where CDF[i] >= rand
-        const lo = float(0).toVar('wlo');
-        const hi = uniforms.uGlyphCount.sub(1.0).toVar('whi');
+        const lo = float(0).toVar();
+        const hi = uniforms.uGlyphCount.sub(1.0).toVar();
         // Unroll 7 bisection steps (2^7 = 128 covers all charSets up to 95 glyphs exactly)
         for (let step = 0; step < 7; step++) {
           const mid  = floor(lo.add(hi).div(2.0));
@@ -307,8 +307,10 @@ export function buildRain2DNode(uniforms, atlasTexNode, weightLutTexNode) {
 
   return Fn(() => {
     // Pixel coordinates as mutable toVar so glitch displacement can reassign px
-    const px = screenUV.mul(screenSize.xy).toVar('px');
-    const t  = uniforms._time;
+    const px       = screenUV.mul(screenSize.xy).toVar();
+    const t        = uniforms._time;
+    const outColor = vec4(0, 0, 0, 0).toVar();
+    const skip     = float(0).toVar();
 
     // §6 — Glitch: horizontal scanline displacement + brightness spike
     If(uniforms.uGlitchAmt.greaterThan(float(0.001)), () => {
@@ -326,112 +328,118 @@ export function buildRain2DNode(uniforms, atlasTexNode, weightLutTexNode) {
         px.assign(vec2(px.x.add(disp), px.y));
       });
 
-      // Full-row brightness spike (early return)
+      // Full-row brightness spike — set output and flag to skip rain pass
       const bucket5   = floor(t.mul(5.0));
       const spikeHash = h21(vec2(scanline.mul(1.3), bucket5));
       If(spikeHash.lessThan(uniforms.uGlitchAmt.mul(0.05)), () => {
-        Return(vec4(
+        outColor.assign(vec4(
           float(0),
           float(0.4).mul(uniforms.uGlitchAmt),
           float(0.1).mul(uniforms.uGlitchAmt),
           float(1)
         ));
+        skip.assign(float(1));
       });
     });
 
-    const cellSz  = vec2(uniforms.uCellW, uniforms.uCellH);
-    const cellUV  = fract(px.div(cellSz));
-    const cell    = floor(px.div(cellSz));
-    const col     = cell.x;
-    const row     = cell.y;
-    const numRows = ceil(screenSize.y.div(uniforms.uCellH)).add(4.0);
+    // Rain pass — skipped when glitch spike has already set output
+    If(skip.lessThan(float(0.5)), () => {
+      const cellSz  = vec2(uniforms.uCellW, uniforms.uCellH);
+      const cellUV  = fract(px.div(cellSz));
+      const cell    = floor(px.div(cellSz));
+      const col     = cell.x;
+      const row     = cell.y;
+      const numRows = ceil(screenSize.y.div(uniforms.uCellH)).add(4.0);
 
-    // Mutable best-stream accumulators
-    const bestBri = float(0).toVar('bestBri');
-    const bestCid = float(0).toVar('bestCid');
+      // Mutable best-stream accumulators
+      const bestBri = float(0).toVar();
+      const bestCid = float(0).toVar();
 
-    // Unrolled 4 stream slots — siActive masks slots at or beyond uNStreams
-    for (let si = 0; si < 4; si++) {
-      const sif      = float(si);
-      const siActive = sif.lessThan(uniforms.uNStreams);
-      // Pass t so getStreamNodes can use it for oscillation, phase correlation, clustering
-      const sp       = getStreamNodes(col, sif, uniforms, t);
+      // Unrolled 4 stream slots — siActive masks slots at or beyond uNStreams
+      for (let si = 0; si < 4; si++) {
+        const sif      = float(si);
+        const siActive = sif.lessThan(uniforms.uNStreams);
+        // Pass t so getStreamNodes can use it for oscillation, phase correlation, clustering
+        const sp       = getStreamNodes(col, sif, uniforms, t);
 
-      const cycleLen = numRows.add(sp.trail).add(sp.gap);
+        const cycleLen = numRows.add(sp.trail).add(sp.gap);
 
-      // pos = fmod((t + phase) * speed, cycleLen) via floor to avoid f32 loss
-      const raw = t.add(sp.phase).mul(sp.speed);
-      const pos = raw.sub(floor(raw.div(cycleLen)).mul(cycleLen));
+        // pos = fmod((t + phase) * speed, cycleLen) via floor to avoid f32 loss
+        const raw = t.add(sp.phase).mul(sp.speed);
+        const pos = raw.sub(floor(raw.div(cycleLen)).mul(cycleLen));
 
-      // Skip if in gap phase (pos > numRows + trail)
-      const inGap  = pos.greaterThan(numRows.add(sp.trail));
+        // Skip if in gap phase (pos > numRows + trail)
+        const inGap  = pos.greaterThan(numRows.add(sp.trail));
 
-      // Distance from head (0 = head cell, positive = deeper in trail)
-      const d      = pos.sub(row);
+        // Distance from head (0 = head cell, positive = deeper in trail)
+        const d      = pos.sub(row);
 
-      // Valid: head has passed this cell and cell is within trail length
-      const dValid = d.greaterThanEqual(float(0)).and(d.lessThanEqual(sp.trail));
+        // Valid: head has passed this cell and cell is within trail length
+        const dValid = d.greaterThanEqual(float(0)).and(d.lessThanEqual(sp.trail));
 
-      // Combined active: slot enabled by uNStreams AND not in gap AND in trail range
-      const active = siActive.and(inGap.not()).and(dValid);
+        // Combined active: slot enabled by uNStreams AND not in gap AND in trail range
+        const active = siActive.and(inGap.not()).and(dValid);
 
-      // Exponential brightness decay — λ ensures B(trail) ≈ 0.01
-      const lambda = float(4.605).div(sp.trail);
-      const bri    = exp(lambda.negate().mul(d));
+        // Exponential brightness decay — λ ensures B(trail) ≈ 0.01
+        const lambda = float(4.605).div(sp.trail);
+        const bri    = exp(lambda.negate().mul(d));
 
-      // Masked brightness (also gated by per-column density enabled flag)
-      const maskedBri = select(active, bri.mul(sp.enabled), float(0));
+        // Masked brightness (also gated by per-column density enabled flag)
+        const maskedBri = select(active, bri.mul(sp.enabled), float(0));
 
-      // Position-based flicker rates (analysis §3 Character Change Rates):
-      //   d < 1.0        → 15 Hz (head)
-      //   1.0 ≤ d < 4.0  → ~0.5 Hz (near-head)
-      //   4.0 ≤ d < L/2  → ~0.1 Hz (mid-trail)
-      //   d ≥ L/2        → static
-      const cellSeed = h21(vec2(col.mul(9.73).add(sif.mul(3.17)), row.mul(7.41)));
-      const charTick = select(
-        d.lessThan(float(1.0)),    floor(t.mul(15.0)),
-        select(
-          d.lessThan(float(4.0)),  floor(t.mul(0.5).add(cellSeed.mul(31.0))),
+        // Position-based flicker rates (analysis §3 Character Change Rates):
+        //   d < 1.0        → 15 Hz (head)
+        //   1.0 ≤ d < 4.0  → ~0.5 Hz (near-head)
+        //   4.0 ≤ d < L/2  → ~0.1 Hz (mid-trail)
+        //   d ≥ L/2        → static
+        const cellSeed = h21(vec2(col.mul(9.73).add(sif.mul(3.17)), row.mul(7.41)));
+        const charTick = select(
+          d.lessThan(float(1.0)),    floor(t.mul(15.0)),
           select(
-            d.lessThan(sp.trail.div(2.0)), floor(t.mul(0.1).add(cellSeed.mul(13.0))),
-            float(0)
+            d.lessThan(float(4.0)),  floor(t.mul(0.5).add(cellSeed.mul(31.0))),
+            select(
+              d.lessThan(sp.trail.div(2.0)), floor(t.mul(0.1).add(cellSeed.mul(13.0))),
+              float(0)
+            )
           )
-        )
-      );
-      const rawCid = h21(vec2(
-        col.mul(73.1).add(row.mul(19.3)).add(sif.mul(11.7)),
-        charTick.mul(0.13)
-      ));
+        );
+        const rawCid = h21(vec2(
+          col.mul(73.1).add(row.mul(19.3)).add(sif.mul(11.7)),
+          charTick.mul(0.13)
+        ));
 
-      // §4 — Weighted glyph: blend raw (uniform) vs weighted charId
-      const cid = sampleWeightedGlyph
-        ? mix(rawCid, sampleWeightedGlyph(rawCid), uniforms.uWeightedGlyphs)
-        : rawCid;
+        // §4 — Weighted glyph: blend raw (uniform) vs weighted charId
+        const cid = sampleWeightedGlyph
+          ? mix(rawCid, sampleWeightedGlyph(rawCid), uniforms.uWeightedGlyphs)
+          : rawCid;
 
-      // Take the stream with highest brightness
-      const takeBetter = maskedBri.greaterThan(bestBri);
-      bestBri.assign(select(takeBetter, maskedBri, bestBri));
-      bestCid.assign(select(takeBetter, cid,       bestCid));
-    }
+        // Take the stream with highest brightness
+        const takeBetter = maskedBri.greaterThan(bestBri);
+        bestBri.assign(select(takeBetter, maskedBri, bestBri));
+        bestCid.assign(select(takeBetter, cid,       bestCid));
+      }
 
-    // Early discard — no stream illuminates this fragment
-    If(bestBri.lessThan(float(0.005)), () => { Discard(); });
+      // Colour pass — only when a stream illuminates this fragment
+      If(bestBri.greaterThanEqual(float(0.005)), () => {
+        const glyphMask = sampleGlyph2D(cellUV, bestCid);
+        If(glyphMask.greaterThanEqual(float(0.01)), () => {
+          // Two-stage colour ramp keyed on brightness (film-measured §2 values, 4K Blu-ray)
+          const deepTrail   = vec3(0.000, 0.176, 0.039);  // #002D0A — faint green floor
+          const matrixGreen = vec3(0.000, 1.000, 0.255);  // #00FF41 — P31 phosphor
+          const headWhite   = vec3(0.784, 1.000, 0.824);  // #C8FFD2 — overdriven head
 
-    const glyphMask = sampleGlyph2D(cellUV, bestCid);
-    If(glyphMask.lessThan(float(0.01)), () => { Discard(); });
+          const t1       = smoothstep(float(0.01), float(0.15), bestBri);  // deep → green
+          const t2       = smoothstep(float(0.75), float(1.00), bestBri);  // green → white
+          const rampLow  = mix(deepTrail, matrixGreen, t1);
+          const rampFull = mix(rampLow, headWhite, t2);
+          const rgb      = rampFull.mul(bestBri).mul(glyphMask).mul(uniforms.uBrightness);
 
-    // Two-stage colour ramp keyed on brightness (film-measured §2 values, 4K Blu-ray)
-    const deepTrail   = vec3(0.000, 0.176, 0.039);  // #002D0A — faint green floor
-    const matrixGreen = vec3(0.000, 1.000, 0.255);  // #00FF41 — P31 phosphor
-    const headWhite   = vec3(0.784, 1.000, 0.824);  // #C8FFD2 — overdriven head
+          outColor.assign(vec4(rgb, uniforms.uGlobalAlpha));
+        });
+      });
+    });
 
-    const t1       = smoothstep(float(0.01), float(0.15), bestBri);  // deep → green
-    const t2       = smoothstep(float(0.75), float(1.00), bestBri);  // green → white
-    const rampLow  = mix(deepTrail, matrixGreen, t1);
-    const rampFull = mix(rampLow, headWhite, t2);
-    const rgb      = rampFull.mul(bestBri).mul(glyphMask).mul(uniforms.uBrightness);
-
-    return vec4(rgb, uniforms.uGlobalAlpha);
+    return outColor;
   })();
 }
 
@@ -763,9 +771,9 @@ export async function init2DRain(element, opts = {}) {
       cancelAnimationFrame(animRef.id);
       ro.disconnect();
       motionQuery.removeEventListener('change', onMotionChange);
-      renderer.dispose();
       geom.dispose();
       mat.dispose();
+      renderer.dispose();
       currentTex.dispose();
       currentLutTex.dispose();
       canvas.remove();
@@ -1000,9 +1008,9 @@ export async function init2DRain(element, opts = {}) {
   function destroy() {
     cancelAnimationFrame(animRef.id);
     ro.disconnect();
-    renderer.dispose();
     geom.dispose();
     mat.dispose();
+    renderer.dispose();
     currentTex.dispose();
     canvas.remove();
     _instances.delete(element);

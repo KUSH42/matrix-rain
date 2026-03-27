@@ -63,6 +63,8 @@ export function makeUniforms(glyphCount = 56, gridW = 8, gridH = 8, dummyMsgTex)
     uFacingJitter:   uniform(0.1745), // ±jitter radians on each column's yaw (default ±5°)
     uFlatZ:          uniform(0.0),   // 0 = spherical shell, 1 = flat plane at Z=0
     uGlobeInteract:  uniform(1.0),   // 0 = off, 1 = on — gates globe proximity pulse
+    uSwayAmt:        uniform(0.04),  // lateral sway amplitude (world units)
+    uSwayDecay:      uniform(1.5),   // exponential decay rate — higher = settles faster
     uMsgTex:            texture(dummyMsgTex, screenUV), // 1×1 black CanvasTexture; screenUV baked in
     uMsgRevealProgress: uniform(0.0),                   // overall effect opacity 0–1
     uMsgWaveX:          uniform(0.0),                   // leading-edge X in screen UV (0–1)
@@ -84,7 +86,7 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     uCellW, uCellH, uWorldH, uNRows,
     uColor, uGlobalAlpha, uDepth, uPomSteps, uNormalStrength,
     uLightDir, uGlyphChroma,
-    uSpeedMul, uYawAligned, uFacingJitter, uFlatZ, uGlobeInteract,
+    uSpeedMul, uYawAligned, uFacingJitter, uFlatZ, uGlobeInteract, uSwayAmt, uSwayDecay,
     uMsgTex, uMsgRevealProgress, uMsgWaveX, uMsgBoost,
   } = uniforms;
 
@@ -232,9 +234,10 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
         const right   = vec3(outward.z, 0.0, outward.x.negate()); // cross(Y, outward)
         vOutward.assign(outward);
 
-        // Sinusoidal lateral sway — head leads, tail lags
-        const sway = sin(uTime.mul(0.4).add(aSeed.mul(6.2832))).mul(0.04)
-          .mul(float(1).sub(clamp(dist.div(uNRows), 0.0, 1.0)));
+        // Wobble-in: full amplitude at head (dist=0), decays exponentially into trail
+        const sway = sin(uTime.mul(0.4).add(aSeed.mul(6.2832)))
+          .mul(uSwayAmt)
+          .mul(exp(dist.negate().mul(uSwayDecay)));
         colCenter.addAssign(right.mul(sway));
 
         // Per-column Z-rotation ±5°

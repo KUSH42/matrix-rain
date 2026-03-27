@@ -17,6 +17,8 @@
  *   setGlyphChroma(on, scale), setCharSet(name),
  *   setGodRays(enabled, lightX, lightY, density, decay, weight, exposure),
  *   setBloomThreshold(v), setVignette(v), setScanlines(v), setHoloAberration(v),
+ *   setFrozen(bool), setReducedMotion(bool),
+ *   triggerGlitch(intensity, duration), triggerSpeedRamp(targetMult, duration),
  *   applyPreset(name)
  *
  * postProcessing modes
@@ -403,6 +405,13 @@ export function initMatrixRain(element, opts = {}) {
   let burstBloomTimer  = 0;
   let lastBurstBucket  = -1;
   let burstBloomActive = true;
+
+  // Animation state
+  let _frozen         = false;
+  let _rampGeneration = 0;
+  let _reducedMotion  = false;
+  let _savedSpeedMul  = uniforms.uSpeedMul.value;
+
   // syncCamera reference — assigned to state after state object is created
   let activeSyncCamera = syncCamera;
 
@@ -411,7 +420,7 @@ export function initMatrixRain(element, opts = {}) {
     const dt = prevTs > 0 ? t - prevTs : 1.0 / 60.0;
     prevTs = t;
 
-    uniforms.uTime.value = t;
+    if (!_frozen) uniforms.uTime.value = t;
 
     if (activeSyncCamera) {
       camera.position.copy(activeSyncCamera.position);
@@ -619,6 +628,7 @@ export function initMatrixRain(element, opts = {}) {
     setOpacity(v)          { uniforms.uGlobalAlpha.value = v; },
     setDepth(v)            { uniforms.uDepth.value = v; },
     setNormalStrength(v)   { uniforms.uNormalStrength.value = v; },
+    setSway(v)             { uniforms.uSwayAmt.value = v; },
 
     setSoften(on, strength) {
       if (postProcessing !== 'rain') return;
@@ -679,6 +689,72 @@ export function initMatrixRain(element, opts = {}) {
     },
 
     setSpeed(v)        { uniforms.uSpeedMul.value = v; },
+
+    /** Pause / resume time advancement. Rain freezes mid-frame when true. */
+    setFrozen(bool)    { _frozen = bool; },
+
+    /**
+     * Enable / disable reduced-motion mode.
+     * When enabled: speed is capped at 2×, triggerGlitch is silenced.
+     * When disabled: saved speed multiplier is restored.
+     */
+    setReducedMotion(bool) {
+      _reducedMotion = bool;
+      if (bool) {
+        _savedSpeedMul = uniforms.uSpeedMul.value;
+        uniforms.uSpeedMul.value = Math.min(uniforms.uSpeedMul.value, 2.0);
+      } else {
+        uniforms.uSpeedMul.value = _savedSpeedMul;
+      }
+    },
+
+    /**
+     * Briefly spike the glitch displacement, then auto-clear.
+     * Returns a cancel function.
+     * No-op in 'none' mode (no holo pass) and when reducedMotion is enabled.
+     *
+     * @param {number} [intensity=0.6]  uGlitchAmt peak value
+     * @param {number} [duration=0.4]   seconds before auto-clear
+     * @returns {Function} cancel — clears glitch immediately
+     */
+    triggerGlitch(intensity = 0.6, duration = 0.4) {
+      if (_reducedMotion) return () => {};
+      const b = pp?._holoBuild
+        ?? currentRainNodes?.passBuilders?._holoBuild
+        ?? pp_rainNodes?.passBuilders?._holoBuild;
+      if (!b?.uGlitchAmt) return () => {};
+      b.uGlitchAmt.value = intensity;
+      const timerId = setTimeout(() => { b.uGlitchAmt.value = 0.0; }, duration * 1000);
+      return () => { clearTimeout(timerId); b.uGlitchAmt.value = 0.0; };
+    },
+
+    /**
+     * Ease speed up to targetMult then back to 1× over `duration` seconds.
+     * Each call cancels any in-flight ramp.
+     * Clamps to 2× when reducedMotion is enabled.
+     *
+     * @param {number} [targetMult=4.0]  peak speed multiplier
+     * @param {number} [duration=2.0]    total ramp duration in seconds
+     */
+    triggerSpeedRamp(targetMult = 4.0, duration = 2.0) {
+      const effectiveMult = _reducedMotion ? Math.min(targetMult, 2.0) : targetMult;
+      const startTime     = performance.now();
+      const endTime       = startTime + duration * 1000;
+      const myGen         = ++_rampGeneration;
+      function step(now) {
+        if (myGen !== _rampGeneration) return;
+        const elapsed = (now - startTime) / 1000;
+        const tNorm   = Math.min(elapsed / duration, 1.0);
+        const rampT   = tNorm < 0.5
+          ? 2 * tNorm * tNorm
+          : 1 - Math.pow(-2 * tNorm + 2, 2) / 2;
+        uniforms.uSpeedMul.value = 1.0 + (effectiveMult - 1.0) * (1.0 - rampT);
+        if (now < endTime) requestAnimationFrame(step);
+        else uniforms.uSpeedMul.value = 1.0;
+      }
+      requestAnimationFrame(step);
+    },
+
     setYawAligned(v)   { uniforms.uYawAligned.value = v; },
     setFacingJitter(v) { uniforms.uFacingJitter.value = v; },
     setFlatZ(on)       { uniforms.uFlatZ.value = on ? 1.0 : 0.0; },
@@ -806,8 +882,13 @@ export function initMatrixRain(element, opts = {}) {
      * @param {number} [opts.boost]           brightness multiplier in text region (default: 3.0)
      */
     showMessage(text, opts = {}) {
+      if (msgTex) { try { msgTex.dispose(); } catch (_) {} }
+
+      const w = renderer.domElement.width  || element.clientWidth  || 512;
+      const h = renderer.domElement.height || element.clientHeight || 512;
+
       const {
-        font           = 'bold 80px monospace',
+        font           = `bold ${Math.max(48, Math.round(h * 0.08))}px monospace`,
         align          = 'center',
         yFrac          = 0.5,
         revealDuration = 1.5,
@@ -815,11 +896,6 @@ export function initMatrixRain(element, opts = {}) {
         fadeDuration   = 1.0,
         boost          = 3.0,
       } = opts;
-
-      if (msgTex) { try { msgTex.dispose(); } catch (_) {} }
-
-      const w = renderer.domElement.width  || element.clientWidth  || 512;
-      const h = renderer.domElement.height || element.clientHeight || 512;
 
       msgTex = renderMessageToTexture(text, w, h, { font, align, yFrac });
       uniforms.uMsgTex.value            = msgTex;

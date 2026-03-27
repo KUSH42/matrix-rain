@@ -150,23 +150,33 @@ export function buildStreakPass(inputNode, uAspect) {
 
 /**
  * @param {TextureNode} inputTexNode
- * @returns {{ outputNode, uVignetteStrength, uScanlineOpacity, uAberrationAmt }}
+ * @returns {{ outputNode, uVignetteStrength, uScanlineOpacity, uAberrationAmt, uGlitchAmt }}
  */
 export function buildHoloPass(inputTexNode) {
   const uVignetteStrength = uniform(0.42);
   const uScanlineOpacity  = uniform(0.045);
   const uAberrationAmt    = uniform(0.0025);
+  const uGlitchAmt        = uniform(0.0);
 
   const outputNode = Fn(() => {
+    // Glitch — horizontal scanline-band displacement
+    const glitchX = float(0.0).toVar();
+    If(uGlitchAmt.greaterThan(float(0.001)), () => {
+      const band = floor(screenUV.y.mul(24.0));
+      const h    = fract(sin(band.mul(137.1).add(time.mul(93.7))).mul(43758.5453));
+      glitchX.assign(h.sub(0.5).mul(uGlitchAmt).mul(0.08));
+    });
+
     const ctr    = screenUV.sub(0.5);
     const edgeSq = dot(ctr, ctr).mul(4.0);
     const s      = uAberrationAmt.mul(edgeSq);
-    const uvR    = clamp(screenUV.add(ctr.mul(s)), 0.001, 0.999);
-    const uvB    = clamp(screenUV.sub(ctr.mul(s)), 0.001, 0.999);
+    const gUV    = vec2(clamp(screenUV.x.add(glitchX), float(0.001), float(0.999)), screenUV.y);
+    const uvR    = clamp(gUV.add(ctr.mul(s)), 0.001, 0.999);
+    const uvB    = clamp(gUV.sub(ctr.mul(s)), 0.001, 0.999);
     const r      = texture(inputTexNode, uvR).r;
-    const g      = texture(inputTexNode, screenUV).g;
+    const g      = texture(inputTexNode, gUV).g;
     const b      = texture(inputTexNode, uvB).b;
-    const col    = vec3(r, g, b).toVar('hc');
+    const col    = vec3(r, g, b).toVar();
 
     // Scrolling scanlines
     const scan  = sin(screenUV.y.mul(640).add(time.mul(0.5))).mul(0.5).add(0.5);
@@ -176,10 +186,10 @@ export function buildHoloPass(inputTexNode) {
     col.mulAssign(float(1).sub(edgeSq.mul(uVignetteStrength)));
 
     // Preserve alpha for transparent canvas compositing
-    return vec4(col, texture(inputTexNode, screenUV).a);
+    return vec4(col, texture(inputTexNode, gUV).a);
   })();
 
-  return { outputNode, uVignetteStrength, uScanlineOpacity, uAberrationAmt };
+  return { outputNode, uVignetteStrength, uScanlineOpacity, uAberrationAmt, uGlitchAmt };
 }
 
 // ── God rays ──────────────────────────────────────────────────────────────

@@ -30,6 +30,8 @@
       border: 1px solid #00ff70;
       padding: 14px 16px;
       min-width: 220px;
+      max-height: calc(100vh - 32px);
+      overflow-y: auto;
       font-size: 11px;
       letter-spacing: 0.07em;
       line-height: 1.9;
@@ -165,6 +167,10 @@
 
     <label>Normal Str
       <input id="ctl-normal" type="range" min="0" max="12" step="0.5" value="6">
+    </label>
+
+    <label>Sway
+      <input id="ctl-sway" type="range" min="0" max="0.15" step="0.005" value="0.04">
     </label>
 
     <label>Soften
@@ -307,6 +313,46 @@
       </label>
     </div>
 
+    <!-- Animation sub-panel -->
+    <div style="border-top:1px solid #00ff7044;margin-top:4px;padding-top:4px;
+                display:flex;flex-direction:column;gap:4px;">
+      <label style="color:#7fffaa;font-size:10px;letter-spacing:0.1em;text-transform:uppercase;">
+        — Animation —
+      </label>
+      <label>Freeze
+        <input id="ctl-frozen" type="checkbox">
+      </label>
+      <label>Reduced motion
+        <input id="ctl-reduced-motion" type="checkbox">
+      </label>
+      <label>Glitch intensity
+        <input id="ctl-glitch-int" type="range" min="0.05" max="1" step="0.05" value="0.6">
+      </label>
+      <label>Glitch duration s
+        <input id="ctl-glitch-dur" type="range" min="0.1" max="2" step="0.1" value="0.4">
+      </label>
+      <label>Ramp target ×
+        <input id="ctl-ramp-mult" type="range" min="1" max="8" step="0.5" value="4">
+      </label>
+      <label>Ramp duration s
+        <input id="ctl-ramp-dur" type="range" min="0.5" max="6" step="0.5" value="2">
+      </label>
+      <label style="justify-content:center;gap:4px;">
+        <button id="ctl-glitch-btn"
+                style="background:#111;color:#00ff70;border:1px solid #00ff70;
+                       font-family:'Courier New',monospace;font-size:10px;cursor:pointer;
+                       padding:2px 8px;">
+          GLITCH
+        </button>
+        <button id="ctl-ramp-btn"
+                style="background:#111;color:#00ff70;border:1px solid #00ff70;
+                       font-family:'Courier New',monospace;font-size:10px;cursor:pointer;
+                       padding:2px 8px;">
+          RAMP
+        </button>
+      </label>
+    </div>
+
     <!-- CRT sub-panel — shown only in 'crt' mode -->
     <div id="crt-controls" style="display:none;border-top:1px solid #00ff7044;margin-top:4px;padding-top:4px;flex-direction:column;gap:4px;">
       <label style="color:#7fffaa;font-size:10px;letter-spacing:0.1em;text-transform:uppercase;">— CRT —</label>
@@ -318,6 +364,24 @@
           <option value="lcd">lcd</option>
         </select>
       </label>
+    </div>
+
+    <!-- Import / Export -->
+    <div style="border-top:1px solid #00ff7044;margin-top:6px;padding-top:6px;
+                display:flex;gap:6px;">
+      <button id="ctl-export"
+              style="flex:1;background:#111;color:#00ff70;border:1px solid #00ff70;
+                     font-family:'Courier New',monospace;font-size:10px;cursor:pointer;
+                     padding:2px 0;letter-spacing:0.1em;">
+        EXPORT
+      </button>
+      <button id="ctl-import"
+              style="flex:1;background:#111;color:#00ff70;border:1px solid #00ff70;
+                     font-family:'Courier New',monospace;font-size:10px;cursor:pointer;
+                     padding:2px 0;letter-spacing:0.1em;">
+        IMPORT
+      </button>
+      <input id="ctl-import-file" type="file" accept=".json" style="display:none">
     </div>
 
   </div>
@@ -385,6 +449,7 @@
   bind('ctl-opacity',  v  => rain.setOpacity(v));
   bind('ctl-depth',    v  => rain.setDepth(v));
   bind('ctl-normal',   v  => rain.setNormalStrength(v));
+  bind('ctl-sway',     v  => rain.setSway(v));
   bind('ctl-soften',   v  => rain.setSoften(true, v));
   bind('ctl-heat',     v  => rain.setHeat(v > 0, v));
   bind('ctl-streaks',  v  => rain.setStreaks(v > 0, v));
@@ -443,6 +508,165 @@
   // optional chaining makes these calls safe at any time.
   document.getElementById('ctl-crt-shader').addEventListener('change', e => {
     rain.crt?.setShader(e.target.value);
+  });
+
+  // Animation controls
+  bind('ctl-frozen',         on  => rain.setFrozen(on));
+  bind('ctl-reduced-motion', on  => rain.setReducedMotion(on));
+  document.getElementById('ctl-glitch-btn').addEventListener('click', () => {
+    rain.triggerGlitch(
+      parseFloat(document.getElementById('ctl-glitch-int').value),
+      parseFloat(document.getElementById('ctl-glitch-dur').value),
+    );
+  });
+  document.getElementById('ctl-ramp-btn').addEventListener('click', () => {
+    rain.triggerSpeedRamp(
+      parseFloat(document.getElementById('ctl-ramp-mult').value),
+      parseFloat(document.getElementById('ctl-ramp-dur').value),
+    );
+  });
+
+  // ── Settings import / export ──────────────────────────────────────────
+  function collectSettings() {
+    const fv = id => parseFloat(document.getElementById(id).value);
+    const cb = id => document.getElementById(id).checked;
+    const sv = id => document.getElementById(id).value;
+    return {
+      ppmode:           sv('ctl-ppmode'),
+      charSet:          sv('ctl-charset'),
+      crtShader:        sv('ctl-crt-shader'),
+      color:            sv('ctl-color'),
+      opacity:          fv('ctl-opacity'),
+      depth:            fv('ctl-depth'),
+      normalStrength:   fv('ctl-normal'),
+      sway:             fv('ctl-sway'),
+      soften:           fv('ctl-soften'),
+      heat:             fv('ctl-heat'),
+      streaks:          fv('ctl-streaks'),
+      speed:            fv('ctl-speed'),
+      bloomStrength:    fv('ctl-bloom'),
+      bloomThreshold:   fv('ctl-bloom-thr'),
+      phosphorDecay:    fv('ctl-phosphor'),
+      facingJitter:     fv('ctl-jitter'),
+      glyphChroma:      cb('ctl-chroma'),
+      glyphChromaScale: fv('ctl-chroma-scale'),
+      burstBloom:       cb('ctl-burst'),
+      flatZ:            cb('ctl-flatz'),
+      yawAligned:       cb('ctl-yaw'),
+      vignette:         fv('ctl-vignette'),
+      scanlines:        fv('ctl-scanlines'),
+      holoAberration:   fv('ctl-holo-aber'),
+      godRays: {
+        enabled:  cb('ctl-godrays'),
+        lightX:   fv('ctl-gr-lx'),
+        lightY:   fv('ctl-gr-ly'),
+        density:  fv('ctl-gr-density'),
+        decay:    fv('ctl-gr-decay'),
+        weight:   fv('ctl-gr-weight'),
+        exposure: fv('ctl-gr-exposure'),
+      },
+    };
+  }
+
+  function applySettings(s) {
+    const el  = id => document.getElementById(id);
+    const set = (id, v) => { if (v !== undefined) el(id).value = v; };
+    const chk = (id, v) => { if (v !== undefined) el(id).checked = v; };
+
+    const prevMode = ppmodeEl.value;
+
+    // ── Sync UI ──────────────────────────────────────────────────────────
+    set('ctl-ppmode',        s.ppmode);
+    set('ctl-charset',       s.charSet);
+    set('ctl-crt-shader',    s.crtShader);
+    set('ctl-color',         s.color);
+    set('ctl-opacity',       s.opacity);
+    set('ctl-depth',         s.depth);
+    set('ctl-normal',        s.normalStrength);
+    set('ctl-sway',          s.sway);
+    set('ctl-soften',        s.soften);
+    set('ctl-heat',          s.heat);
+    set('ctl-streaks',       s.streaks);
+    set('ctl-speed',         s.speed);
+    set('ctl-bloom',         s.bloomStrength);
+    set('ctl-bloom-thr',     s.bloomThreshold);
+    set('ctl-phosphor',      s.phosphorDecay);
+    set('ctl-jitter',        s.facingJitter);
+    chk('ctl-chroma',        s.glyphChroma);
+    set('ctl-chroma-scale',  s.glyphChromaScale);
+    chk('ctl-burst',         s.burstBloom);
+    chk('ctl-flatz',         s.flatZ);
+    chk('ctl-yaw',           s.yawAligned);
+    set('ctl-vignette',      s.vignette);
+    set('ctl-scanlines',     s.scanlines);
+    set('ctl-holo-aber',     s.holoAberration);
+    if (s.godRays) {
+      const g = s.godRays;
+      chk('ctl-godrays',    g.enabled);
+      set('ctl-gr-lx',      g.lightX);
+      set('ctl-gr-ly',      g.lightY);
+      set('ctl-gr-density', g.density);
+      set('ctl-gr-decay',   g.decay);
+      set('ctl-gr-weight',  g.weight);
+      set('ctl-gr-exposure',g.exposure);
+    }
+
+    // ── Rebuild if ppmode changed ────────────────────────────────────────
+    if (s.ppmode !== undefined && s.ppmode !== prevMode) {
+      rain.destroy();
+      rain = initMatrixRain(host, {
+        charSet:        s.charSet ?? el('ctl-charset').value,
+        postProcessing: s.ppmode,
+      });
+      updateCrtPanelVisibility(s.ppmode);
+    }
+
+    // ── Push to live rain handle ─────────────────────────────────────────
+    if (s.color          !== undefined) rain.setColor(s.color);
+    if (s.opacity        !== undefined) rain.setOpacity(s.opacity);
+    if (s.depth          !== undefined) rain.setDepth(s.depth);
+    if (s.normalStrength !== undefined) rain.setNormalStrength(s.normalStrength);
+    if (s.sway           !== undefined) rain.setSway(s.sway);
+    if (s.soften         !== undefined) rain.setSoften(s.soften > 0, s.soften);
+    if (s.heat           !== undefined) rain.setHeat(s.heat > 0, s.heat);
+    if (s.streaks        !== undefined) rain.setStreaks(s.streaks > 0, s.streaks);
+    if (s.speed          !== undefined) rain.setSpeed(s.speed);
+    if (s.bloomStrength  !== undefined) rain.setBloomStrength(s.bloomStrength);
+    if (s.bloomThreshold !== undefined) rain.setBloomThreshold(s.bloomThreshold);
+    if (s.phosphorDecay  !== undefined) rain.setPhosphorDecay(s.phosphorDecay);
+    if (s.facingJitter   !== undefined) rain.setFacingJitter(s.facingJitter);
+    if (s.glyphChroma    !== undefined || s.glyphChromaScale !== undefined) chromaFromUI();
+    if (s.burstBloom     !== undefined) rain.setBurstBloom(s.burstBloom);
+    if (s.flatZ          !== undefined) rain.setFlatZ(s.flatZ);
+    if (s.yawAligned     !== undefined) rain.setYawAligned(s.yawAligned ? 1.0 : 0.0);
+    if (s.vignette       !== undefined) rain.setVignette(s.vignette);
+    if (s.scanlines      !== undefined) rain.setScanlines(s.scanlines);
+    if (s.holoAberration !== undefined) rain.setHoloAberration(s.holoAberration);
+    if (s.charSet        !== undefined) rain.setCharSet(s.charSet);
+    if (s.godRays)                      godRaysFromUI();
+    if (s.crtShader      !== undefined) rain.crt?.setShader(s.crtShader);
+  }
+
+  document.getElementById('ctl-export').addEventListener('click', () => {
+    const blob = new Blob([JSON.stringify(collectSettings(), null, 2)], { type: 'application/json' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url;  a.download = 'matrix-rain-settings.json';
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+
+  const importFile = document.getElementById('ctl-import-file');
+  document.getElementById('ctl-import').addEventListener('click', () => importFile.click());
+  importFile.addEventListener('change', e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      try { applySettings(JSON.parse(ev.target.result)); } catch { /* malformed JSON */ }
+    };
+    reader.readAsText(file);
+    e.target.value = '';  // allow re-importing the same file
   });
 
   // ── Preset selector ───────────────────────────────────────────────────
