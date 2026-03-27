@@ -321,10 +321,6 @@
     </label>
 
     <label>Glyph chroma
-      <input id="ctl-chroma" type="checkbox" checked>
-    </label>
-
-    <label>Chroma scale
       <span style="display:flex;align-items:center;gap:4px;">
         <input id="ctl-chroma-scale"     type="range"  min="0" max="3" step="0.05" value="1">
         <input id="ctl-chroma-scale-num" type="number" min="0" max="3" step="0.05" value="1">
@@ -1038,17 +1034,11 @@
   linkSlider('ctl-gr-weight',  'ctl-gr-weight-num',  () => godRaysFromUI());
   linkSlider('ctl-gr-exposure','ctl-gr-exposure-num',() => godRaysFromUI());
 
-  function chromaFromUI() {
-    const on    = document.getElementById('ctl-chroma').checked;
-    const scale = parseFloat(document.getElementById('ctl-chroma-scale').value);
-    rain.setGlyphChroma(on, scale);
-  }
   bind('ctl-burst',        on => rain.setBurstBloom(on));
   bind('ctl-flatz',        on => rain.setFlatZ(on));
   linkSlider('ctl-yaw',          'ctl-yaw-num',          v  => rain.setMaxYaw(v));
   linkSlider('ctl-jitter',       'ctl-jitter-num',       v  => rain.setFacingJitter(v));
-  bind('ctl-chroma',       () => chromaFromUI());
-  linkSlider('ctl-chroma-scale', 'ctl-chroma-scale-num', () => chromaFromUI());
+  linkSlider('ctl-chroma-scale', 'ctl-chroma-scale-num', v  => rain.setGlyphChroma(v > 0, v));
   linkSlider('ctl-vignette',   'ctl-vignette-num',   v => rain.setVignette(v));
   linkSlider('ctl-scanlines',  'ctl-scanlines-num',  v => rain.setScanlines(v));
   linkSlider('ctl-holo-aber',  'ctl-holo-aber-num',  v => rain.setHoloAberration(v));
@@ -1280,7 +1270,6 @@
       bloomThreshold:   fv('ctl-bloom-thr'),
       phosphorDecay:    fv('ctl-phosphor'),
       facingJitter:     fv('ctl-jitter'),
-      glyphChroma:      cb('ctl-chroma'),
       glyphChromaScale: fv('ctl-chroma-scale'),
       burstBloom:       cb('ctl-burst'),
       flatZ:            cb('ctl-flatz'),
@@ -1378,7 +1367,6 @@
     set('ctl-bloom-thr',     s.bloomThreshold);
     set('ctl-phosphor',      s.phosphorDecay);
     set('ctl-jitter',        s.facingJitter);
-    chk('ctl-chroma',        s.glyphChroma);
     set('ctl-chroma-scale',  s.glyphChromaScale);
     chk('ctl-burst',         s.burstBloom);
     chk('ctl-flatz',         s.flatZ);
@@ -1444,7 +1432,7 @@
     if (s.bloomThreshold !== undefined) rain.setBloomThreshold(s.bloomThreshold);
     if (s.phosphorDecay  !== undefined) rain.setPhosphorDecay(s.phosphorDecay);
     if (s.facingJitter   !== undefined) rain.setFacingJitter(s.facingJitter);
-    if (s.glyphChroma    !== undefined || s.glyphChromaScale !== undefined) chromaFromUI();
+    if (s.glyphChromaScale !== undefined) rain.setGlyphChroma(s.glyphChromaScale > 0, s.glyphChromaScale);
     if (s.burstBloom     !== undefined) rain.setBurstBloom(s.burstBloom);
     if (s.flatZ          !== undefined) rain.setFlatZ(s.flatZ);
     if (s.maxYaw         !== undefined) rain.setMaxYaw(s.maxYaw);
@@ -1587,7 +1575,6 @@
     if (p.vignette        !== undefined) document.getElementById('ctl-vignette').value     = p.vignette;
     if (p.scanlines       !== undefined) document.getElementById('ctl-scanlines').value    = p.scanlines;
     if (p.holoAberration  !== undefined) document.getElementById('ctl-holo-aber').value    = p.holoAberration;
-    if (p.glyphChroma     !== undefined) document.getElementById('ctl-chroma').checked     = p.glyphChroma;
     if (p.glyphChromaScale !== undefined) document.getElementById('ctl-chroma-scale').value = p.glyphChromaScale;
     if (p.charSet         !== undefined) document.getElementById('ctl-charset').value      = p.charSet;
     if (p.godRays) {

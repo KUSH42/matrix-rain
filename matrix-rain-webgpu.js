@@ -1190,7 +1190,7 @@ export function initMatrixRain(element, opts = {}) {
       if (p.opacity         !== undefined) handle.setOpacity(p.opacity);
       if (p.depth           !== undefined) handle.setDepth(p.depth);
       if (p.normalStrength  !== undefined) handle.setNormalStrength(p.normalStrength);
-      if (p.glyphChroma     !== undefined) handle.setGlyphChroma(p.glyphChroma, p.glyphChromaScale ?? 1.0);
+      if (p.glyphChromaScale !== undefined) handle.setGlyphChroma(p.glyphChromaScale > 0, p.glyphChromaScale);
       if (p.speed           !== undefined) handle.setSpeed(p.speed);
       if (p.bloomStrength   !== undefined) handle.setBloomStrength(p.bloomStrength);
       if (p.bloomThreshold  !== undefined) handle.setBloomThreshold(p.bloomThreshold);
