@@ -80,6 +80,11 @@ All items go in `specs/` before implementation.
   - `matrix-rain-tsl.js`: `h2` and `median3` exported at module level
   - `matrix-rain-2d-tsl.js`: existing rich implementation (`makeRain2DUniforms`, `buildRain2DNode`, `init2DRain`, `destroy2DRain`, `LAYER_PRESETS`, `buildLayeredRain2DNode`) augmented with spec API aliases: `makeUniforms2D`, `buildMatrix2DColorNode`, `initMatrix2DRain`, `destroyMatrix2DRain`
 
+- [x] **SPEC-demo-params** — port 2D organic controls to 3D demo
+  - `matrix-rain-tsl.js`: 5 new uniforms (`uBrightness`, `uBreathAmt`, `uWaveSpeed`, `uWaveAmt`, `uWeightedGlyphs`); hardcoded breath amplitude 0.15 → `uBreathAmt.mul(0.15)`; wave speed/amount → uniforms; weighted glyph selection uses per-cell coin-flip `select` node (0=uniform, 1=LUT); final color multiplied by `uBrightness`
+  - `matrix-rain-webgpu.js`: 6 new handle methods (`setBrightness`, `setBreathAmt`, `setWaveSpeed`, `setWaveAmt`, `setWeightedGlyphs`, `setCellSize`)
+  - `demo.html`: "Organic" sub-panel with 7 controls; JS wiring; collectSettings/applySettings extended
+
 - [ ] Tests — `tests/` for any pure-JS logic extracted to a `matrix-rain-math.js`
 - [ ] `prefers-reduced-motion` — disable/reduce heat, god rays, burst bloom
 - [ ] README.md — public documentation before any npm/gh-pages publish

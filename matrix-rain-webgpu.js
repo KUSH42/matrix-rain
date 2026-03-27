@@ -768,6 +768,13 @@ export function initMatrixRain(element, opts = {}) {
 
     setSpeed(v)        { uniforms.uSpeedMul.value = v; },
 
+    setBrightness(v)     { uniforms.uBrightness.value = v; },
+    setBreathAmt(v)      { uniforms.uBreathAmt.value = v; },
+    setWaveSpeed(v)      { uniforms.uWaveSpeed.value = v; },
+    setWaveAmt(v)        { uniforms.uWaveAmt.value = v; },
+    setWeightedGlyphs(v) { uniforms.uWeightedGlyphs.value = v; },
+    setCellSize(w, h)    { uniforms.uCellW.value = w; uniforms.uCellH.value = h; },
+
     /** Pause / resume time advancement. Rain freezes mid-frame when true. */
     setFrozen(bool)    { _frozen = bool; },
 

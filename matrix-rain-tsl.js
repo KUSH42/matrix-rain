@@ -79,6 +79,11 @@ export function makeUniforms(glyphCount = 56, gridW = 8, gridH = 8, dummyMsgTex,
     uMsgWaveX:          uniform(0.0),                   // leading-edge X in screen UV (0–1)
     uMsgBoost:          uniform(3.0),                   // brightness multiplier in text region
     uGlyphWeightLUT:    texture(lutTexture),             // 256×1 inverse-CDF glyph weight LUT
+    uBrightness:     uniform(1.0),   // output brightness multiplier — range [0.2, 2.0]
+    uBreathAmt:      uniform(1.0),   // speed-oscillation amplitude scale — 0 = off, 1 = ±15%
+    uWaveSpeed:      uniform(0.15),  // wave crest angular speed in rad/s (hardcoded was 0.15)
+    uWaveAmt:        uniform(1.0),   // wave offset amplitude scale — 0 = off, 1 = ±4 world units
+    uWeightedGlyphs: uniform(1.0),  // LUT weight blend — 0 = uniform sampling, 1 = full LUT
   };
 }
 
@@ -99,6 +104,7 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     uSpeedMul, uYawAligned, uFacingJitter, uFlatZ, uGlobeInteract, uSwayAmt, uSwayDecay,
     uMsgTex, uMsgRevealProgress, uMsgWaveX, uMsgBoost,
     uGlyphWeightLUT,
+    uBrightness, uBreathAmt, uWaveSpeed, uWaveAmt, uWeightedGlyphs,
   } = uniforms;
 
   // ── Per-instance buffer attributes ────────────────────────────────────
@@ -208,7 +214,7 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
       const breathFreq  = float(0.1).add(h2(vec2(aSeed.mul(13.7), float(0.1))).mul(0.4));
       const breathPhase = h2(vec2(aSeed.mul(7.3), float(0.5))).mul(6.2832);
       const breathMul   = float(1).add(
-        sin(uTime.mul(breathFreq).mul(6.2832).add(breathPhase)).mul(0.15)
+        sin(uTime.mul(breathFreq).mul(6.2832).add(breathPhase)).mul(uBreathAmt.mul(0.15))
       );
       const speedMul    = breathMul
         .mul(float(1).add(burstActive.mul(burstFrac).mul(2)))
@@ -220,8 +226,8 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
       // Traveling wave: 3 crests sweep around the shell at ~42 s/revolution.
       // aWX = aColAAttr.x, aWZ = aColAAttr.y — angular position on XZ shell.
       const thetaWave  = atan(aWZ, aWX);                           // −π..π
-      const wavePhase  = thetaWave.mul(3.0).add(uTime.mul(0.15));  // 3 crests, 0.15 rad/s
-      const waveOffset = sin(wavePhase).mul(4.0);                   // ±4 world units
+      const wavePhase  = thetaWave.mul(3.0).add(uTime.mul(uWaveSpeed));
+      const waveOffset = sin(wavePhase).mul(uWaveAmt.mul(4.0));
       const cyclePos  = mod(
         uTime.mul(aSpeed).mul(speedMul).add(aSeed.mul(cycleH)).add(waveOffset),
         cycleH
@@ -353,8 +359,17 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     const changeTick  = floor(
       cellPhase.mul(settledHold).add(uTime).div(settledHold)
     ).add(burstOffset);
-    const baseGlyph   = texture(uGlyphWeightLUT, vec2(h2(cellId.mul(0.47).add(0.5)), 0.5)).r.mul(255.0).floor();
-    const mutGlyph    = texture(uGlyphWeightLUT, vec2(h2(cellId.mul(0.37).add(changeTick.mul(vec2(0.11, 0.07)))), 0.5)).r.mul(255.0).floor();
+    // Weighted vs uniform glyph selection — uWeightedGlyphs blends LUT → uniform.
+    // A per-cell coin-flip hash selects LUT or uniform for each cell independently.
+    const baseHash  = h2(cellId.mul(0.47).add(0.5));
+    const baseRaw   = floor(baseHash.mul(uGlyphCount));
+    const baseLUT   = texture(uGlyphWeightLUT, vec2(baseHash, 0.5)).r.mul(255.0).floor();
+    const baseGlyph = select(h2(cellId.mul(0.53).add(0.1)).lessThan(uWeightedGlyphs), baseLUT, baseRaw);
+
+    const mutHash  = h2(cellId.mul(0.37).add(changeTick.mul(vec2(0.11, 0.07))));
+    const mutRaw   = floor(mutHash.mul(uGlyphCount));
+    const mutLUT   = texture(uGlyphWeightLUT, vec2(mutHash, 0.5)).r.mul(255.0).floor();
+    const mutGlyph = select(h2(cellId.mul(0.61).add(0.3)).lessThan(uWeightedGlyphs), mutLUT, mutRaw);
     // Burst columns override static: during a burst the whole column is "active".
     const isDeepTrail = d.greaterThanEqual(halfDist).and(vBurst.lessThan(0.5));
     const glyphIdx    = select(
@@ -539,7 +554,7 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     If(alpha.lessThan(0.015), () => { Discard(); });
 
     // Pre-multiplied alpha — additive compositing on the canvas
-    return vec4(col2.mul(alpha), alpha);
+    return vec4(col2.mul(alpha).mul(uBrightness), alpha);
   })();
 
   // ── Material ──────────────────────────────────────────────────────────

@@ -148,6 +148,12 @@ Returns a control handle with methods below.
 | `setVignette(v)` | Vignette strength 0–1 |
 | `setScanlines(v)` | Scanline opacity 0–0.2 |
 | `setHoloAberration(v)` | Screen-space chromatic aberration in holo pass 0–0.015 |
+| `setBrightness(v)` | Output brightness multiplier 0.2–2.0 |
+| `setBreathAmt(v)` | Speed-oscillation amplitude 0–1 (0=off) |
+| `setWaveSpeed(v)` | Wave crest angular speed rad/s (default 0.15) |
+| `setWaveAmt(v)` | Wave offset amplitude 0–1 (0=off, 1=±4 world units) |
+| `setWeightedGlyphs(v)` | Glyph weight LUT blend 0–1 (0=uniform, 1=full LUT) |
+| `setCellSize(w, h)` | Cell world-unit dimensions (default 0.12, 0.08) |
 | `applyPreset(name)` | Apply named preset: `'default'`\|`'matrix1999'`\|`'ghost'`\|`'overdrive'` |
 | `get crt` | CRT handle after `renderer.init()` resolves in `'crt'` mode; `null` otherwise |
 
