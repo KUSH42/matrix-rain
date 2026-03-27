@@ -2047,6 +2047,12 @@ export function initMatrixRain(element, opts = {}) {
         // Canvas draws text at pixel y = h * yFrac, so GPU sees it at screenUV.y = 1 - yFrac.
         1.0 - yFrac,
       );
+      // Half-height of the message band in screen UV space — limits column mode glyph resolve
+      // to only rows whose screen Y falls within the text region, preventing the target letter
+      // from repeating all the way up/down the column.
+      const fontSizeMatch = font.match(/(\d+)px/);
+      const fontSize = fontSizeMatch ? parseFloat(fontSizeMatch[1]) : h * 0.08;
+      uniforms.uMsgHalfH.value = (fontSize / h) * 0.65;
 
       if (cascadeMode === 'column') {
         uniforms.uMsgTex.value = dummyMsgTex;

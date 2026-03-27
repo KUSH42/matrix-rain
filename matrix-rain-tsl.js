@@ -86,6 +86,7 @@ export function makeUniforms(glyphCount = 56, gridW = 8, gridH = 8, dummyMsgTex,
     uMsgCascadeMode:     uniform(0.0),                   // 0=wave, 1=radial, 2=column
     uMsgWorldXMin:       uniform(-8.0),                  // min world X for column cascade ordering
     uMsgWorldXMax:       uniform(8.0),                   // max world X for column cascade ordering
+    uMsgHalfH:           uniform(0.08),                  // half-height of message band in screen UV (0–1)
     uGlyphWeightLUT:    texture(lutTexture),             // 256×1 inverse-CDF glyph weight LUT
     uBrightness:     uniform(1.0),   // output brightness multiplier — range [0.2, 2.0]
     uBreathAmt:      uniform(1.0),   // speed-oscillation amplitude scale — 0 = off, 1 = ±15%
@@ -140,7 +141,7 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     uLightDir, uGlyphChroma,
     uSpeedMul, uMaxYaw, uFacingJitter, uFlatZ, uForwardFacing, uGlobeInteract, uSwayAmt, uSwayDecay,
     uMsgTex, uMsgRevealProgress, uMsgWaveX, uMsgBoost,
-    uMsgWaveR, uMsgCenter, uMsgSettleSharpness, uMsgCascadeMode, uMsgWorldXMin, uMsgWorldXMax,
+    uMsgWaveR, uMsgCenter, uMsgSettleSharpness, uMsgCascadeMode, uMsgWorldXMin, uMsgWorldXMax, uMsgHalfH,
     uGlyphWeightLUT,
     uBrightness, uBreathAmt, uWaveSpeed, uWaveAmt, uWaveCrests, uWeightedGlyphs, uReverseChance,
     uDensity,
@@ -271,10 +272,7 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
       .mul(sectorMask)
       .mul(heightMask)
       .clamp(0.0, 1.0);
-    const densityHash   = h2(vec2(aColIdxAttr.mul(0.137).add(0.5), float(42.7)));
-    // Columns assigned a message glyph (column cascade mode) always bypass density cull.
-    const isMsgCol     = aColMsgGlyphAttr.greaterThan(float(0.001));
-    const densityPasses = densityHash.lessThanEqual(zonedDensity).or(isMsgCol);
+    const densityPasses = h2(vec2(aColIdxAttr.mul(0.137).add(0.5), float(42.7))).lessThanEqual(zonedDensity);
     If(densityPasses.and(aFrustumVisAttr.greaterThan(float(0.5))), () => {
 
     If(bootFadeVal.greaterThanEqual(0.001), () => {
@@ -504,9 +502,13 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     // Mask — soft from downscale + bilinear filtering; threshold for screen modes
     const msgMaskSoft = uMsgTex.r;
     const msgMaskThr  = smoothstep(float(0.15), float(0.45), msgMaskSoft);
-    // Column mode mask: column has a valid target glyph (aColMsgGlyph > 0)
-    const colHasTarget = aColMsgGlyphAttr.greaterThan(float(0.001));
-    const msgMask     = select(isColumn, select(colHasTarget, float(1.0), float(0.0)), msgMaskThr);
+    // Column mode mask: column has a valid target glyph AND the fragment is within the
+    // message's vertical band. The Y-band check (in screen UV space) prevents the target
+    // glyph from showing on rows above/below the text — without it the whole column height
+    // would crystallise to the same letter.
+    const colHasTarget  = aColMsgGlyphAttr.greaterThan(float(0.001));
+    const inMsgYBand    = abs(screenUV.y.sub(uMsgCenter.y)).lessThan(uMsgHalfH);
+    const msgMask       = select(isColumn, select(colHasTarget.and(inMsgYBand), float(1.0), float(0.0)), msgMaskThr);
 
     // msgActive: drives scramble boost and brightness boost
     const msgActive   = msgMask.mul(wavePast).mul(uMsgRevealProgress);
