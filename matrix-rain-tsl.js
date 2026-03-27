@@ -578,18 +578,20 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     If(mask.lessThan(0.01), () => { Discard(); });
 
     // ── Per-glyph chromatic aberration at head ─────────────────────────
+    // Additive fringe: sample R/B at shifted UVs, add the divergence from the
+    // center mask as new colored light. This is visible for any glyph color,
+    // including pure green where the old ratio approach was a no-op (0 * ratio = 0).
     const aberration = exp(max(vDist, 0.0).negate().mul(1.5)).mul(uGlyphChroma);
-    const chromaOff  = aberration.mul(0.012);
+    const chromaOff  = aberration.mul(0.03);
     const rUV    = clamp(vec2(finalFace.x.add(chromaOff), finalFace.y), 0.005, 0.995);
     const bUV    = clamp(vec2(finalFace.x.sub(chromaOff), finalFace.y), 0.005, 0.995);
     const rMask  = smoothstep(float(0.5).sub(fw), float(0.5).add(fw), sampleGlyph(rUV, glyphIdx));
     const bMask  = smoothstep(float(0.5).sub(fw), float(0.5).add(fw), sampleGlyph(bUV, glyphIdx));
-    const safeMask = max(mask, 0.01);
-    // Component-wise chroma correction
+    const luma   = col2.dot(vec3(0.333, 0.334, 0.333));
     col2.assign(vec3(
-      col2.x.mul(rMask.div(safeMask)),
+      col2.x.add(rMask.sub(mask).mul(luma)),
       col2.y,
-      col2.z.mul(bMask.div(safeMask)),
+      col2.z.add(bMask.sub(mask).mul(luma)),
     ));
 
     // Edge emission glow — laser-etched holographic corona
