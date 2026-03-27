@@ -154,7 +154,19 @@ function loadMSDF(path) {
 }
 
 // ── Instanced buffer geometry ─────────────────────────────────────────────
-function buildGeometry() {
+function buildGeometry({
+  speedMin = 1.2,
+  speedMax = 8.0,
+  trailMin = 0.015,
+  trailMax = 0.050,
+} = {}) {
+  // Guard against inverted ranges — clamp min to max so the distribution
+  // always has non-negative spread (caller gets all-same value at min==max).
+  const sMin = Math.min(speedMin, speedMax);
+  const sMax = Math.max(speedMin, speedMax);
+  const tMin = Math.min(trailMin, trailMax);
+  const tMax = Math.max(trailMin, trailMax);
+
   const geom = new THREE.InstancedBufferGeometry();
   const base = new THREE.PlaneGeometry(1, 1);
   geom.index = base.index.clone();
@@ -179,13 +191,13 @@ function buildGeometry() {
     const wx    = Math.cos(theta) * r;
     const wz    = Math.sin(theta) * r;
     const yOff  = (Math.random() - 0.5) * WORLD_H;
-    const sr = Math.random();
-    const speed = 1.2 + sr * sr * 6.8;  // [1.2, 8.0], log-biased: mode ≈ 1.2, median ≈ 2.9, mean ≈ 3.5
+    const sr    = Math.random();
+    const speed = sMin + sr * sr * (sMax - sMin);  // log-biased over range
     const seed  = Math.random();
     const t     = (r - R_MIN) / (R_MAX - R_MIN);           // 0 = inner (close), 1 = outer (far)
     const scale = (1.45 - t * 0.95) + (Math.random() - 0.5) * 0.2;
     const alpha = 0.18 + Math.random() * 0.72;
-    const trail = 0.015 + Math.random() * 0.035;
+    const trail = tMin + Math.random() * (tMax - tMin);
 
     for (let row = 0; row < N_ROWS; row++) {
       const idx = c * N_ROWS + row;
@@ -294,7 +306,16 @@ export function initMatrixRain(element, opts = {}) {
     externalLoop   = false,
     postProcessing = 'rain',
     crtOpts        = {},
+    speedRange     = null,
+    trailRange     = null,
   } = opts;
+
+  const _geomParams = {
+    speedMin: speedRange?.[0] ?? 1.2,
+    speedMax: speedRange?.[1] ?? 8.0,
+    trailMin: trailRange?.[0] ?? 0.015,
+    trailMax: trailRange?.[1] ?? 0.050,
+  };
 
   // Resolve atlas path + grid dimensions from charSet or explicit opts
   const _desc         = CHAR_SETS[charSet] ?? CHAR_SETS.matrixcode;
@@ -348,7 +369,7 @@ export function initMatrixRain(element, opts = {}) {
 
   const material = buildGlyphMaterial(uniforms, atlasTex);
   applyGlyphWeightLUT(charSet, resolvedCount, uniforms);
-  const geom     = buildGeometry();
+  const geom     = buildGeometry(_geomParams);
   const mesh     = new THREE.Mesh(geom, material);
   mesh.frustumCulled = false;
   mesh.renderOrder   = 1;
@@ -695,6 +716,13 @@ export function initMatrixRain(element, opts = {}) {
   const s = { renderer, ro, animRef, geom, material, atlasTex, dummyRT, dummyMsgTex, uniforms, mesh, _cleanup };
   _state.set(element, s);
 
+  function rebuildGeom() {
+    const newGeom = buildGeometry(_geomParams);
+    mesh.geometry.dispose();
+    mesh.geometry = newGeom;
+    s.geom = newGeom;
+  }
+
   // ── Control handle ────────────────────────────────────────────────────
   handle = {
     destroy() { destroyMatrixRain(element); },
@@ -774,6 +802,26 @@ export function initMatrixRain(element, opts = {}) {
     setWaveAmt(v)        { uniforms.uWaveAmt.value = v; },
     setWeightedGlyphs(v) { uniforms.uWeightedGlyphs.value = v; },
     setCellSize(w, h)    { uniforms.uCellW.value = w; uniforms.uCellH.value = h; },
+
+    setSpeedRange(min, max) {
+      _geomParams.speedMin = min;
+      _geomParams.speedMax = max;
+      rebuildGeom();
+    },
+    setTrailRange(min, max) {
+      _geomParams.trailMin = min;
+      _geomParams.trailMax = max;
+      rebuildGeom();
+    },
+    setDensity(v) { uniforms.uDensity.value = v; },
+    setZoneSpeed(inner, outer) {
+      uniforms.uZoneSpeedInner.value = inner;
+      uniforms.uZoneSpeedOuter.value = outer;
+    },
+    setZoneBrightness(inner, outer) {
+      uniforms.uZoneBrightInner.value = inner;
+      uniforms.uZoneBrightOuter.value = outer;
+    },
 
     /** Pause / resume time advancement. Rain freezes mid-frame when true. */
     setFrozen(bool)    { _frozen = bool; },

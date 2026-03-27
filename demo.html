@@ -389,6 +389,57 @@
       </label>
     </div>
 
+    <!-- Columns sub-panel -->
+    <div style="border-top:1px solid #00ff7044;margin-top:4px;padding-top:4px;
+                display:flex;flex-direction:column;gap:4px;">
+      <label style="color:#7fffaa;font-size:10px;letter-spacing:0.1em;text-transform:uppercase;">
+        — Columns —
+      </label>
+
+      <label title="Rebuilds geometry">Speed min ⟳
+        <input id="ctl-spd-min" type="range" min="0.5" max="4.0" step="0.1" value="1.2">
+      </label>
+      <label title="Rebuilds geometry">Speed max ⟳
+        <input id="ctl-spd-max" type="range" min="2.0" max="12.0" step="0.5" value="8.0">
+      </label>
+
+      <label title="Rebuilds geometry">Trail min ⟳
+        <input id="ctl-trl-min" type="range" min="0.005" max="0.060" step="0.001" value="0.015">
+      </label>
+      <label title="Rebuilds geometry">Trail max ⟳
+        <input id="ctl-trl-max" type="range" min="0.020" max="0.080" step="0.002" value="0.050">
+      </label>
+
+      <label>Density
+        <input id="ctl-density-3d" type="range" min="0.1" max="1.0" step="0.05" value="1.0">
+      </label>
+    </div>
+
+    <!-- Radial zones sub-panel -->
+    <div style="border-top:1px solid #00ff7044;margin-top:4px;padding-top:4px;
+                display:flex;flex-direction:column;gap:4px;">
+      <label style="color:#7fffaa;font-size:10px;letter-spacing:0.1em;text-transform:uppercase;">
+        — Radial zones —
+      </label>
+      <span style="color:#5f9a6f;font-size:9px;line-height:1.3;">
+        Inner = close (fast/bright) · Outer = far (slow/dim)
+      </span>
+
+      <label>Inner speed
+        <input id="ctl-zone-spd-in" type="range" min="0.2" max="3.0" step="0.05" value="1.0">
+      </label>
+      <label>Outer speed
+        <input id="ctl-zone-spd-out" type="range" min="0.2" max="3.0" step="0.05" value="1.0">
+      </label>
+
+      <label>Inner bright
+        <input id="ctl-zone-br-in" type="range" min="0.1" max="2.5" step="0.05" value="1.0">
+      </label>
+      <label>Outer bright
+        <input id="ctl-zone-br-out" type="range" min="0.1" max="2.5" step="0.05" value="1.0">
+      </label>
+    </div>
+
     <!-- CRT sub-panel — shown only in 'crt' mode -->
     <div id="crt-controls" style="display:none;border-top:1px solid #00ff7044;margin-top:4px;padding-top:4px;flex-direction:column;gap:4px;">
       <label style="color:#7fffaa;font-size:10px;letter-spacing:0.1em;text-transform:uppercase;">— CRT —</label>
@@ -546,6 +597,43 @@
     rain.crt?.setShader(e.target.value);
   });
 
+  // Columns controls
+  function pushSpeedRange() {
+    rain.setSpeedRange(
+      parseFloat(document.getElementById('ctl-spd-min').value),
+      parseFloat(document.getElementById('ctl-spd-max').value),
+    );
+  }
+  function pushTrailRange() {
+    rain.setTrailRange(
+      parseFloat(document.getElementById('ctl-trl-min').value),
+      parseFloat(document.getElementById('ctl-trl-max').value),
+    );
+  }
+  document.getElementById('ctl-spd-min').addEventListener('input', pushSpeedRange);
+  document.getElementById('ctl-spd-max').addEventListener('input', pushSpeedRange);
+  document.getElementById('ctl-trl-min').addEventListener('input', pushTrailRange);
+  document.getElementById('ctl-trl-max').addEventListener('input', pushTrailRange);
+  bind('ctl-density-3d', v => rain.setDensity(v));
+
+  // Radial zone controls
+  function pushZoneSpeed() {
+    rain.setZoneSpeed(
+      parseFloat(document.getElementById('ctl-zone-spd-in').value),
+      parseFloat(document.getElementById('ctl-zone-spd-out').value),
+    );
+  }
+  function pushZoneBright() {
+    rain.setZoneBrightness(
+      parseFloat(document.getElementById('ctl-zone-br-in').value),
+      parseFloat(document.getElementById('ctl-zone-br-out').value),
+    );
+  }
+  document.getElementById('ctl-zone-spd-in').addEventListener('input', pushZoneSpeed);
+  document.getElementById('ctl-zone-spd-out').addEventListener('input', pushZoneSpeed);
+  document.getElementById('ctl-zone-br-in').addEventListener('input', pushZoneBright);
+  document.getElementById('ctl-zone-br-out').addEventListener('input', pushZoneBright);
+
   // Organic controls
   bind('ctl-brightness',  v  => rain.setBrightness(v));
   bind('ctl-breath-amt',  v  => rain.setBreathAmt(v));
@@ -627,6 +715,15 @@
       waveSpeed:      fv('ctl-wave-speed'),
       waveAmt:        fv('ctl-wave-amt'),
       weightedGlyphs: cb('ctl-weighted'),
+      spdMin:      fv('ctl-spd-min'),
+      spdMax:      fv('ctl-spd-max'),
+      trlMin:      fv('ctl-trl-min'),
+      trlMax:      fv('ctl-trl-max'),
+      density3d:   fv('ctl-density-3d'),
+      zoneSpeedIn: fv('ctl-zone-spd-in'),
+      zoneSpeedOut:fv('ctl-zone-spd-out'),
+      zoneBrIn:    fv('ctl-zone-br-in'),
+      zoneBrOut:   fv('ctl-zone-br-out'),
     };
   }
 
@@ -723,6 +820,20 @@
     if (s.waveSpeed      !== undefined) rain.setWaveSpeed(s.waveSpeed);
     if (s.waveAmt        !== undefined) rain.setWaveAmt(s.waveAmt);
     if (s.weightedGlyphs !== undefined) rain.setWeightedGlyphs(s.weightedGlyphs ? 1.0 : 0.0);
+    set('ctl-spd-min',      s.spdMin);
+    set('ctl-spd-max',      s.spdMax);
+    set('ctl-trl-min',      s.trlMin);
+    set('ctl-trl-max',      s.trlMax);
+    set('ctl-density-3d',   s.density3d);
+    set('ctl-zone-spd-in',  s.zoneSpeedIn);
+    set('ctl-zone-spd-out', s.zoneSpeedOut);
+    set('ctl-zone-br-in',   s.zoneBrIn);
+    set('ctl-zone-br-out',  s.zoneBrOut);
+    if (s.spdMin   !== undefined || s.spdMax   !== undefined) pushSpeedRange();
+    if (s.trlMin   !== undefined || s.trlMax   !== undefined) pushTrailRange();
+    if (s.density3d !== undefined) rain.setDensity(s.density3d);
+    if (s.zoneSpeedIn !== undefined || s.zoneSpeedOut !== undefined) pushZoneSpeed();
+    if (s.zoneBrIn    !== undefined || s.zoneBrOut    !== undefined) pushZoneBright();
   }
 
   document.getElementById('ctl-export').addEventListener('click', () => {

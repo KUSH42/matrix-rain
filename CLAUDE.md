@@ -123,6 +123,8 @@ async function animate(ts) {
 | `opts.syncCamera` | `THREE.Camera\|null` | `null` | External camera to mirror |
 | `opts.postProcessing` | `'rain'\|'crt'\|'none'` | `'rain'` | Pipeline mode. `'rain'`: 7-stage rain pipeline. `'crt'`: rain chain + CRT (telescreen). `'none'`: raw scene + FXAA (diagnostic) |
 | `opts.crtOpts` | `object` | `{}` | Options forwarded to `buildCRTNodesFromSource`; ignored unless `postProcessing: 'crt'` |
+| `opts.speedRange` | `[number, number]` | `[1.2, 8.0]` | Initial per-column speed distribution |
+| `opts.trailRange` | `[number, number]` | `[0.015, 0.050]` | Initial per-column trail bounds (world units) |
 
 Returns a control handle with methods below.
 
@@ -154,6 +156,11 @@ Returns a control handle with methods below.
 | `setWaveAmt(v)` | Wave offset amplitude 0–1 (0=off, 1=±4 world units) |
 | `setWeightedGlyphs(v)` | Glyph weight LUT blend 0–1 (0=uniform, 1=full LUT) |
 | `setCellSize(w, h)` | Cell world-unit dimensions (default 0.12, 0.08) |
+| `setSpeedRange(min, max)` | Per-column speed range — triggers geometry rebuild |
+| `setTrailRange(min, max)` | Per-column trail bounds (world units) — triggers geometry rebuild |
+| `setDensity(v)` | Fraction of columns active 0.1–1.0 (uniform, no rebuild) |
+| `setZoneSpeed(inner, outer)` | Radial speed multiplier inner/outer shell (default 1.0, 1.0) |
+| `setZoneBrightness(inner, outer)` | Radial brightness multiplier inner/outer shell (default 1.0, 1.0) |
 | `applyPreset(name)` | Apply named preset: `'default'`\|`'matrix1999'`\|`'ghost'`\|`'overdrive'` |
 | `get crt` | CRT handle after `renderer.init()` resolves in `'crt'` mode; `null` otherwise |
 

@@ -85,6 +85,11 @@ All items go in `specs/` before implementation.
   - `matrix-rain-webgpu.js`: 6 new handle methods (`setBrightness`, `setBreathAmt`, `setWaveSpeed`, `setWaveAmt`, `setWeightedGlyphs`, `setCellSize`)
   - `demo.html`: "Organic" sub-panel with 7 controls; JS wiring; collectSettings/applySettings extended
 
+- [x] **SPEC-demo-scene-controls** — speed range, trail range, density, radial zones
+  - `matrix-rain-tsl.js`: 5 new uniforms (`uDensity`, `uZoneSpeedInner/Outer`, `uZoneBrightInner/Outer`); density cull in vertex shader (after all varying defaults); `t_zone` derivation from baked world position; `zoneSpeedBias` in `speedMul`; `zoneBrightBias` in `vAlpha`; `Return` added to imports
+  - `matrix-rain-webgpu.js`: `buildGeometry(params)` parameterised with `speedMin/Max`, `trailMin/Max`; `_geomParams` closure state; `rebuildGeom()` helper; `speedRange`/`trailRange` opts; 5 new handle methods (`setSpeedRange`, `setTrailRange`, `setDensity`, `setZoneSpeed`, `setZoneBrightness`)
+  - `demo.html`: "Columns" sub-panel (5 controls); "Radial zones" sub-panel (4 controls); JS wiring; collectSettings/applySettings extended
+
 - [ ] Tests — `tests/` for any pure-JS logic extracted to a `matrix-rain-math.js`
 - [ ] `prefers-reduced-motion` — disable/reduce heat, god rays, burst bloom
 - [ ] README.md — public documentation before any npm/gh-pages publish

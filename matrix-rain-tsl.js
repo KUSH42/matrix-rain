@@ -16,7 +16,7 @@ import {
   cameraViewMatrix, cameraProjectionMatrix, cameraPosition,
   positionGeometry, uv, frontFacing, screenUV,
   select, texture,
-  If, Loop, Break, Discard,
+  If, Loop, Break, Discard, Return,
   dFdx, dFdy,
 } from 'three/tsl';
 import * as THREE from 'three/webgpu';
@@ -84,6 +84,11 @@ export function makeUniforms(glyphCount = 56, gridW = 8, gridH = 8, dummyMsgTex,
     uWaveSpeed:      uniform(0.15),  // wave crest angular speed in rad/s (hardcoded was 0.15)
     uWaveAmt:        uniform(1.0),   // wave offset amplitude scale — 0 = off, 1 = ±4 world units
     uWeightedGlyphs: uniform(1.0),  // LUT weight blend — 0 = uniform sampling, 1 = full LUT
+    uDensity:        uniform(1.0),   // fraction of columns active — range [0.1, 1.0]
+    uZoneSpeedInner: uniform(1.0),   // speed bias at r = R_MIN  (inner / close)
+    uZoneSpeedOuter: uniform(1.0),   // speed bias at r = R_MAX  (outer / far)
+    uZoneBrightInner: uniform(1.0),  // brightness bias at r = R_MIN
+    uZoneBrightOuter: uniform(1.0),  // brightness bias at r = R_MAX
   };
 }
 
@@ -105,6 +110,8 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     uMsgTex, uMsgRevealProgress, uMsgWaveX, uMsgBoost,
     uGlyphWeightLUT,
     uBrightness, uBreathAmt, uWaveSpeed, uWaveAmt, uWeightedGlyphs,
+    uDensity,
+    uZoneSpeedInner, uZoneSpeedOuter, uZoneBrightInner, uZoneBrightOuter,
   } = uniforms;
 
   // ── Per-instance buffer attributes ────────────────────────────────────
@@ -179,6 +186,18 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     const bootFadeVal = smoothstep(bootDelay, bootDelay.add(0.3), uTime);
     vBootFade.assign(bootFadeVal);
 
+    // Density cull — deterministic hash per column: fraction (1 - uDensity) of
+    // columns stay at the off-screen default and never reach the placement block.
+    // Placed after all varying defaults so WGSL is satisfied on the early-return path.
+    If(h2(vec2(aColIdxAttr.mul(0.137).add(0.5), float(42.7))).x.greaterThan(uDensity), () => {
+      Return(clipPos);   // clipPos is still vec4(2,2,2,1) here — off-screen cull
+    });
+
+    // Radial zone factor: 0 = inner (R_MIN), 1 = outer (R_MAX).
+    // Derived from the baked world column position (aWX, aWZ) so no extra attribute needed.
+    const r_zone = sqrt(aColAAttr.x.mul(aColAAttr.x).add(aColAAttr.y.mul(aColAAttr.y)));
+    const t_zone = r_zone.sub(float(3.5)).div(float(4.5)).clamp(0.0, 1.0);
+
     If(bootFadeVal.greaterThanEqual(0.001), () => {
 
       // Per-glyph spacing — step > quad height to prevent overlap
@@ -195,7 +214,8 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
       const alphaJitter = float(1).add(
         h2(vec2(aColIdxAttr.mul(0.67), aRowIdxAttr.mul(0.31))).sub(0.5).mul(0.24)
       );
-      vAlpha.assign(aAlpha.mul(alphaJitter));
+      const zoneBrightBias = mix(uZoneBrightInner, uZoneBrightOuter, t_zone);
+      vAlpha.assign(aAlpha.mul(alphaJitter).mul(zoneBrightBias));
 
       // Static world-Y of this cell
       const cellY = aYOff.add(uWorldH.mul(0.5))
@@ -216,9 +236,11 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
       const breathMul   = float(1).add(
         sin(uTime.mul(breathFreq).mul(6.2832).add(breathPhase)).mul(uBreathAmt.mul(0.15))
       );
+      const zoneSpeedBias = mix(uZoneSpeedInner, uZoneSpeedOuter, t_zone);
       const speedMul    = breathMul
         .mul(float(1).add(burstActive.mul(burstFrac).mul(2)))
-        .mul(uSpeedMul);
+        .mul(uSpeedMul)
+        .mul(zoneSpeedBias);
       vBurst.assign(burstActive.mul(burstFrac));
 
       // ── Head sweep ──────────────────────────────────────────────────
