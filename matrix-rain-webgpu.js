@@ -411,7 +411,7 @@ export function initMatrixRain(element, opts = {}) {
     (element.clientWidth || 1) / (element.clientHeight || 1),
     0.1, 60
   );
-  camera.position.set(0, 0, 3);
+  camera.position.set(0, 0, 6);
   camera.lookAt(0, 0, 0);
 
   // ── Atlas & material ──────────────────────────────────────────────────

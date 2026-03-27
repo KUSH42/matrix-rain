@@ -913,6 +913,7 @@
   }
   host.addEventListener('contextmenu', e => e.preventDefault());
   makeControls(rain);
+  window._rain = rain;   // console: _rain.camera.position, _rain.camera.rotation
 
   // ── WASD fly ──────────────────────────────────────────────────────────
   const _keys = {};
