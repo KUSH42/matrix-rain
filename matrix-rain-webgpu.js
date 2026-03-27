@@ -104,7 +104,8 @@ function buildGeometry() {
     const wx    = Math.cos(theta) * r;
     const wz    = Math.sin(theta) * r;
     const yOff  = (Math.random() - 0.5) * WORLD_H;
-    const speed = 0.4 + Math.random() * 1.87;
+    const sr = Math.random();
+    const speed = 1.2 + sr * sr * 6.8;  // [1.2, 8.0], log-biased: mode ≈ 1.2, median ≈ 2.9, mean ≈ 3.5
     const seed  = Math.random();
     const scale = 0.5 + Math.random() * 1.0;
     const alpha = 0.18 + Math.random() * 0.72;

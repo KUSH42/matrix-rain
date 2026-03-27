@@ -56,6 +56,10 @@ All items go in `specs/` before implementation.
   - `matrix-rain-crt-bridge.js`: replaced body with backward-compat shim delegating to `initMatrixRain({postProcessing:'crt'})` with `handle.rain = handle` self-reference
   - `demo.html`: PP mode dropdown (rain/crt/none diagnostic); mode-switch re-inits with current charSet, all other params reset; CRT sub-panel (initially hidden, shows when mode='crt') with shader dropdown; `updateCrtPanelVisibility` helper; CRT shader wired through `rain.crt?.setShader()`
 
+- [x] **SPEC-3d-accuracy** — film-accurate 3D rain fixes
+  - `matrix-rain-tsl.js`: position-based flicker rates (head ~15 Hz → near-head ~0.5 Hz → mid-trail ~0.1 Hz → deep-trail static, with burst override); two-stage colour ramp (dark-green floor `tintedColor×0.18` blending in past 50 % of `halfDist`)
+  - `matrix-rain-webgpu.js`: speed range widened to `[1.2, 8.0]` c/s with `r²` log-bias (mode ≈ 1.2, median ≈ 2.9, mean ≈ 3.5)
+
 - [ ] Tests — `tests/` for any pure-JS logic extracted to a `matrix-rain-math.js`
 - [ ] `prefers-reduced-motion` — disable/reduce heat, god rays, burst bloom
 - [ ] README.md — public documentation before any npm/gh-pages publish

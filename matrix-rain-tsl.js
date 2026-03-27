@@ -302,7 +302,16 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     const cellId      = vec2(floor(vColIdx.add(0.5)), floor(vRowIdx.add(0.5)));
     const cellPhase   = h2(cellId.mul(0.37));
     const stability   = h2(cellId.mul(0.91));
-    const holdSec     = float(0.45).add(h2(cellId.mul(0.29)).mul(7.15));
+    const holdRand   = float(0.45).add(h2(cellId.mul(0.29)).mul(7.15));
+    const isHead     = vDist.lessThan(1.0);
+    const isNearHead = vDist.lessThan(4.0);
+    const holdSec    = select(isHead,
+      float(0.067),                            // head:      ~15 Hz
+      select(isNearHead,
+        float(2.0).add(holdRand.mul(0.3)),     // near-head: ~0.5 Hz ± jitter
+        float(10.0).add(holdRand.mul(2.0))     // mid + deep trail: ~0.1 Hz ± jitter
+      )
+    );
 
     // ── Message reveal — scramble rate modulation ──────────────────────
     // uMsgRevealProgress == 0 → settledHold == holdSec (no effect).
@@ -324,7 +333,13 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     const mutGlyph    = floor(
       h2(cellId.mul(0.37).add(changeTick.mul(vec2(0.11, 0.07)))).mul(uGlyphCount)
     );
-    const glyphIdx    = select(stability.lessThan(0.30), baseGlyph, mutGlyph);
+    // Burst columns override static: during a burst the whole column is "active".
+    const isDeepTrail = d.greaterThanEqual(halfDist).and(vBurst.lessThan(0.5));
+    const glyphIdx    = select(
+      isDeepTrail.or(stability.lessThan(0.30)),
+      baseGlyph,
+      mutGlyph
+    );
 
     // Film grain
     const sampleX = select(frontFacing, vUvRain.x, float(1).sub(vUvRain.x));
@@ -344,10 +359,14 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
       uColor.y.mul(sinH_).add(uColor.z.mul(cosH)),
     );
 
-    // Color: head burns white, trail is deep saturated green
-    const headFrac = float(1).sub(smoothstep(0.0, 0.8, vDist));
+    // Color: head burns white, trail has two-stage ramp down to dark-green floor
+    const headFrac      = float(1).sub(smoothstep(0.0, 0.8, vDist));
+    const normDist      = d.div(halfDist);                   // 0 = head, 1 = 50 % fade point
+    const deepTrailFrac = smoothstep(0.5, 1.0, normDist);   // ramps in at 50–100 % of halfDist
+    const deepTrailCol  = tintedColor.mul(0.18);             // ≈ #002D0A relative to uColor
+    const trailCol      = mix(tintedColor.mul(1.6), deepTrailCol, deepTrailFrac);
     const col2 = mix(
-      tintedColor.mul(1.6),
+      trailCol,
       tintedColor.mul(3.0).add(vec3(0.3)),
       headFrac
     ).add(grain).toVar('col2');
