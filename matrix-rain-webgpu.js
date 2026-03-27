@@ -348,11 +348,13 @@ export function initMatrixRain(element, opts = {}) {
   // ── Atlas & material ──────────────────────────────────────────────────
   const atlasTex = loadMSDF(resolvedPath);
 
-  // Dummy 1×1 black CanvasTexture — satisfies uMsgTex before any message is shown
-  const dummyMsgCanvas   = document.createElement('canvas');
-  dummyMsgCanvas.width   = 1;
-  dummyMsgCanvas.height  = 1;
-  const dummyMsgTex      = new THREE.CanvasTexture(dummyMsgCanvas);
+  // Dummy 1×1 black CanvasTexture — satisfies uMsgTex before any message is shown.
+  // Must be drawn to: CopyExternalImageToTexture rejects canvas with no valid bitmap.
+  const dummyMsgCanvas  = document.createElement('canvas');
+  dummyMsgCanvas.width  = 1;
+  dummyMsgCanvas.height = 1;
+  dummyMsgCanvas.getContext('2d').fillRect(0, 0, 1, 1);
+  const dummyMsgTex     = new THREE.CanvasTexture(dummyMsgCanvas);
 
   const uniforms = makeUniforms(resolvedCount, resolvedGridW, resolvedGridH, dummyMsgTex);
 

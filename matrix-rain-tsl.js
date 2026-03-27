@@ -267,7 +267,7 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
       // Per-column reverse: stable per-column hash decides direction.
       // uReverseChance = 0 → all fall down; 1 → all fall up.
       const revH  = h2(vec2(aColIdxAttr.mul(0.23), 0.69));
-      const isRev = step(float(1).sub(uReverseChance), revH);
+      const isRev = revH.greaterThanEqual(float(1).sub(uReverseChance));
       // Reverse columns invert cyclePos so head sweeps bottom→top.
       const revCyclePos = select(isRev, cycleH.sub(cyclePos), cyclePos);
 
