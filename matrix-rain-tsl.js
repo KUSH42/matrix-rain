@@ -61,6 +61,7 @@ export function makeUniforms(glyphCount = 56, gridW = 8, gridH = 8, dummyMsgTex,
     uWorldH:         uniform(16),
     uNRows:          uniform(120),
     uColor:          uniform(new THREE.Vector3(0, 1, 0.44)),
+    uColor2:         uniform(new THREE.Vector3(0, 1, 0.44)), // second colour for per-column blend
     uGlobalAlpha:    uniform(0.82),
     uDepth:          uniform(0.04),
     uPomSteps:       uniform(6),
@@ -103,7 +104,7 @@ export function makeUniforms(glyphCount = 56, gridW = 8, gridH = 8, dummyMsgTex,
     uStability:      uniform(0.30),  // fraction of stable cells         0–1
     uHoldMult:       uniform(1.0),   // hold-cycle duration multiplier   0.1–5
     uBurstGlyphRate: uniform(12.0),  // glyph-change rate during burst   1–30 Hz
-    uHueRange:       uniform(0.14),  // per-column hue rotation max, rad — 0.14 ≈ ±8°
+    uHueRange:       uniform(0.5),   // per-column colour blend spread 0–1 (0=all uColor, 1=full mix)
     uBurstProb:      uniform(0.005), // fraction of columns that burst per 4 s cycle
   };
 }
@@ -131,7 +132,7 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     uDensityInner, uDensityOuter,
     uDripAmt, uEdgeGlow, uZRotRange, uGrainAmt, uDepthTintAmt,
     uBootEnabled, uStability, uHoldMult, uBurstGlyphRate,
-    uHueRange, uBurstProb,
+    uColor2, uHueRange, uBurstProb,
   } = uniforms;
 
   // ── Per-instance buffer attributes ────────────────────────────────────
@@ -455,16 +456,10 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
       uTime.mul(7.3).add(vRowIdx.mul(0.19))
     )).sub(0.5).mul(uGrainAmt);
 
-    // Per-column hue shift — G-B plane rotation for yellow-green ↔ cyan
-    const hueShift   = h2(vec2(cellId.x.mul(0.17), 0.0)).sub(0.5).mul(2.0);
-    const hueRad     = hueShift.mul(uHueRange);
-    const cosH       = cos(hueRad);
-    const sinH_      = sin(hueRad);
-    const tintedColor = vec3(
-      uColor.x,
-      uColor.y.mul(cosH).sub(uColor.z.mul(sinH_)),
-      uColor.y.mul(sinH_).add(uColor.z.mul(cosH)),
-    );
+    // Per-column colour blend — mix uColor → uColor2 using a per-column hash
+    const hueShift    = h2(vec2(cellId.x.mul(0.17), 0.0));   // [0, 1] per column
+    const blendT      = hueShift.mul(uHueRange);              // scaled by spread [0, 1]
+    const tintedColor = mix(uColor, uColor2, blendT);
 
     // Color: head burns white, trail has two-stage ramp down to dark-green floor
     const headFrac      = float(1).sub(smoothstep(0.0, 0.8, vDist));

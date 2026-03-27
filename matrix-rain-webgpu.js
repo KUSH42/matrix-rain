@@ -777,6 +777,10 @@ export function initMatrixRain(element, opts = {}) {
       const c = new THREE.Color(hex);
       uniforms.uColor.value.set(c.r, c.g, c.b);
     },
+    setColor2(hex) {
+      const c = new THREE.Color(hex);
+      uniforms.uColor2.value.set(c.r, c.g, c.b);
+    },
     setOpacity(v)          { uniforms.uGlobalAlpha.value = v; },
     setDepth(v)            { uniforms.uDepth.value = v; },
     setNormalStrength(v)   { uniforms.uNormalStrength.value = v; },
@@ -913,7 +917,8 @@ export function initMatrixRain(element, opts = {}) {
     setHoldMult(v)        { uniforms.uHoldMult.value       = v; },
     setBurstGlyphRate(v)  { uniforms.uBurstGlyphRate.value = v; },
     setPomSteps(v)        { uniforms.uPomSteps.value       = Math.max(3, Math.round(v)); },
-    setHueRange(deg)      { uniforms.uHueRange.value       = deg * Math.PI / 180; },
+    setColorBlend(v)      { uniforms.uHueRange.value       = Math.max(0, Math.min(1, v)); },
+    setHueRange(v)        { this.setColorBlend(v); }, // backwards compat
     setBurstProb(v)       { uniforms.uBurstProb.value      = Math.max(0, Math.min(1, v)); },
 
     /** Pause / resume time advancement. Rain freezes mid-frame when true. */

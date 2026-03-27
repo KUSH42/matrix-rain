@@ -3,6 +3,7 @@
   "charSet": "ascii",
   "crtShader": "default",
   "color": "#12dade",
+  "color2": "#12dade",
   "opacity": 0.38,
   "depth": 0.15,
   "normalStrength": 12,
@@ -71,6 +72,6 @@
   "holdMult": 1,
   "burstGlyphRate": 13,
   "pomSteps": 6,
-  "hueRange": 44,
+  "hueRange": 0.5,
   "burstProb": 0.005
 }

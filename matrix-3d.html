@@ -167,8 +167,12 @@
       </select>
     </label>
 
-    <label>Color
+    <label>Color 1
       <input id="ctl-color" type="color" value="#00ff70">
+    </label>
+
+    <label>Color 2
+      <input id="ctl-color2" type="color" value="#00ff70">
     </label>
 
     <label>Opacity
@@ -592,10 +596,10 @@
           — Debug —
         </summary>
         <div style="display:flex;flex-direction:column;gap:4px;margin-top:4px;">
-          <label>Hue range °
+          <label>Color blend
             <span style="display:flex;align-items:center;gap:4px;">
-              <input id="ctl-hue-range"     type="range"  min="0" max="180" step="1" value="8">
-              <input id="ctl-hue-range-num" type="number" min="0" max="180" step="1" value="8">
+              <input id="ctl-hue-range"     type="range"  min="0" max="1" step="0.01" value="0.5">
+              <input id="ctl-hue-range-num" type="number" min="0" max="1" step="0.01" value="0.5">
             </span>
           </label>
           <label>Burst prob
@@ -944,6 +948,9 @@
   document.getElementById('ctl-color').addEventListener('input', () =>
     rain.setColor(document.getElementById('ctl-color').value)
   );
+  document.getElementById('ctl-color2').addEventListener('input', () =>
+    rain.setColor2(document.getElementById('ctl-color2').value)
+  );
   linkSlider('ctl-speed',     'ctl-speed-num',     v => rain.setSpeed(v));
   linkSlider('ctl-bloom',     'ctl-bloom-num',     v => rain.setBloomStrength(v));
   linkSlider('ctl-bloom-thr', 'ctl-bloom-thr-num', v => rain.setBloomThreshold(v));
@@ -1154,7 +1161,7 @@
   linkSlider('ctl-hold-mult',  'ctl-hold-mult-num',  v => rain.setHoldMult(v));
   linkSlider('ctl-burst-rate', 'ctl-burst-rate-num', v => rain.setBurstGlyphRate(v));
   linkSlider('ctl-pom-steps',  'ctl-pom-steps-num',  v => rain.setPomSteps(v));
-  linkSlider('ctl-hue-range',  'ctl-hue-range-num',  v => rain.setHueRange(v));
+  linkSlider('ctl-hue-range',  'ctl-hue-range-num',  v => rain.setColorBlend(v));
   linkSlider('ctl-burst-prob', 'ctl-burst-prob-num', v => rain.setBurstProb(v));
 
   // Animation controls
@@ -1188,6 +1195,7 @@
       charSet:          sv('ctl-charset'),
       crtShader:        sv('ctl-crt-shader'),
       color:            sv('ctl-color'),
+      color2:           sv('ctl-color2'),
       opacity:          fv('ctl-opacity'),
       depth:            fv('ctl-depth'),
       normalStrength:   fv('ctl-normal'),
@@ -1280,6 +1288,7 @@
     set('ctl-charset',       s.charSet);
     set('ctl-crt-shader',    s.crtShader);
     set('ctl-color',         s.color);
+    set('ctl-color2',        s.color2);
     set('ctl-opacity',       s.opacity);
     set('ctl-depth',         s.depth);
     set('ctl-normal',        s.normalStrength);
@@ -1344,6 +1353,7 @@
 
     // ── Push to live rain handle ─────────────────────────────────────────
     if (s.color          !== undefined) rain.setColor(s.color);
+    if (s.color2         !== undefined) rain.setColor2(s.color2);
     if (s.opacity        !== undefined) rain.setOpacity(s.opacity);
     if (s.depth          !== undefined) rain.setDepth(s.depth);
     if (s.normalStrength !== undefined) rain.setNormalStrength(s.normalStrength);
@@ -1387,7 +1397,7 @@
     if (s.holdMult       !== undefined) rain.setHoldMult(s.holdMult);
     if (s.burstGlyphRate !== undefined) rain.setBurstGlyphRate(s.burstGlyphRate);
     if (s.pomSteps       !== undefined) rain.setPomSteps(s.pomSteps);
-    if (s.hueRange       !== undefined) rain.setHueRange(s.hueRange);
+    if (s.hueRange       !== undefined) rain.setColorBlend(s.hueRange);
     if (s.burstProb      !== undefined) rain.setBurstProb(s.burstProb);
 
     set('ctl-spd-min',      s.spdMin);
