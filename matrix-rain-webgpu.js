@@ -1090,12 +1090,13 @@ export function initMatrixRain(element, opts = {}) {
       const myGen         = ++_rampGeneration;
       function step(now) {
         if (myGen !== _rampGeneration) return;
-        const elapsed = (now - startTime) / 1000;
-        const tNorm   = Math.min(elapsed / duration, 1.0);
-        const rampT   = tNorm < 0.5
-          ? 2 * tNorm * tNorm
-          : 1 - Math.pow(-2 * tNorm + 2, 2) / 2;
-        uniforms.uSpeedMul.value = 1.0 + (effectiveMult - 1.0) * (1.0 - rampT);
+        const elapsed  = (now - startTime) / 1000;
+        const tNorm    = Math.min(elapsed / duration, 1.0);
+        // Triangle envelope 0→1→0: ramp up first half, ramp down second half.
+        // Smoothstep applied to each half for ease-in / ease-out feel.
+        const halfT    = tNorm < 0.5 ? tNorm * 2 : (1.0 - tNorm) * 2;
+        const envelope = halfT * halfT * (3 - 2 * halfT);
+        uniforms.uSpeedMul.value = 1.0 + (effectiveMult - 1.0) * envelope;
         if (now < endTime) requestAnimationFrame(step);
         else uniforms.uSpeedMul.value = 1.0;
       }
