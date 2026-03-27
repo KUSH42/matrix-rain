@@ -771,9 +771,9 @@ export async function init2DRain(element, opts = {}) {
       cancelAnimationFrame(animRef.id);
       ro.disconnect();
       motionQuery.removeEventListener('change', onMotionChange);
+      renderer.dispose();
       geom.dispose();
       mat.dispose();
-      renderer.dispose();
       currentTex.dispose();
       currentLutTex.dispose();
       canvas.remove();
@@ -1008,9 +1008,9 @@ export async function init2DRain(element, opts = {}) {
   function destroy() {
     cancelAnimationFrame(animRef.id);
     ro.disconnect();
+    renderer.dispose();
     geom.dispose();
     mat.dispose();
-    renderer.dispose();
     currentTex.dispose();
     canvas.remove();
     _instances.delete(element);

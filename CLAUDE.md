@@ -164,6 +164,18 @@ Returns a control handle with methods below.
 | `setZoneBrightness(inner, outer)` | Radial brightness multiplier inner/outer shell (default 1.0, 1.0) |
 | `applyPreset(name)` | Apply named preset: `'default'`\|`'matrix1999'`\|`'ghost'`\|`'overdrive'` |
 | `get crt` | CRT handle after `renderer.init()` resolves in `'crt'` mode; `null` otherwise |
+| `setDrip(v)` | Y-stretch amplitude at column head 0–0.8 (0 = off) |
+| `setEdgeGlow(v)` | Edge-emission corona intensity 0–1.5 (0 = off) |
+| `setZRotation(deg)` | Per-column panel tilt max angle 0–30° (0 = upright) |
+| `setFilmGrain(v)` | Film-grain noise strength 0–0.25 (0 = off) |
+| `setDepthTint(v)` | Atmospheric depth-tint blend 0–1 (0 = off) |
+| `setStartupCascade(on)` | Boot stagger enable; false = instant on |
+| `setStability(v)` | Fraction of cells locked to base glyph 0–1 |
+| `setHoldMult(v)` | Hold-cycle duration multiplier 0.1–5 |
+| `setBurstGlyphRate(v)` | Glyph-change rate during burst 1–30 Hz |
+| `setPomSteps(n)` | POM ray-march step count 3–12 (default 6; clamped to min 3) |
+| `setHueRange(deg)` | Per-column G-B hue rotation max 0–45° (default 8°) |
+| `setBurstProb(v)` | Fraction of columns that burst per 4 s cycle 0–1 (default 0.005) |
 
 **Note**: `setHeat`, `setSoften`, `setStreaks`, `setHoloAberration`, `setGodRays`, `setBurstBloom`, `setPhosphorDecay`, `setBloomThreshold`, `setBloomStrength` are no-ops (silent) in `'crt'` and `'none'` modes.
 
@@ -230,8 +242,10 @@ vAlpha.assign(computedAlpha);
 const a = vAlpha;
 ```
 
-**Early return / cull** — `Return(vec4(2,2,2,1))` inside `If()` in `vertexNode` Fn clips the
-quad to off-screen. `Discard()` in fragment Fn discards the fragment.
+**Culling in vertex Fn** — WGSL vertex entry functions must reach the final `return`; `Return()`
+inside an `If()` generates a bare `return;` which fails WGSL validation. Cull by keeping
+`clipPos = vec4(2,2,2,1).toVar()` as default and wrapping the placement block in
+`If(activeCondition, () => { ... })`. `Discard()` in fragment Fn discards the fragment.
 
 **POM loop**:
 ```js

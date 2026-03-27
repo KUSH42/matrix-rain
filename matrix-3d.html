@@ -83,6 +83,20 @@
       cursor: pointer;
       max-width: 90px;
     }
+    #controls input[type="number"] {
+      width: 46px;
+      background: #111;
+      color: #00ff70;
+      border: 1px solid #00ff7055;
+      font-family: 'Courier New', monospace;
+      font-size: 10px;
+      padding: 1px 3px;
+      -moz-appearance: textfield;
+    }
+    #controls input[type="number"]::-webkit-outer-spin-button,
+    #controls input[type="number"]::-webkit-inner-spin-button {
+      -webkit-appearance: none;
+    }
 
     #no-webgpu {
       position: fixed;
@@ -158,47 +172,80 @@
     </label>
 
     <label>Opacity
-      <input id="ctl-opacity" type="range" min="0" max="1" step="0.01" value="0.82">
+      <span style="display:flex;align-items:center;gap:4px;">
+        <input id="ctl-opacity"     type="range"  min="0" max="1"    step="0.01"   value="0.82">
+        <input id="ctl-opacity-num" type="number" min="0" max="1"    step="0.01"   value="0.82">
+      </span>
     </label>
 
     <label>Depth (POM)
-      <input id="ctl-depth" type="range" min="0" max="0.15" step="0.005" value="0.04">
+      <span style="display:flex;align-items:center;gap:4px;">
+        <input id="ctl-depth"     type="range"  min="0" max="0.15"  step="0.005"  value="0.04">
+        <input id="ctl-depth-num" type="number" min="0" max="0.15"  step="0.005"  value="0.04">
+      </span>
     </label>
 
     <label>Normal Str
-      <input id="ctl-normal" type="range" min="0" max="12" step="0.5" value="6">
+      <span style="display:flex;align-items:center;gap:4px;">
+        <input id="ctl-normal"     type="range"  min="0" max="12"   step="0.5"    value="6">
+        <input id="ctl-normal-num" type="number" min="0" max="12"   step="0.5"    value="6">
+      </span>
     </label>
 
     <label>Sway
-      <input id="ctl-sway" type="range" min="0" max="0.15" step="0.005" value="0.04">
+      <span style="display:flex;align-items:center;gap:4px;">
+        <input id="ctl-sway"     type="range"  min="0" max="0.15"  step="0.005"  value="0.04">
+        <input id="ctl-sway-num" type="number" min="0" max="0.15"  step="0.005"  value="0.04">
+      </span>
     </label>
 
     <label>Soften
-      <input id="ctl-soften" type="range" min="0" max="0.01" step="0.0005" value="0.002">
+      <span style="display:flex;align-items:center;gap:4px;">
+        <input id="ctl-soften"     type="range"  min="0" max="0.01"  step="0.0005" value="0.002">
+        <input id="ctl-soften-num" type="number" min="0" max="0.01"  step="0.0005" value="0.002">
+      </span>
     </label>
 
     <label>Heat shimmer
-      <input id="ctl-heat" type="range" min="0" max="0.012" step="0.0005" value="0.004">
+      <span style="display:flex;align-items:center;gap:4px;">
+        <input id="ctl-heat"     type="range"  min="0" max="0.012" step="0.0005" value="0.004">
+        <input id="ctl-heat-num" type="number" min="0" max="0.012" step="0.0005" value="0.004">
+      </span>
     </label>
 
     <label>Lens streaks
-      <input id="ctl-streaks" type="range" min="0" max="0.2" step="0.005" value="0.055">
+      <span style="display:flex;align-items:center;gap:4px;">
+        <input id="ctl-streaks"     type="range"  min="0" max="0.2"   step="0.005"  value="0.055">
+        <input id="ctl-streaks-num" type="number" min="0" max="0.2"   step="0.005"  value="0.055">
+      </span>
     </label>
 
     <label>Speed
-      <input id="ctl-speed" type="range" min="0.1" max="2.0" step="0.05" value="1">
+      <span style="display:flex;align-items:center;gap:4px;">
+        <input id="ctl-speed"     type="range"  min="0.1" max="2.0" step="0.05"   value="1">
+        <input id="ctl-speed-num" type="number" min="0.1" max="2.0" step="0.05"   value="1">
+      </span>
     </label>
 
     <label>Bloom strength
-      <input id="ctl-bloom" type="range" min="0" max="3" step="0.05" value="1.15">
+      <span style="display:flex;align-items:center;gap:4px;">
+        <input id="ctl-bloom"     type="range"  min="0" max="3"     step="0.05"   value="1.15">
+        <input id="ctl-bloom-num" type="number" min="0" max="3"     step="0.05"   value="1.15">
+      </span>
     </label>
 
     <label>Bloom threshold
-      <input id="ctl-bloom-thr" type="range" min="0" max="0.5" step="0.005" value="0.2">
+      <span style="display:flex;align-items:center;gap:4px;">
+        <input id="ctl-bloom-thr"     type="range"  min="0" max="0.5"  step="0.005"  value="0.2">
+        <input id="ctl-bloom-thr-num" type="number" min="0" max="0.5"  step="0.005"  value="0.2">
+      </span>
     </label>
 
     <label>Phosphor decay
-      <input id="ctl-phosphor" type="range" min="0" max="0.99" step="0.01" value="0.88">
+      <span style="display:flex;align-items:center;gap:4px;">
+        <input id="ctl-phosphor"     type="range"  min="0" max="0.99"  step="0.01"   value="0.88">
+        <input id="ctl-phosphor-num" type="number" min="0" max="0.99"  step="0.01"   value="0.88">
+      </span>
     </label>
 
     <label>God rays
@@ -206,27 +253,45 @@
     </label>
 
     <label>GR light X
-      <input id="ctl-gr-lx" type="range" min="0" max="1" step="0.01" value="0.5">
+      <span style="display:flex;align-items:center;gap:4px;">
+        <input id="ctl-gr-lx"     type="range"  min="0" max="1" step="0.01" value="0.5">
+        <input id="ctl-gr-lx-num" type="number" min="0" max="1" step="0.01" value="0.5">
+      </span>
     </label>
 
     <label>GR light Y
-      <input id="ctl-gr-ly" type="range" min="0" max="1" step="0.01" value="0.75">
+      <span style="display:flex;align-items:center;gap:4px;">
+        <input id="ctl-gr-ly"     type="range"  min="0" max="1" step="0.01" value="0.75">
+        <input id="ctl-gr-ly-num" type="number" min="0" max="1" step="0.01" value="0.75">
+      </span>
     </label>
 
     <label>GR density
-      <input id="ctl-gr-density" type="range" min="0" max="1" step="0.01" value="0.93">
+      <span style="display:flex;align-items:center;gap:4px;">
+        <input id="ctl-gr-density"     type="range"  min="0" max="1" step="0.01" value="0.93">
+        <input id="ctl-gr-density-num" type="number" min="0" max="1" step="0.01" value="0.93">
+      </span>
     </label>
 
     <label>GR decay
-      <input id="ctl-gr-decay" type="range" min="0" max="1" step="0.01" value="0.96">
+      <span style="display:flex;align-items:center;gap:4px;">
+        <input id="ctl-gr-decay"     type="range"  min="0" max="1" step="0.01" value="0.96">
+        <input id="ctl-gr-decay-num" type="number" min="0" max="1" step="0.01" value="0.96">
+      </span>
     </label>
 
     <label>GR weight
-      <input id="ctl-gr-weight" type="range" min="0" max="1" step="0.01" value="0.35">
+      <span style="display:flex;align-items:center;gap:4px;">
+        <input id="ctl-gr-weight"     type="range"  min="0" max="1" step="0.01" value="0.35">
+        <input id="ctl-gr-weight-num" type="number" min="0" max="1" step="0.01" value="0.35">
+      </span>
     </label>
 
     <label>GR exposure
-      <input id="ctl-gr-exposure" type="range" min="0" max="2" step="0.01" value="0.45">
+      <span style="display:flex;align-items:center;gap:4px;">
+        <input id="ctl-gr-exposure"     type="range"  min="0" max="2" step="0.01" value="0.45">
+        <input id="ctl-gr-exposure-num" type="number" min="0" max="2" step="0.01" value="0.45">
+      </span>
     </label>
 
     <label>Burst bloom
@@ -238,11 +303,17 @@
     </label>
 
     <label>Max yaw (°)
-      <input id="ctl-yaw" type="range" min="0" max="180" step="1" value="180">
+      <span style="display:flex;align-items:center;gap:4px;">
+        <input id="ctl-yaw"     type="range"  min="0" max="180"    step="1"    value="180">
+        <input id="ctl-yaw-num" type="number" min="0" max="180"    step="1"    value="180">
+      </span>
     </label>
 
     <label>Facing jitter
-      <input id="ctl-jitter" type="range" min="0" max="1.5708" step="0.01" value="0.1745">
+      <span style="display:flex;align-items:center;gap:4px;">
+        <input id="ctl-jitter"     type="range"  min="0" max="1.5708" step="0.01" value="0.1745">
+        <input id="ctl-jitter-num" type="number" min="0" max="1.5708" step="0.01" value="0.1745">
+      </span>
     </label>
 
     <label>Glyph chroma
@@ -250,19 +321,31 @@
     </label>
 
     <label>Chroma scale
-      <input id="ctl-chroma-scale" type="range" min="0" max="3" step="0.05" value="1">
+      <span style="display:flex;align-items:center;gap:4px;">
+        <input id="ctl-chroma-scale"     type="range"  min="0" max="3" step="0.05" value="1">
+        <input id="ctl-chroma-scale-num" type="number" min="0" max="3" step="0.05" value="1">
+      </span>
     </label>
 
     <label>Vignette
-      <input id="ctl-vignette" type="range" min="0" max="1" step="0.01" value="0.42">
+      <span style="display:flex;align-items:center;gap:4px;">
+        <input id="ctl-vignette"     type="range"  min="0" max="1"    step="0.01"  value="0.42">
+        <input id="ctl-vignette-num" type="number" min="0" max="1"    step="0.01"  value="0.42">
+      </span>
     </label>
 
     <label>Scanlines
-      <input id="ctl-scanlines" type="range" min="0" max="0.2" step="0.005" value="0.045">
+      <span style="display:flex;align-items:center;gap:4px;">
+        <input id="ctl-scanlines"     type="range"  min="0" max="0.2"  step="0.005" value="0.045">
+        <input id="ctl-scanlines-num" type="number" min="0" max="0.2"  step="0.005" value="0.045">
+      </span>
     </label>
 
     <label>Holo aberration
-      <input id="ctl-holo-aber" type="range" min="0" max="0.015" step="0.0005" value="0.0025">
+      <span style="display:flex;align-items:center;gap:4px;">
+        <input id="ctl-holo-aber"     type="range"  min="0" max="0.015" step="0.0005" value="0.0025">
+        <input id="ctl-holo-aber-num" type="number" min="0" max="0.015" step="0.0005" value="0.0025">
+      </span>
     </label>
 
     <label>Char set
@@ -286,16 +369,28 @@
                       font-family:'Courier New',monospace;font-size:10px;width:90px;padding:1px 4px;">
       </label>
       <label>Boost
-        <input id="ctl-msg-boost" type="range" min="1" max="6" step="0.1" value="3">
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-msg-boost"     type="range"  min="1" max="6"  step="0.1" value="3">
+          <input id="ctl-msg-boost-num" type="number" min="1" max="6"  step="0.1" value="3">
+        </span>
       </label>
       <label>Reveal s
-        <input id="ctl-msg-reveal" type="range" min="0.3" max="4" step="0.1" value="1.5">
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-msg-reveal"     type="range"  min="0.3" max="4" step="0.1" value="1.5">
+          <input id="ctl-msg-reveal-num" type="number" min="0.3" max="4" step="0.1" value="1.5">
+        </span>
       </label>
       <label>Hold s
-        <input id="ctl-msg-hold" type="range" min="0" max="10" step="0.5" value="3">
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-msg-hold"     type="range"  min="0" max="10" step="0.5" value="3">
+          <input id="ctl-msg-hold-num" type="number" min="0" max="10" step="0.5" value="3">
+        </span>
       </label>
       <label>Fade s
-        <input id="ctl-msg-fade" type="range" min="0.2" max="3" step="0.1" value="1">
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-msg-fade"     type="range"  min="0.2" max="3" step="0.1" value="1">
+          <input id="ctl-msg-fade-num" type="number" min="0.2" max="3" step="0.1" value="1">
+        </span>
       </label>
       <label style="justify-content:center;gap:4px;">
         <button id="ctl-msg-show"
@@ -326,16 +421,28 @@
         <input id="ctl-reduced-motion" type="checkbox">
       </label>
       <label>Glitch intensity
-        <input id="ctl-glitch-int" type="range" min="0.05" max="1" step="0.05" value="0.6">
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-glitch-int"     type="range"  min="0.05" max="1" step="0.05" value="0.6">
+          <input id="ctl-glitch-int-num" type="number" min="0.05" max="1" step="0.05" value="0.6">
+        </span>
       </label>
       <label>Glitch duration s
-        <input id="ctl-glitch-dur" type="range" min="0.1" max="2" step="0.1" value="0.4">
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-glitch-dur"     type="range"  min="0.1" max="2" step="0.1" value="0.4">
+          <input id="ctl-glitch-dur-num" type="number" min="0.1" max="2" step="0.1" value="0.4">
+        </span>
       </label>
       <label>Ramp target ×
-        <input id="ctl-ramp-mult" type="range" min="1" max="8" step="0.5" value="4">
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-ramp-mult"     type="range"  min="1" max="8" step="0.5" value="4">
+          <input id="ctl-ramp-mult-num" type="number" min="1" max="8" step="0.5" value="4">
+        </span>
       </label>
       <label>Ramp duration s
-        <input id="ctl-ramp-dur" type="range" min="0.5" max="6" step="0.5" value="2">
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-ramp-dur"     type="range"  min="0.5" max="6" step="0.5" value="2">
+          <input id="ctl-ramp-dur-num" type="number" min="0.5" max="6" step="0.5" value="2">
+        </span>
       </label>
       <label style="justify-content:center;gap:4px;">
         <button id="ctl-glitch-btn"
@@ -361,27 +468,45 @@
       </label>
 
       <label>Brightness
-        <input id="ctl-brightness" type="range" min="0.2" max="2.0" step="0.05" value="1.0">
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-brightness"     type="range"  min="0.2" max="2.0" step="0.05" value="1.0">
+          <input id="ctl-brightness-num" type="number" min="0.2" max="2.0" step="0.05" value="1.0">
+        </span>
       </label>
 
       <label>Cell W
-        <input id="ctl-cellw" type="range" min="0.04" max="0.30" step="0.005" value="0.12">
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-cellw"     type="range"  min="0.04" max="0.30" step="0.005" value="0.12">
+          <input id="ctl-cellw-num" type="number" min="0.04" max="0.30" step="0.005" value="0.12">
+        </span>
       </label>
 
       <label>Cell H
-        <input id="ctl-cellh" type="range" min="0.02" max="0.20" step="0.005" value="0.08">
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-cellh"     type="range"  min="0.02" max="0.20" step="0.005" value="0.08">
+          <input id="ctl-cellh-num" type="number" min="0.02" max="0.20" step="0.005" value="0.08">
+        </span>
       </label>
 
       <label>Breath amount
-        <input id="ctl-breath-amt" type="range" min="0" max="1" step="0.05" value="1.0">
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-breath-amt"     type="range"  min="0" max="1" step="0.05" value="1.0">
+          <input id="ctl-breath-amt-num" type="number" min="0" max="1" step="0.05" value="1.0">
+        </span>
       </label>
 
       <label>Wave speed
-        <input id="ctl-wave-speed" type="range" min="0" max="0.5" step="0.01" value="0.15">
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-wave-speed"     type="range"  min="0" max="0.5" step="0.01" value="0.15">
+          <input id="ctl-wave-speed-num" type="number" min="0" max="0.5" step="0.01" value="0.15">
+        </span>
       </label>
 
       <label>Wave amount
-        <input id="ctl-wave-amt" type="range" min="0" max="1" step="0.05" value="1.0">
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-wave-amt"     type="range"  min="0" max="1" step="0.05" value="1.0">
+          <input id="ctl-wave-amt-num" type="number" min="0" max="1" step="0.05" value="1.0">
+        </span>
       </label>
 
       <label>Weighted glyphs
@@ -389,8 +514,98 @@
       </label>
 
       <label>Reverse chance
-        <input id="ctl-reverse" type="range" min="0" max="1" step="0.05" value="0">
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-reverse"     type="range"  min="0" max="1" step="0.05" value="0">
+          <input id="ctl-reverse-num" type="number" min="0" max="1" step="0.05" value="0">
+        </span>
       </label>
+    </div>
+
+    <!-- Glyph FX sub-panel -->
+    <div style="border-top:1px solid #00ff7044;margin-top:4px;padding-top:4px;
+                display:flex;flex-direction:column;gap:4px;">
+      <label style="color:#7fffaa;font-size:10px;letter-spacing:0.1em;text-transform:uppercase;">
+        — Glyph FX —
+      </label>
+
+      <label>Drip stretch
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-drip"     type="range"  min="0" max="0.8"  step="0.02"  value="0.35">
+          <input id="ctl-drip-num" type="number" min="0" max="0.8"  step="0.02"  value="0.35">
+        </span>
+      </label>
+      <label>Edge glow
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-edge-glow"     type="range"  min="0" max="1.5"  step="0.05"  value="0.4">
+          <input id="ctl-edge-glow-num" type="number" min="0" max="1.5"  step="0.05"  value="0.4">
+        </span>
+      </label>
+      <label>Z-rotation °
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-zrot"     type="range"  min="0" max="30"   step="1"     value="10">
+          <input id="ctl-zrot-num" type="number" min="0" max="30"   step="1"     value="10">
+        </span>
+      </label>
+      <label>Film grain
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-grain"     type="range"  min="0" max="0.25" step="0.005" value="0.07">
+          <input id="ctl-grain-num" type="number" min="0" max="0.25" step="0.005" value="0.07">
+        </span>
+      </label>
+      <label>Depth tint
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-depth-tint"     type="range"  min="0" max="1"   step="0.02"  value="0.4">
+          <input id="ctl-depth-tint-num" type="number" min="0" max="1"   step="0.02"  value="0.4">
+        </span>
+      </label>
+      <label>Startup cascade
+        <input id="ctl-boot" type="checkbox" checked>
+      </label>
+      <label>Stability
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-stability"     type="range"  min="0"   max="1"  step="0.02"  value="0.30">
+          <input id="ctl-stability-num" type="number" min="0"   max="1"  step="0.02"  value="0.30">
+        </span>
+      </label>
+      <label>Hold mult
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-hold-mult"     type="range"  min="0.1" max="5"  step="0.1"   value="1.0">
+          <input id="ctl-hold-mult-num" type="number" min="0.1" max="5"  step="0.1"   value="1.0">
+        </span>
+      </label>
+      <label>Burst glyph rate
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-burst-rate"     type="range"  min="1" max="30"  step="1"     value="12">
+          <input id="ctl-burst-rate-num" type="number" min="1" max="30"  step="1"     value="12">
+        </span>
+      </label>
+      <label>POM steps
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-pom-steps"     type="range"  min="3" max="12"  step="1"     value="6">
+          <input id="ctl-pom-steps-num" type="number" min="3" max="12"  step="1"     value="6">
+        </span>
+      </label>
+
+      <!-- Debug controls (collapsed by default) -->
+      <details>
+        <summary style="color:#5f9a6f;font-size:10px;letter-spacing:0.1em;text-transform:uppercase;cursor:pointer;list-style:none;user-select:none;">
+          — Debug —
+        </summary>
+        <div style="display:flex;flex-direction:column;gap:4px;margin-top:4px;">
+          <label>Hue range °
+            <span style="display:flex;align-items:center;gap:4px;">
+              <input id="ctl-hue-range"     type="range"  min="0" max="45" step="1" value="8">
+              <input id="ctl-hue-range-num" type="number" min="0" max="45" step="1" value="8">
+            </span>
+          </label>
+          <label>Burst prob
+            <span style="display:flex;align-items:center;gap:4px;">
+              <input id="ctl-burst-prob"     type="range"  min="0" max="1" step="0.005" value="0.005">
+              <input id="ctl-burst-prob-num" type="number" min="0" max="1" step="0.005" value="0.005">
+            </span>
+          </label>
+        </div>
+      </details>
     </div>
 
     <!-- Columns sub-panel -->
@@ -401,21 +616,36 @@
       </label>
 
       <label title="Rebuilds geometry">Speed min ⟳
-        <input id="ctl-spd-min" type="range" min="0.2" max="2.5" step="0.1" value="0.8">
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-spd-min"     type="range"  min="0.2" max="2.5"  step="0.1"  value="0.8">
+          <input id="ctl-spd-min-num" type="number" min="0.2" max="2.5"  step="0.1"  value="0.8">
+        </span>
       </label>
       <label title="Rebuilds geometry">Speed max ⟳
-        <input id="ctl-spd-max" type="range" min="1.0" max="6.0" step="0.25" value="4.0">
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-spd-max"     type="range"  min="1.0" max="6.0"  step="0.25" value="4.0">
+          <input id="ctl-spd-max-num" type="number" min="1.0" max="6.0"  step="0.25" value="4.0">
+        </span>
       </label>
 
       <label title="Rebuilds geometry">Trail min ⟳
-        <input id="ctl-trl-min" type="range" min="0.005" max="0.060" step="0.001" value="0.015">
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-trl-min"     type="range"  min="0.005" max="0.060" step="0.001" value="0.015">
+          <input id="ctl-trl-min-num" type="number" min="0.005" max="0.060" step="0.001" value="0.015">
+        </span>
       </label>
       <label title="Rebuilds geometry">Trail max ⟳
-        <input id="ctl-trl-max" type="range" min="0.020" max="0.080" step="0.002" value="0.050">
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-trl-max"     type="range"  min="0.020" max="0.080" step="0.002" value="0.050">
+          <input id="ctl-trl-max-num" type="number" min="0.020" max="0.080" step="0.002" value="0.050">
+        </span>
       </label>
 
       <label>Density
-        <input id="ctl-density-3d" type="range" min="0.1" max="1.0" step="0.05" value="1.0">
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-density-3d"     type="range"  min="0.1" max="1.0" step="0.05" value="1.0">
+          <input id="ctl-density-3d-num" type="number" min="0.1" max="1.0" step="0.05" value="1.0">
+        </span>
       </label>
     </div>
 
@@ -430,17 +660,29 @@
       </span>
 
       <label>Inner speed
-        <input id="ctl-zone-spd-in" type="range" min="0.3" max="2.0" step="0.05" value="1.0">
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-zone-spd-in"     type="range"  min="0.3" max="2.0" step="0.05" value="1.0">
+          <input id="ctl-zone-spd-in-num" type="number" min="0.3" max="2.0" step="0.05" value="1.0">
+        </span>
       </label>
       <label>Outer speed
-        <input id="ctl-zone-spd-out" type="range" min="0.3" max="2.0" step="0.05" value="1.0">
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-zone-spd-out"     type="range"  min="0.3" max="2.0" step="0.05" value="1.0">
+          <input id="ctl-zone-spd-out-num" type="number" min="0.3" max="2.0" step="0.05" value="1.0">
+        </span>
       </label>
 
       <label>Inner bright
-        <input id="ctl-zone-br-in" type="range" min="0.1" max="2.5" step="0.05" value="1.0">
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-zone-br-in"     type="range"  min="0.1" max="2.5" step="0.05" value="1.0">
+          <input id="ctl-zone-br-in-num" type="number" min="0.1" max="2.5" step="0.05" value="1.0">
+        </span>
       </label>
       <label>Outer bright
-        <input id="ctl-zone-br-out" type="range" min="0.1" max="2.5" step="0.05" value="1.0">
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-zone-br-out"     type="range"  min="0.1" max="2.5" step="0.05" value="1.0">
+          <input id="ctl-zone-br-out-num" type="number" min="0.1" max="2.5" step="0.05" value="1.0">
+        </span>
       </label>
     </div>
 
@@ -468,43 +710,73 @@
       </label>
 
       <label title="Rebuilds geometry">Columns ⟳
-        <input id="ctl-ncols" type="range" min="50" max="1200" step="50" value="600">
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-ncols"     type="range"  min="50" max="1200" step="50" value="600">
+          <input id="ctl-ncols-num" type="number" min="50" max="1200" step="50" value="600">
+        </span>
       </label>
 
       <label id="lbl-shell-in" title="Rebuilds geometry">Shell inner ⟳
-        <input id="ctl-shell-in" type="range" min="1.0" max="6.0" step="0.5" value="3.5">
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-shell-in"     type="range"  min="1.0" max="6.0"  step="0.5" value="3.5">
+          <input id="ctl-shell-in-num" type="number" min="1.0" max="6.0"  step="0.5" value="3.5">
+        </span>
       </label>
 
       <label id="lbl-shell-out" title="Rebuilds geometry"><span id="txt-shell-out">Shell outer</span> ⟳
-        <input id="ctl-shell-out" type="range" min="4.0" max="12.0" step="0.5" value="8.0">
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-shell-out"     type="range"  min="4.0" max="12.0" step="0.5" value="8.0">
+          <input id="ctl-shell-out-num" type="number" min="4.0" max="12.0" step="0.5" value="8.0">
+        </span>
       </label>
 
       <label id="lbl-clusters" title="Rebuilds geometry">Clusters ⟳
-        <input id="ctl-clusters" type="range" min="1" max="36" step="1" value="12">
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-clusters"     type="range"  min="1" max="36"  step="1"     value="12">
+          <input id="ctl-clusters-num" type="number" min="1" max="36"  step="1"     value="12">
+        </span>
       </label>
 
       <label id="lbl-cluster-spread" title="Rebuilds geometry">Cluster spread ⟳
-        <input id="ctl-cluster-spread" type="range" min="0.003" max="0.5" step="0.001" value="0.017">
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-cluster-spread"     type="range"  min="0.003" max="0.5" step="0.001" value="0.017">
+          <input id="ctl-cluster-spread-num" type="number" min="0.003" max="0.5" step="0.001" value="0.017">
+        </span>
       </label>
 
       <label id="lbl-radial-bias" title="Rebuilds geometry">Radial bias ⟳
-        <input id="ctl-radial-bias" type="range" min="-1.0" max="1.0" step="0.05" value="0.0">
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-radial-bias"     type="range"  min="-1.0" max="1.0" step="0.05" value="0.0">
+          <input id="ctl-radial-bias-num" type="number" min="-1.0" max="1.0" step="0.05" value="0.0">
+        </span>
       </label>
 
       <label id="lbl-rect-w" title="Rebuilds geometry">Rect width X ⟳
-        <input id="ctl-rect-w" type="range" min="0.5" max="16.0" step="0.5" value="8.0">
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-rect-w"     type="range"  min="0.5" max="16.0" step="0.5" value="8.0">
+          <input id="ctl-rect-w-num" type="number" min="0.5" max="16.0" step="0.5" value="8.0">
+        </span>
       </label>
 
       <label id="lbl-rect-h" title="Rebuilds geometry">Rect depth Z ⟳
-        <input id="ctl-rect-h" type="range" min="0.5" max="16.0" step="0.5" value="8.0">
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-rect-h"     type="range"  min="0.5" max="16.0" step="0.5" value="8.0">
+          <input id="ctl-rect-h-num" type="number" min="0.5" max="16.0" step="0.5" value="8.0">
+        </span>
       </label>
 
       <label id="lbl-density-in">Density inner
-        <input id="ctl-density-in" type="range" min="0" max="2" step="0.05" value="1.0">
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-density-in"     type="range"  min="0" max="2" step="0.05" value="1.0">
+          <input id="ctl-density-in-num" type="number" min="0" max="2" step="0.05" value="1.0">
+        </span>
       </label>
 
       <label id="lbl-density-out">Density outer
-        <input id="ctl-density-out" type="range" min="0" max="2" step="0.05" value="1.0">
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-density-out"     type="range"  min="0" max="2" step="0.05" value="1.0">
+          <input id="ctl-density-out-num" type="number" min="0" max="2" step="0.05" value="1.0">
+        </span>
       </label>
     </div>
 
@@ -634,6 +906,32 @@
   });
 
   // ── Controls ──────────────────────────────────────────────────────────
+
+  /**
+   * Link a range slider and its numeric companion so edits to either
+   * propagate to the other and fire the same onChange callback.
+   *
+   * @param {string}   rangeId   id of the <input type="range">
+   * @param {string}   numId     id of the companion <input type="number">
+   * @param {Function} onChange  called with the parsed float value on any change
+   */
+  function linkSlider(rangeId, numId, onChange) {
+    const range = document.getElementById(rangeId);
+    const num   = document.getElementById(numId);
+    range.addEventListener('input', () => {
+      num.value = range.value;
+      onChange(parseFloat(range.value));
+    });
+    num.addEventListener('change', () => {
+      const raw = parseFloat(num.value);
+      if (isNaN(raw)) { num.value = range.value; return; }  // reject empty / non-numeric
+      const v = Math.max(parseFloat(num.min), Math.min(parseFloat(num.max), raw));
+      num.value   = v;
+      range.value = v;
+      onChange(v);
+    });
+  }
+
   function bind(id, fn) {
     const el = document.getElementById(id);
     if (!el) return;
@@ -641,21 +939,21 @@
     el.addEventListener(evName, () => fn(el.type === 'checkbox' ? el.checked : parseFloat(el.value)));
   }
 
-  bind('ctl-color',    v  => rain.setColor(document.getElementById('ctl-color').value));
   document.getElementById('ctl-color').addEventListener('input', () =>
     rain.setColor(document.getElementById('ctl-color').value)
   );
-  bind('ctl-speed',    v  => rain.setSpeed(v));
-  bind('ctl-bloom',     v  => rain.setBloomStrength(v));
-  bind('ctl-bloom-thr', v  => rain.setBloomThreshold(v));
-  bind('ctl-opacity',  v  => rain.setOpacity(v));
-  bind('ctl-depth',    v  => rain.setDepth(v));
-  bind('ctl-normal',   v  => rain.setNormalStrength(v));
-  bind('ctl-sway',     v  => rain.setSway(v));
-  bind('ctl-soften',   v  => rain.setSoften(true, v));
-  bind('ctl-heat',     v  => rain.setHeat(v > 0, v));
-  bind('ctl-streaks',  v  => rain.setStreaks(v > 0, v));
-  bind('ctl-phosphor', v  => rain.setPhosphorDecay(v));
+  linkSlider('ctl-speed',     'ctl-speed-num',     v => rain.setSpeed(v));
+  linkSlider('ctl-bloom',     'ctl-bloom-num',     v => rain.setBloomStrength(v));
+  linkSlider('ctl-bloom-thr', 'ctl-bloom-thr-num', v => rain.setBloomThreshold(v));
+  linkSlider('ctl-opacity',   'ctl-opacity-num',   v => rain.setOpacity(v));
+  linkSlider('ctl-depth',     'ctl-depth-num',     v => rain.setDepth(v));
+  linkSlider('ctl-normal',    'ctl-normal-num',    v => rain.setNormalStrength(v));
+  linkSlider('ctl-sway',      'ctl-sway-num',      v => rain.setSway(v));
+  linkSlider('ctl-soften',    'ctl-soften-num',    v => rain.setSoften(true, v));
+  linkSlider('ctl-heat',      'ctl-heat-num',      v => rain.setHeat(v > 0, v));
+  linkSlider('ctl-streaks',   'ctl-streaks-num',   v => rain.setStreaks(v > 0, v));
+  linkSlider('ctl-phosphor',  'ctl-phosphor-num',  v => rain.setPhosphorDecay(v));
+
   function godRaysFromUI() {
     const on       = document.getElementById('ctl-godrays').checked;
     const lightX   = parseFloat(document.getElementById('ctl-gr-lx').value);
@@ -667,12 +965,12 @@
     rain.setGodRays(on, lightX, lightY, density, decay, weight, exposure);
   }
   bind('ctl-godrays',    () => godRaysFromUI());
-  bind('ctl-gr-lx',      () => godRaysFromUI());
-  bind('ctl-gr-ly',      () => godRaysFromUI());
-  bind('ctl-gr-density', () => godRaysFromUI());
-  bind('ctl-gr-decay',   () => godRaysFromUI());
-  bind('ctl-gr-weight',  () => godRaysFromUI());
-  bind('ctl-gr-exposure',() => godRaysFromUI());
+  linkSlider('ctl-gr-lx',      'ctl-gr-lx-num',      () => godRaysFromUI());
+  linkSlider('ctl-gr-ly',      'ctl-gr-ly-num',      () => godRaysFromUI());
+  linkSlider('ctl-gr-density', 'ctl-gr-density-num', () => godRaysFromUI());
+  linkSlider('ctl-gr-decay',   'ctl-gr-decay-num',   () => godRaysFromUI());
+  linkSlider('ctl-gr-weight',  'ctl-gr-weight-num',  () => godRaysFromUI());
+  linkSlider('ctl-gr-exposure','ctl-gr-exposure-num',() => godRaysFromUI());
 
   function chromaFromUI() {
     const on    = document.getElementById('ctl-chroma').checked;
@@ -681,13 +979,13 @@
   }
   bind('ctl-burst',        on => rain.setBurstBloom(on));
   bind('ctl-flatz',        on => rain.setFlatZ(on));
-  bind('ctl-yaw',          v  => rain.setMaxYaw(v));
-  bind('ctl-jitter',       v  => rain.setFacingJitter(v));
+  linkSlider('ctl-yaw',          'ctl-yaw-num',          v  => rain.setMaxYaw(v));
+  linkSlider('ctl-jitter',       'ctl-jitter-num',       v  => rain.setFacingJitter(v));
   bind('ctl-chroma',       () => chromaFromUI());
-  bind('ctl-chroma-scale', () => chromaFromUI());
-  bind('ctl-vignette',    v  => rain.setVignette(v));
-  bind('ctl-scanlines',   v  => rain.setScanlines(v));
-  bind('ctl-holo-aber',   v  => rain.setHoloAberration(v));
+  linkSlider('ctl-chroma-scale', 'ctl-chroma-scale-num', () => chromaFromUI());
+  linkSlider('ctl-vignette',   'ctl-vignette-num',   v => rain.setVignette(v));
+  linkSlider('ctl-scanlines',  'ctl-scanlines-num',  v => rain.setScanlines(v));
+  linkSlider('ctl-holo-aber',  'ctl-holo-aber-num',  v => rain.setHoloAberration(v));
 
   document.getElementById('ctl-charset').addEventListener('change', e => {
     rain.setCharSet(e.target.value);
@@ -705,6 +1003,11 @@
   document.getElementById('ctl-msg-clear').addEventListener('click', () => {
     rain.clearMessage();
   });
+  // Message sliders — sync range↔number, no live callback (values read on button click)
+  linkSlider('ctl-msg-boost',  'ctl-msg-boost-num',  () => {});
+  linkSlider('ctl-msg-reveal', 'ctl-msg-reveal-num', () => {});
+  linkSlider('ctl-msg-hold',   'ctl-msg-hold-num',   () => {});
+  linkSlider('ctl-msg-fade',   'ctl-msg-fade-num',   () => {});
 
   // CRT shader selector — rain.crt is null until renderer.init() resolves in 'crt' mode;
   // optional chaining makes these calls safe at any time.
@@ -725,11 +1028,11 @@
       parseFloat(document.getElementById('ctl-trl-max').value),
     );
   }
-  document.getElementById('ctl-spd-min').addEventListener('input', pushSpeedRange);
-  document.getElementById('ctl-spd-max').addEventListener('input', pushSpeedRange);
-  document.getElementById('ctl-trl-min').addEventListener('input', pushTrailRange);
-  document.getElementById('ctl-trl-max').addEventListener('input', pushTrailRange);
-  bind('ctl-density-3d', v => rain.setDensity(v));
+  linkSlider('ctl-spd-min', 'ctl-spd-min-num', () => pushSpeedRange());
+  linkSlider('ctl-spd-max', 'ctl-spd-max-num', () => pushSpeedRange());
+  linkSlider('ctl-trl-min', 'ctl-trl-min-num', () => pushTrailRange());
+  linkSlider('ctl-trl-max', 'ctl-trl-max-num', () => pushTrailRange());
+  linkSlider('ctl-density-3d', 'ctl-density-3d-num', v => rain.setDensity(v));
 
   // Radial zone controls
   function pushZoneSpeed() {
@@ -744,10 +1047,10 @@
       parseFloat(document.getElementById('ctl-zone-br-out').value),
     );
   }
-  document.getElementById('ctl-zone-spd-in').addEventListener('input', pushZoneSpeed);
-  document.getElementById('ctl-zone-spd-out').addEventListener('input', pushZoneSpeed);
-  document.getElementById('ctl-zone-br-in').addEventListener('input', pushZoneBright);
-  document.getElementById('ctl-zone-br-out').addEventListener('input', pushZoneBright);
+  linkSlider('ctl-zone-spd-in',  'ctl-zone-spd-in-num',  () => pushZoneSpeed());
+  linkSlider('ctl-zone-spd-out', 'ctl-zone-spd-out-num', () => pushZoneSpeed());
+  linkSlider('ctl-zone-br-in',   'ctl-zone-br-in-num',   () => pushZoneBright());
+  linkSlider('ctl-zone-br-out',  'ctl-zone-br-out-num',  () => pushZoneBright());
 
   // Distribution controls — rebuild-triggering ones use a 150 ms debounce
   let _distTimer = null;
@@ -783,7 +1086,7 @@
     updateDistControls(e.target.value);
   });
   bind('ctl-forward-facing', on => rain.setForwardFacing(on));
-  document.getElementById('ctl-ncols').addEventListener('input', () => {
+  linkSlider('ctl-ncols', 'ctl-ncols-num', () => {
     debounceRebuild(() => rain.setColumnCount(parseFloat(document.getElementById('ctl-ncols').value)));
   });
   function pushShellRadii() {
@@ -792,25 +1095,25 @@
       parseFloat(document.getElementById('ctl-shell-out').value),
     ));
   }
-  document.getElementById('ctl-shell-in').addEventListener('input', pushShellRadii);
-  document.getElementById('ctl-shell-out').addEventListener('input', pushShellRadii);
+  linkSlider('ctl-shell-in',  'ctl-shell-in-num',  () => pushShellRadii());
+  linkSlider('ctl-shell-out', 'ctl-shell-out-num', () => pushShellRadii());
   function pushRectExtent() {
     debounceRebuild(() => rain.setRectExtent(
       parseFloat(document.getElementById('ctl-rect-w').value),
       parseFloat(document.getElementById('ctl-rect-h').value),
     ));
   }
-  document.getElementById('ctl-rect-w').addEventListener('input', pushRectExtent);
-  document.getElementById('ctl-rect-h').addEventListener('input', pushRectExtent);
+  linkSlider('ctl-rect-w', 'ctl-rect-w-num', () => pushRectExtent());
+  linkSlider('ctl-rect-h', 'ctl-rect-h-num', () => pushRectExtent());
   function pushClusterParams() {
     debounceRebuild(() => rain.setClusterParams(
       parseFloat(document.getElementById('ctl-clusters').value),
       parseFloat(document.getElementById('ctl-cluster-spread').value),
     ));
   }
-  document.getElementById('ctl-clusters').addEventListener('input', pushClusterParams);
-  document.getElementById('ctl-cluster-spread').addEventListener('input', pushClusterParams);
-  document.getElementById('ctl-radial-bias').addEventListener('input', () => {
+  linkSlider('ctl-clusters',       'ctl-clusters-num',       () => pushClusterParams());
+  linkSlider('ctl-cluster-spread', 'ctl-cluster-spread-num', () => pushClusterParams());
+  linkSlider('ctl-radial-bias', 'ctl-radial-bias-num', () => {
     debounceRebuild(() => rain.setRadialBias(parseFloat(document.getElementById('ctl-radial-bias').value)));
   });
   function pushDensityTaper() {
@@ -819,32 +1122,47 @@
       parseFloat(document.getElementById('ctl-density-out').value),
     );
   }
-  document.getElementById('ctl-density-in').addEventListener('input', pushDensityTaper);
-  document.getElementById('ctl-density-out').addEventListener('input', pushDensityTaper);
+  linkSlider('ctl-density-in',  'ctl-density-in-num',  () => pushDensityTaper());
+  linkSlider('ctl-density-out', 'ctl-density-out-num', () => pushDensityTaper());
 
   // Organic controls
-  bind('ctl-brightness',  v  => rain.setBrightness(v));
-  bind('ctl-breath-amt',  v  => rain.setBreathAmt(v));
-  bind('ctl-wave-speed',  v  => rain.setWaveSpeed(v));
-  bind('ctl-wave-amt',    v  => rain.setWaveAmt(v));
-  bind('ctl-weighted',    on => rain.setWeightedGlyphs(on ? 1.0 : 0.0));
-  bind('ctl-reverse',     v  => rain.setReverseChance(v));
-  document.getElementById('ctl-cellw').addEventListener('input', () => {
+  linkSlider('ctl-brightness', 'ctl-brightness-num', v => rain.setBrightness(v));
+  linkSlider('ctl-breath-amt', 'ctl-breath-amt-num', v => rain.setBreathAmt(v));
+  linkSlider('ctl-wave-speed', 'ctl-wave-speed-num', v => rain.setWaveSpeed(v));
+  linkSlider('ctl-wave-amt',   'ctl-wave-amt-num',   v => rain.setWaveAmt(v));
+  bind('ctl-weighted', on => rain.setWeightedGlyphs(on ? 1.0 : 0.0));
+  linkSlider('ctl-reverse', 'ctl-reverse-num', v => rain.setReverseChance(v));
+  function pushCellSize() {
     rain.setCellSize(
       parseFloat(document.getElementById('ctl-cellw').value),
       parseFloat(document.getElementById('ctl-cellh').value),
     );
-  });
-  document.getElementById('ctl-cellh').addEventListener('input', () => {
-    rain.setCellSize(
-      parseFloat(document.getElementById('ctl-cellw').value),
-      parseFloat(document.getElementById('ctl-cellh').value),
-    );
-  });
+  }
+  linkSlider('ctl-cellw', 'ctl-cellw-num', () => pushCellSize());
+  linkSlider('ctl-cellh', 'ctl-cellh-num', () => pushCellSize());
+
+  // Glyph FX controls
+  linkSlider('ctl-drip',       'ctl-drip-num',       v => rain.setDrip(v));
+  linkSlider('ctl-edge-glow',  'ctl-edge-glow-num',  v => rain.setEdgeGlow(v));
+  linkSlider('ctl-zrot',       'ctl-zrot-num',       v => rain.setZRotation(v));
+  linkSlider('ctl-grain',      'ctl-grain-num',      v => rain.setFilmGrain(v));
+  linkSlider('ctl-depth-tint', 'ctl-depth-tint-num', v => rain.setDepthTint(v));
+  bind('ctl-boot', on => rain.setStartupCascade(on));
+  linkSlider('ctl-stability',  'ctl-stability-num',  v => rain.setStability(v));
+  linkSlider('ctl-hold-mult',  'ctl-hold-mult-num',  v => rain.setHoldMult(v));
+  linkSlider('ctl-burst-rate', 'ctl-burst-rate-num', v => rain.setBurstGlyphRate(v));
+  linkSlider('ctl-pom-steps',  'ctl-pom-steps-num',  v => rain.setPomSteps(v));
+  linkSlider('ctl-hue-range',  'ctl-hue-range-num',  v => rain.setHueRange(v));
+  linkSlider('ctl-burst-prob', 'ctl-burst-prob-num', v => rain.setBurstProb(v));
 
   // Animation controls
   bind('ctl-frozen',         on  => rain.setFrozen(on));
   bind('ctl-reduced-motion', on  => rain.setReducedMotion(on));
+  // Animation sliders — sync range↔number only (values read on button click)
+  linkSlider('ctl-glitch-int', 'ctl-glitch-int-num', () => {});
+  linkSlider('ctl-glitch-dur', 'ctl-glitch-dur-num', () => {});
+  linkSlider('ctl-ramp-mult',  'ctl-ramp-mult-num',  () => {});
+  linkSlider('ctl-ramp-dur',   'ctl-ramp-dur-num',   () => {});
   document.getElementById('ctl-glitch-btn').addEventListener('click', () => {
     rain.triggerGlitch(
       parseFloat(document.getElementById('ctl-glitch-int').value),
@@ -926,12 +1244,31 @@
       radialBias:    fv('ctl-radial-bias'),
       densityIn:     fv('ctl-density-in'),
       densityOut:    fv('ctl-density-out'),
+      // Glyph FX
+      drip:           fv('ctl-drip'),
+      edgeGlow:       fv('ctl-edge-glow'),
+      zRot:           fv('ctl-zrot'),
+      filmGrain:      fv('ctl-grain'),
+      depthTint:      fv('ctl-depth-tint'),
+      boot:           cb('ctl-boot'),
+      stability:      fv('ctl-stability'),
+      holdMult:       fv('ctl-hold-mult'),
+      burstGlyphRate: fv('ctl-burst-rate'),
+      pomSteps:       fv('ctl-pom-steps'),
+      hueRange:       fv('ctl-hue-range'),
+      burstProb:      fv('ctl-burst-prob'),
     };
   }
 
   function applySettings(s) {
     const el  = id => document.getElementById(id);
-    const set = (id, v) => { if (v !== undefined) el(id).value = v; };
+    // set() syncs both the range/select value and the companion number input (if present)
+    const set = (id, v) => {
+      if (v === undefined) return;
+      el(id).value = v;
+      const numEl = document.getElementById(id + '-num');
+      if (numEl) numEl.value = v;
+    };
     const chk = (id, v) => { if (v !== undefined) el(id).checked = v; };
 
     const prevMode = ppmodeEl.value;
@@ -979,6 +1316,19 @@
     set('ctl-wave-amt',    s.waveAmt);
     chk('ctl-weighted',    s.weightedGlyphs);
     set('ctl-reverse',     s.reverseChance);
+    // Glyph FX
+    set('ctl-drip',        s.drip);
+    set('ctl-edge-glow',   s.edgeGlow);
+    set('ctl-zrot',        s.zRot);
+    set('ctl-grain',       s.filmGrain);
+    set('ctl-depth-tint',  s.depthTint);
+    chk('ctl-boot',        s.boot);
+    set('ctl-stability',   s.stability);
+    set('ctl-hold-mult',   s.holdMult);
+    set('ctl-burst-rate',  s.burstGlyphRate);
+    set('ctl-pom-steps',   s.pomSteps);
+    set('ctl-hue-range',   s.hueRange);
+    set('ctl-burst-prob',  s.burstProb);
 
     // ── Rebuild if ppmode changed ────────────────────────────────────────
     if (s.ppmode !== undefined && s.ppmode !== prevMode) {
@@ -1024,6 +1374,20 @@
     if (s.waveAmt        !== undefined) rain.setWaveAmt(s.waveAmt);
     if (s.weightedGlyphs !== undefined) rain.setWeightedGlyphs(s.weightedGlyphs ? 1.0 : 0.0);
     if (s.reverseChance  !== undefined) rain.setReverseChance(s.reverseChance);
+    // Glyph FX
+    if (s.drip           !== undefined) rain.setDrip(s.drip);
+    if (s.edgeGlow       !== undefined) rain.setEdgeGlow(s.edgeGlow);
+    if (s.zRot           !== undefined) rain.setZRotation(s.zRot);
+    if (s.filmGrain      !== undefined) rain.setFilmGrain(s.filmGrain);
+    if (s.depthTint      !== undefined) rain.setDepthTint(s.depthTint);
+    if (s.boot           !== undefined) rain.setStartupCascade(s.boot);
+    if (s.stability      !== undefined) rain.setStability(s.stability);
+    if (s.holdMult       !== undefined) rain.setHoldMult(s.holdMult);
+    if (s.burstGlyphRate !== undefined) rain.setBurstGlyphRate(s.burstGlyphRate);
+    if (s.pomSteps       !== undefined) rain.setPomSteps(s.pomSteps);
+    if (s.hueRange       !== undefined) rain.setHueRange(s.hueRange);
+    if (s.burstProb      !== undefined) rain.setBurstProb(s.burstProb);
+
     set('ctl-spd-min',      s.spdMin);
     set('ctl-spd-max',      s.spdMax);
     set('ctl-trl-min',      s.trlMin);

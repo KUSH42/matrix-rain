@@ -902,6 +902,20 @@ export function initMatrixRain(element, opts = {}) {
       uniforms.uZoneBrightOuter.value = outer;
     },
 
+    // ── Glyph FX controls ─────────────────────────────────────────────────
+    setDrip(v)            { uniforms.uDripAmt.value       = v; },
+    setEdgeGlow(v)        { uniforms.uEdgeGlow.value       = v; },
+    setZRotation(deg)     { uniforms.uZRotRange.value      = deg * Math.PI / 180; },
+    setFilmGrain(v)       { uniforms.uGrainAmt.value       = v; },
+    setDepthTint(v)       { uniforms.uDepthTintAmt.value   = v; },
+    setStartupCascade(on) { uniforms.uBootEnabled.value    = on ? 1.0 : 0.0; },
+    setStability(v)       { uniforms.uStability.value      = v; },
+    setHoldMult(v)        { uniforms.uHoldMult.value       = v; },
+    setBurstGlyphRate(v)  { uniforms.uBurstGlyphRate.value = v; },
+    setPomSteps(v)        { uniforms.uPomSteps.value       = Math.max(3, Math.round(v)); },
+    setHueRange(deg)      { uniforms.uHueRange.value       = deg * Math.PI / 180; },
+    setBurstProb(v)       { uniforms.uBurstProb.value      = Math.max(0, Math.min(1, v)); },
+
     /** Pause / resume time advancement. Rain freezes mid-frame when true. */
     setFrozen(bool)    { _frozen = bool; },
 

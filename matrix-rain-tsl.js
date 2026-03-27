@@ -93,6 +93,18 @@ export function makeUniforms(glyphCount = 56, gridW = 8, gridH = 8, dummyMsgTex,
     uZoneBrightOuter: uniform(1.0),  // brightness bias at r = R_MAX
     uDensityInner:   uniform(1.0),   // radial density multiplier at inner shell (t_zone=0)
     uDensityOuter:   uniform(1.0),   // radial density multiplier at outer shell (t_zone=1)
+    // Glyph FX controls
+    uDripAmt:        uniform(0.35),  // drip-stretch Y-scale amplitude  0–0.8
+    uEdgeGlow:       uniform(0.4),   // edge-emission corona intensity   0–1.5
+    uZRotRange:      uniform(0.1745),// per-column Z-rotation max angle  0–0.524 rad (0–30°)
+    uGrainAmt:       uniform(0.07),  // film-grain strength              0–0.25
+    uDepthTintAmt:   uniform(0.4),   // atmospheric depth-tint blend     0–1
+    uBootEnabled:    uniform(1.0),   // startup cascade on/off           0 or 1
+    uStability:      uniform(0.30),  // fraction of stable cells         0–1
+    uHoldMult:       uniform(1.0),   // hold-cycle duration multiplier   0.1–5
+    uBurstGlyphRate: uniform(12.0),  // glyph-change rate during burst   1–30 Hz
+    uHueRange:       uniform(0.14),  // per-column hue rotation max, rad — 0.14 ≈ ±8°
+    uBurstProb:      uniform(0.005), // fraction of columns that burst per 4 s cycle
   };
 }
 
@@ -117,6 +129,9 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     uDensity,
     uZoneSpeedInner, uZoneSpeedOuter, uZoneBrightInner, uZoneBrightOuter,
     uDensityInner, uDensityOuter,
+    uDripAmt, uEdgeGlow, uZRotRange, uGrainAmt, uDepthTintAmt,
+    uBootEnabled, uStability, uHoldMult, uBurstGlyphRate,
+    uHueRange, uBurstProb,
   } = uniforms;
 
   // ── Per-instance buffer attributes ────────────────────────────────────
@@ -188,7 +203,8 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
 
     // ── Startup cascade — columns boot over 2.5 s ─────────────────────
     const bootDelay   = h2(vec2(aColIdxAttr.mul(0.31), 0.77)).mul(2.5);
-    const bootFadeVal = smoothstep(bootDelay, bootDelay.add(0.3), uTime);
+    const bootFadeRaw = smoothstep(bootDelay, bootDelay.add(0.3), uTime);
+    const bootFadeVal = mix(float(1), bootFadeRaw, uBootEnabled);
     vBootFade.assign(bootFadeVal);
 
     // Radial zone factor: 0 = inner (R_MIN=3.5), 1 = outer (R_MAX=8.0).
@@ -234,7 +250,7 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
       const burstCycle  = float(4.0);
       const burstBucket = floor(uTime.div(burstCycle));
       const burstH      = h2(vec2(aColIdxAttr.mul(0.41), burstBucket.mul(0.19)));
-      const burstActive = step(0.995, burstH);
+      const burstActive = step(float(1).sub(uBurstProb), burstH);
       const burstPhase  = fract(uTime.div(burstCycle));
       const burstFrac   = smoothstep(0.0, 0.1, burstPhase)
         .mul(float(1).sub(smoothstep(0.25, 0.35, burstPhase)));
@@ -322,7 +338,7 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
         colCenter.addAssign(right.mul(sway));
 
         // Per-column Z-rotation ±5°
-        const rotAngle = h2(vec2(aSeed, 42.0)).sub(0.5).mul(0.1745);
+        const rotAngle = h2(vec2(aSeed, 42.0)).sub(0.5).mul(uZRotRange);
         const cosR     = cos(rotAngle);
         const sinR     = sin(rotAngle);
         const rotRight = right.mul(cosR).add(vec3(0, 1, 0).mul(sinR));
@@ -333,7 +349,7 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
           h2(vec2(aColIdxAttr.mul(0.53), aRowIdxAttr.mul(0.17))).sub(0.5).mul(0.20)
         );
         const dripStretch = float(1).add(
-          float(0.35).mul(exp(max(dist, 0.0).negate().mul(1.5)))
+          uDripAmt.mul(exp(max(dist, 0.0).negate().mul(1.5)))
         );
         const sX = aScale.mul(scaleJitter).mul(2.2);
         const sY = aScale.mul(scaleJitter).mul(2.2).mul(dripStretch);
@@ -388,12 +404,13 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     const holdRand   = float(0.45).add(h2(cellId.mul(0.29)).mul(7.15));
     const isHead     = vDist.lessThan(1.0);
     const isNearHead = vDist.lessThan(4.0);
+    const nonHeadHold = select(isNearHead,
+      float(2.0).add(holdRand.mul(0.3)),       // near-head: ~0.5 Hz ± jitter
+      float(10.0).add(holdRand.mul(2.0))       // mid + deep trail: ~0.1 Hz ± jitter
+    ).mul(uHoldMult);
     const holdSec    = select(isHead,
-      float(0.067),                            // head:      ~15 Hz
-      select(isNearHead,
-        float(2.0).add(holdRand.mul(0.3)),     // near-head: ~0.5 Hz ± jitter
-        float(10.0).add(holdRand.mul(2.0))     // mid + deep trail: ~0.1 Hz ± jitter
-      )
+      float(0.067),                            // head: ~15 Hz — deliberately not scaled by uHoldMult
+      nonHeadHold
     );
 
     // ── Message reveal — scramble rate modulation ──────────────────────
@@ -407,7 +424,7 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     const settledHold  = mix(msgHoldSec, holdSec, waveGap.mul(uMsgRevealProgress));
 
     const burstOffset = select(
-      vBurst.greaterThan(0.5), floor(uTime.mul(12.0)), float(0)
+      vBurst.greaterThan(0.5), floor(uTime.mul(uBurstGlyphRate)), float(0)
     );
     const changeTick  = floor(
       cellPhase.mul(settledHold).add(uTime).div(settledHold)
@@ -426,7 +443,7 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     // Burst columns override static: during a burst the whole column is "active".
     const isDeepTrail = d.greaterThanEqual(halfDist).and(vBurst.lessThan(0.5));
     const glyphIdx    = select(
-      isDeepTrail.or(stability.lessThan(0.30)),
+      isDeepTrail.or(stability.lessThan(uStability)),
       baseGlyph,
       mutGlyph
     );
@@ -436,11 +453,11 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     const grain   = h2(vec2(
       sampleX.mul(47.3).add(vUvRain.y.mul(31.7)).add(vColIdx.mul(0.53)),
       uTime.mul(7.3).add(vRowIdx.mul(0.19))
-    )).sub(0.5).mul(0.07);
+    )).sub(0.5).mul(uGrainAmt);
 
     // Per-column hue shift — G-B plane rotation for yellow-green ↔ cyan
     const hueShift   = h2(vec2(cellId.x.mul(0.17), 0.0)).sub(0.5).mul(2.0);
-    const hueRad     = hueShift.mul(0.14); // ±8°
+    const hueRad     = hueShift.mul(uHueRange);
     const cosH       = cos(hueRad);
     const sinH_      = sin(hueRad);
     const tintedColor = vec3(
@@ -476,7 +493,7 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
 
     // Atmospheric depth tint — distant columns shift toward cyan
     const depthTint = smoothstep(3.0, 8.0, length(vWorldPos));
-    col2.assign(mix(col2, col2.mul(vec3(0.6, 0.85, 1.1)), depthTint.mul(0.4)));
+    col2.assign(mix(col2, col2.mul(vec3(0.6, 0.85, 1.1)), depthTint.mul(uDepthTintAmt)));
 
     // ── Message reveal — brightness boost ─────────────────────────────
     // msgActive is 0 when uMsgRevealProgress == 0, so no branch needed.
@@ -560,7 +577,7 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
 
     // Edge emission glow — laser-etched holographic corona
     const edgeDist = abs(sdfG.sub(0.5));
-    const edgeGlow = exp(edgeDist.negate().mul(18.0)).mul(0.4);
+    const edgeGlow = exp(edgeDist.negate().mul(18.0)).mul(uEdgeGlow);
     col2.addAssign(uColor.mul(edgeGlow).mul(trail));
 
     // ── Normals + Lighting ─────────────────────────────────────────────
