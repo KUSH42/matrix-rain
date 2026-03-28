@@ -206,6 +206,7 @@ function buildGeometry({
   clusterBiasAmt   = 0.40,    // per-cluster speed/brightness bias magnitude 0–1
   clusterSpeedJitter = 0.18,  // ±jitter on [0,1] speed seed within cluster; 0=identical speeds
   clusterYSpread   = 3.0,     // ±world-units jitter on Y offset within cluster; 0=same spawn Y
+  clusterRJitter   = 0.20,    // ±jitter on [0,1] radius seed within cluster; 0=same shell depth
   squadSize        = 5,       // columns per squad; squads are formed within clusters
   trailCohesion    = 0.7,     // 0 = no trail cohesion, 1 = full squad trail bias
   spawnReserves  = 48,        // pre-allocated reserve columns for message reveal
@@ -256,6 +257,9 @@ function buildGeometry({
   const clusterSpeedSeeds = Array.from({ length: nClusters }, () => Math.random());
   // Per-cluster Y offset — columns in the same cluster spawn near the same world Y.
   const clusterYCenters   = Array.from({ length: nClusters }, () => (Math.random() - 0.5) * WORLD_H);
+  // Per-cluster radial seed [0, 1] — per-column r is this ± clusterRJitter, mapped to [inner, outer].
+  // Keeps columns in the same cluster at similar shell depths so they stay together in XYZ.
+  const clusterRSeeds     = Array.from({ length: nClusters }, () => Math.random());
   // Squad structure: subdivides each cluster into squads of ~squadSize columns.
   // With round-robin assignment each cluster gets ceil(nCols/nClusters) columns, so the
   // per-cluster squad count is ceil(ceil(nCols/nClusters) / squadSize) + 1 safety margin.
@@ -293,7 +297,9 @@ function buildGeometry({
     // fmod into [0, 2π] first so the mapping is uniform when clusterUniform=1.
     const TWO_PI   = Math.PI * 2;
     const thetaNorm = (((theta % TWO_PI) + TWO_PI) % TWO_PI) / TWO_PI * 2 - 1;  // [-1, 1]
-    let r        = inner + Math.pow(Math.random(), exp_) * (outer - inner);
+    // Radial position: cluster-centered so columns in the same cluster occupy similar shell depths.
+    const rSeed  = Math.max(0, Math.min(1, clusterRSeeds[clusterIdx] + (Math.random() - 0.5) * 2 * clusterRJitter));
+    let r        = inner + Math.pow(rSeed, exp_) * (outer - inner);
 
     let wx, wz;
     switch (topology) {
@@ -933,6 +939,7 @@ export function initMatrixRain(element, opts = {}) {
     clusterBiasAmt:    0.40,
     clusterSpeedJitter: 0.18,
     clusterYSpread:    3.0,
+    clusterRJitter:    0.20,
     squadSize:         5,
     trailCohesion:     0.7,
     spawnReserves:     48,
@@ -1843,6 +1850,8 @@ export function initMatrixRain(element, opts = {}) {
     _msgClaimedCount = 0;
     // Always stop band suppression regardless of resetState.
     uniforms.uMsgRevealActive.value = 0;
+    uniforms.uMsgXMin.value = 0.0;
+    uniforms.uMsgXMax.value = 1.0;
     if (resetState) msgState = 'idle';
   }
 
@@ -2199,6 +2208,7 @@ export function initMatrixRain(element, opts = {}) {
     },
     setClusterSpeedJitter(v) { _geomParams.clusterSpeedJitter = Math.max(0, Math.min(0.5, v)); rebuildGeom(); },
     setClusterYSpread(v)     { _geomParams.clusterYSpread     = Math.max(0, v);                rebuildGeom(); },
+    setClusterRJitter(v)     { _geomParams.clusterRJitter     = Math.max(0, Math.min(0.5, v)); rebuildGeom(); },
     setSectorCenter(deg)  { uniforms.uSectorCenter.value   = deg * Math.PI / 180; },
     setSectorWidth(deg)   { uniforms.uSectorWidth.value    = Math.max(1, deg) * Math.PI / 180; },
     setSectorStrength(v)  { uniforms.uSectorStrength.value = Math.max(0, Math.min(1, v)); },
@@ -2652,6 +2662,11 @@ export function initMatrixRain(element, opts = {}) {
       // Setting it here would create a blank black bar during the entire approach phase
       // (typically ~0–1.5 s) before any glyphs have locked.
       uniforms.uMsgRevealActive.value = 0.0;
+      // X bounds in screen UV — covers only the text's horizontal extent.
+      // Small margin (half a character width) added on each side.
+      const margin = (_msgSlots.length > 0 ? _msgSlots[0].halfUV : 0.01);
+      uniforms.uMsgXMin.value = Math.max(0.0, startUV - margin);
+      uniforms.uMsgXMax.value = Math.min(1.0, startUV + totalPx / w + margin);
       msgSpawnChance    = spawnChance;
       msgTolMultMin     = tolMultMin;
       msgTolMultMax     = tolMultMax;
@@ -2678,10 +2693,14 @@ export function initMatrixRain(element, opts = {}) {
       // Unclaimed/unassigned columns are cleaned up by _clearAllLocks when fading ends.
       for (const slot of _msgSlots) { slot.fadeDelay = Math.random(); }
       uniforms.uMsgRevealActive.value = 0;  // stop band suppression immediately
+      uniforms.uMsgXMin.value = 0.0;
+      uniforms.uMsgXMax.value = 1.0;
       msgFadeSpeed = fadeDuration > 0 ? 1.0 / fadeDuration : Infinity;
       msgFadeStart = prevTs || performance.now() * 0.001;
       msgState     = 'fading';
     },
+
+    setMsgBandSuppress(on) { uniforms.uMsgBandSuppress.value = on ? 1.0 : 0.0; },
 
     // ── externalLoop API ──────────────────────────────────────────────────
     /**

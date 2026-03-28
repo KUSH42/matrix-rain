@@ -479,6 +479,9 @@
                style="background:#111;color:#00ff70;border:1px solid #00ff70;
                       font-family:'Courier New',monospace;font-size:10px;width:90px;padding:1px 4px;">
       </label>
+      <label>Band suppress
+        <input id="ctl-msg-band-suppress" type="checkbox">
+      </label>
       <label>Boost
         <span style="display:flex;align-items:center;gap:4px;">
           <input id="ctl-msg-boost"     type="range"  min="1" max="6"  step="0.1" value="2">
@@ -934,6 +937,12 @@
         <span style="display:flex;align-items:center;gap:4px;">
           <input id="ctl-cluster-y-spread"     type="range"  min="0" max="8" step="0.1" value="3.0">
           <input id="ctl-cluster-y-spread-num" type="number" min="0" max="8" step="0.1" value="3.0">
+        </span>
+      </label>
+      <label id="lbl-cluster-r-jitter">Cluster depth jitter
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-cluster-r-jitter"     type="range"  min="0" max="0.5" step="0.01" value="0.20">
+          <input id="ctl-cluster-r-jitter-num" type="number" min="0" max="0.5" step="0.01" value="0.20">
         </span>
       </label>
 
@@ -1533,6 +1542,7 @@
     'lbl-cluster-bias':          ['shell', 'ring', 'curtain', 'rectangle'],
     'lbl-cluster-speed-jitter':  ['shell', 'ring', 'curtain', 'rectangle'],
     'lbl-cluster-y-spread':      ['shell', 'ring', 'curtain', 'rectangle'],
+    'lbl-cluster-r-jitter':      ['shell', 'ring'],
     'lbl-radial-bias':    ['shell'],
     'lbl-density-in':     ['shell', 'ring'],
     'lbl-density-out':    ['shell', 'ring'],
@@ -1593,6 +1603,9 @@
   });
   linkSlider('ctl-cluster-y-spread', 'ctl-cluster-y-spread-num', () => {
     debounceRebuild(() => rain.setClusterYSpread(parseFloat(document.getElementById('ctl-cluster-y-spread').value)));
+  });
+  linkSlider('ctl-cluster-r-jitter', 'ctl-cluster-r-jitter-num', () => {
+    debounceRebuild(() => rain.setClusterRJitter(parseFloat(document.getElementById('ctl-cluster-r-jitter').value)));
   });
   bind('ctl-sector-strength', on => rain.setSectorStrength(on ? 1 : 0));
   linkSlider('ctl-sector-center', 'ctl-sector-center-num', () => {
@@ -1810,6 +1823,7 @@
       clusterBias:         fv('ctl-cluster-bias'),
       clusterSpeedJitter:  fv('ctl-cluster-speed-jitter'),
       clusterYSpread:      fv('ctl-cluster-y-spread'),
+      clusterRJitter:      fv('ctl-cluster-r-jitter'),
       sectorStrength:  cb('ctl-sector-strength'),
       sectorCenter:    fv('ctl-sector-center'),
       sectorWidth:     fv('ctl-sector-width'),
@@ -2001,6 +2015,7 @@
     set('ctl-cluster-bias',        s.clusterBias);
     set('ctl-cluster-speed-jitter', s.clusterSpeedJitter);
     set('ctl-cluster-y-spread',    s.clusterYSpread);
+    set('ctl-cluster-r-jitter',    s.clusterRJitter);
     chk('ctl-sector-strength',  s.sectorStrength);
     set('ctl-sector-center',    s.sectorCenter);
     set('ctl-sector-width',     s.sectorWidth);
@@ -2025,6 +2040,7 @@
     if (s.clusterBias     !== undefined) rain.setClusterBias(s.clusterBias);
     if (s.clusterSpeedJitter !== undefined) rain.setClusterSpeedJitter(s.clusterSpeedJitter);
     if (s.clusterYSpread     !== undefined) rain.setClusterYSpread(s.clusterYSpread);
+    if (s.clusterRJitter     !== undefined) rain.setClusterRJitter(s.clusterRJitter);
     if (s.densityIn     !== undefined || s.densityOut     !== undefined) rain.setRadialDensityTaper(
       s.densityIn  ?? parseFloat(document.getElementById('ctl-density-in').value),
       s.densityOut ?? parseFloat(document.getElementById('ctl-density-out').value),
