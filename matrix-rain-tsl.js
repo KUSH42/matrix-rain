@@ -33,6 +33,23 @@ export const h2 = Fn(([v]) => {
 // ── MSDF median — preserves sharp corners ────────────────────────────────
 export const median3 = Fn(([a, b, c]) => max(min(a, b), min(max(a, b), c)));
 
+// ── RGB hue rotation (Rodrigues around luminance axis) ───────────────────
+// Rotates hue by driftRad radians; preserves luminance and saturation.
+// w = 1/sqrt(3), w² = 1/3. All scalar mul/add operations — TSL-backend-safe.
+export const hueRotateRGB = Fn(([rgb, driftRad]) => {
+  const cosH    = cos(driftRad);
+  const sinH    = sin(driftRad);
+  const w2      = float(1.0 / 3.0);           // w² = 1/3
+  const wsqrt3  = float(1.0 / Math.sqrt(3));  // w  = 1/sqrt(3)
+  const diag    = cosH.mul(float(2.0 / 3.0)).add(w2); // cos(θ)·2/3 + 1/3
+  const cross_p = w2.mul(float(1.0).sub(cosH)).add(wsqrt3.mul(sinH));
+  const cross_m = w2.mul(float(1.0).sub(cosH)).sub(wsqrt3.mul(sinH));
+  const nr = rgb.r.mul(diag).add(rgb.g.mul(cross_m)).add(rgb.b.mul(cross_p));
+  const ng = rgb.r.mul(cross_p).add(rgb.g.mul(diag)).add(rgb.b.mul(cross_m));
+  const nb = rgb.r.mul(cross_m).add(rgb.g.mul(cross_p)).add(rgb.b.mul(diag));
+  return vec3(nr, ng, nb);
+});
+
 // ── Uniform factory ───────────────────────────────────────────────────────
 /**
  * @param {number}              [glyphCount=56]  total glyphs in the MSDF atlas
@@ -130,6 +147,15 @@ export function makeUniforms(glyphCount = 56, gridW = 8, gridH = 8, lutTexture =
     uEolFlash:       uniform(0.6),   // terminal flash intensity  0–2   (0 = off)
     uEolFreezeStart: uniform(0.80),  // cyclePhase at which head glyph freezes  0–1 (1 = off)
     uEolFadeStart:   uniform(0.88),  // cyclePhase at which death fade begins   0.5–1
+    // Category A glyph effects
+    uShimmerAmt:       uniform(0.0),   // lateral shimmer amplitude (world units)  0–0.15
+    uShimmerFreq:      uniform(2.0),   // shimmer base frequency Hz                0.5–8.0
+    uInversionChance:  uniform(0.0),   // fraction of cells rendered inverted       0–1
+    uGlyphSpinAmt:     uniform(0.0),   // glyph rotation blend (0=off, 1=full)     0–1
+    uGlyphSpinSpeed:   uniform(1.0),   // glyph spin speed Hz                       0–2
+    uHueDriftRate:     uniform(0.0),   // per-column hue drift rate Hz              0–0.5
+    uHueDriftAmt:      uniform(0.0),   // per-column hue drift max degrees          0–45
+    uHeadOvershootAmt: uniform(0.0),   // head overshoot max displacement (cells)   0–3
   };
 }
 
@@ -148,7 +174,7 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     uColor, uGlobalAlpha, uDepth, uPomSteps, uNormalStrength,
     uLightDir, uGlyphChroma,
     uSpeedMul, uMaxYaw, uFacingJitter, uFlatZ, uForwardFacing, uGlobeInteract, uSwayAmt, uSwayDecay,
-    uMsgBoost, uMsgRevealY, uMsgRevealBand, uMsgRevealActive, uMsgXMin, uMsgXMax, uMsgBandSuppress,
+    uMsgRevealProgress, uMsgBoost, uMsgRevealY, uMsgRevealBand, uMsgRevealActive, uMsgXMin, uMsgXMax, uMsgBandSuppress,
     uGlyphWeightLUT,
     uBrightness, uBreathAmt, uWaveSpeed, uWaveAmt, uWaveCrests, uEntrainAmt, uEntrainSpeed, uEntrainCrests, uWeightedGlyphs, uReverseChance,
     uDensity,
@@ -164,6 +190,11 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     uAtlasMTSDF,
     uColumnOffset,
     uEolFlash, uEolFreezeStart, uEolFadeStart,
+    uShimmerAmt, uShimmerFreq,
+    uInversionChance,
+    uGlyphSpinAmt, uGlyphSpinSpeed,
+    uHueDriftRate, uHueDriftAmt,
+    uHeadOvershootAmt,
   } = uniforms;
 
   // ── Per-instance buffer attributes ────────────────────────────────────
@@ -359,13 +390,13 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
       const burstFrac   = smoothstep(0.0, 0.1, burstPhase)
         .mul(float(1).sub(smoothstep(0.25, 0.35, burstPhase)));
       // Per-column breathing: fv ∈ [0.1, 0.5] Hz, random phase — derived from aSeed.
-      // Breath is additive (not multiplicative) so its ±0.15 amplitude is independent
-      // of uSpeedMul — moving the speed slider doesn't amplify the oscillation.
+      // Breath is multiplicative: oscillation is always ±(uBreathAmt×15%) of uSpeedMul,
+      // so lowering the overall speed slider doesn't cause disproportionately large swings.
       const breathFreq  = float(0.1).add(h2(vec2(aSeed.mul(13.7), float(0.1))).mul(0.4));
       const breathPhase = h2(vec2(aSeed.mul(7.3), float(0.5))).mul(6.2832);
-      const breathAdd   = sin(uTime.mul(breathFreq).mul(6.2832).add(breathPhase)).mul(uBreathAmt.mul(0.15));
+      const breathFrac  = sin(uTime.mul(breathFreq).mul(6.2832).add(breathPhase)).mul(uBreathAmt.mul(0.15));
       const zoneSpeedBias = mix(uZoneSpeedInner, uZoneSpeedOuter, t_zone);
-      const speedMul    = max(float(0.01), uSpeedMul.add(breathAdd))
+      const speedMul    = max(float(0.01), uSpeedMul.mul(float(1.0).add(breathFrac)))
         .mul(float(1).add(burstActive.mul(burstFrac).mul(2)))
         .mul(zoneSpeedBias)
         .mul(float(1).add(entrainWave));
@@ -416,6 +447,21 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
       headY.assign(select(isLocked, aLockStateAttr.x, headY));
       // Suppress death-fade so the frozen glyph never vanishes mid-hold
       vDeathFade.assign(select(isLocked, float(1.0), vDeathFade));
+
+      // ── Head overshoot — bounce inertia surge ─────────────────────────
+      const aHeadOvershootAttr = attribute('aHeadOvershoot', 'float');
+      const overPhase   = fract(uTime.div(float(4.0)).add(aHeadOvershootAttr));
+      // Gaussian pulse: peak at overPhase=0.12, σ=0.03 (2σ²=0.0018)
+      const overPulse   = exp(
+        overPhase.sub(0.12).mul(overPhase.sub(0.12)).negate().div(float(0.0018))
+      );
+      const overDisplace = overPulse.mul(uHeadOvershootAmt).mul(cellStep);
+      // Forward direction: downward columns → negative headY delta; reversed → positive
+      const overSign = select(isRev, float(1.0), float(-1.0));
+      // Locked columns: overshoot suppressed (headY already pinned by lock-freeze)
+      headY.assign(select(isLocked, headY,
+        headY.add(overSign.mul(overDisplace))
+      ));
 
       // Signed trail distance: positive = behind head (in the trail).
       // Forward: trail is above head (cellY > headY). Reverse: below (headY > cellY).
@@ -470,6 +516,19 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
             .mul(exp(dist.negate().mul(uSwayDecay)))
         );
         colCenter.addAssign(right.mul(sway));
+
+        // ── Lateral shimmer — thermal refraction oscillation ─────────────────
+        const shimmerFreqMul = float(0.7).add(
+          h2(vec2(aSeed.mul(5.1), float(0.37))).mul(0.6)
+        ); // per-column frequency multiplier ∈ [0.7, 1.3]
+        const shimmerPhase = h2(vec2(aSeed.mul(3.3), float(0.61))).mul(6.2832);
+        const shimmerDecay = exp(max(dist, 0.0).negate().mul(1.5));
+        const shimmerDisp  = select(isVertLockHead, float(0.0),
+          sin(
+            uTime.mul(uShimmerFreq).mul(shimmerFreqMul).mul(6.2832).add(shimmerPhase)
+          ).mul(uShimmerAmt).mul(shimmerDecay)
+        );
+        colCenter.addAssign(right.mul(shimmerDisp));
 
         // Per-column Z-rotation ±5°
         const rotAngle = h2(vec2(aSeed, 42.0)).sub(0.5).mul(uZRotRange);
@@ -625,7 +684,20 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     // Per-column colour blend — mix uColor → uColor2 using a per-column hash
     const hueShift    = h2(vec2(cellId.x.mul(0.17), 0.0));   // [0, 1] per column
     const blendT      = hueShift.mul(uHueRange);              // scaled by spread [0, 1]
-    const tintedColor = mix(uColor, uColor2, blendT);
+    const tintedColor = mix(uColor, uColor2, blendT).toVar('tintedColor');
+
+    // ── Per-column hue drift ────────────────────────────────────────────────
+    // cellId.x = floor(vColIdx + 0.5) — a stable per-column integer in the fragment stage.
+    // driftPhase and driftSpeed use only cellId.x so all rows of a column share the same drift.
+    const driftPhase = h2(vec2(cellId.x.mul(0.29), float(0.07))).mul(6.2832);
+    const driftSpeed = float(0.5).add(h2(vec2(cellId.x.mul(0.41), float(0.19))));
+    // Sine oscillation: drift angle swings ±uHueDriftAmt degrees at uHueDriftRate Hz.
+    // Wrapped by select so locked head cells never shift hue (message chars stay their base colour).
+    const driftRadFull = sin(
+      uTime.mul(uHueDriftRate).mul(driftSpeed).mul(6.2832).add(driftPhase)
+    ).mul(uHueDriftAmt.mul(float(Math.PI / 180)));
+    const driftRad = select(isLockHead, float(0.0), driftRadFull);
+    tintedColor.assign(hueRotateRGB(tintedColor, driftRad));
 
     // Color: head burns white, trail has two-stage ramp down to dark-green floor
     const headFrac      = float(1).sub(smoothstep(0.0, 0.8, vDist));
@@ -733,11 +805,36 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
 
     const finalFace = loFace.add(hiFace).mul(0.5);
 
+    // ── Glyph rotation — per-cell spin around cell centre ─────────────────
+    const spinCellPhase = h2(cellId.mul(0.59).add(0.07)).mul(6.2832);
+    const spinCellSpeed = float(0.6).add(h2(cellId.mul(0.41).add(0.03)).mul(0.8));
+    const spinDecay     = select(isLockHead, float(0.0), exp(d.negate().mul(2.0)));
+    const spinAngle     = uTime.mul(uGlyphSpinSpeed).mul(spinCellSpeed).mul(6.2832)
+      .add(spinCellPhase)
+      .mul(uGlyphSpinAmt)
+      .mul(spinDecay);
+    const cosA     = cos(spinAngle);
+    const sinA     = sin(spinAngle);
+    const cfCtr    = finalFace.sub(0.5);
+    const spinFace = clamp(
+      vec2(
+        cfCtr.x.mul(cosA).sub(cfCtr.y.mul(sinA)),
+        cfCtr.x.mul(sinA).add(cfCtr.y.mul(cosA))
+      ).add(0.5),
+      0.005, 0.995
+    ).toVar('spinFace');
+
     // MTSDF anti-aliased mask at POM-displaced position
-    const sdfG = sampleGlyph(finalFace, glyphIdx, useSDF);
+    const sdfG = sampleGlyph(spinFace, glyphIdx, useSDF);
     const fw   = abs(dFdx(sdfG)).add(abs(dFdy(sdfG))).mul(0.7);
-    const mask = smoothstep(float(0.5).sub(fw), float(0.5).add(fw), sdfG);
+    const mask = smoothstep(float(0.5).sub(fw), float(0.5).add(fw), sdfG).toVar('mask');
     If(mask.lessThan(0.01), () => { Discard(); });
+
+    // ── Inverted/negative glyph cells ─────────────────────────────────────
+    // Per-cell stable hash — same cell is always normal or inverted.
+    const invertHash = h2(cellId.mul(0.83).add(0.11));
+    const isInverted = invertHash.lessThan(uInversionChance).and(isLockHead.not());
+    mask.assign(select(isInverted, float(1.0).sub(mask), mask));
 
     // ── Per-glyph chromatic aberration at head ─────────────────────────
     // Additive fringe: sample R/B at shifted UVs, add the divergence from the
@@ -745,8 +842,8 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     // including pure green where the old ratio approach was a no-op (0 * ratio = 0).
     const aberration = exp(max(vDist, 0.0).negate().mul(1.5)).mul(uGlyphChroma);
     const chromaOff  = aberration.mul(0.03);
-    const rUV    = clamp(vec2(finalFace.x.add(chromaOff), finalFace.y), 0.005, 0.995);
-    const bUV    = clamp(vec2(finalFace.x.sub(chromaOff), finalFace.y), 0.005, 0.995);
+    const rUV    = clamp(vec2(spinFace.x.add(chromaOff), spinFace.y), 0.005, 0.995);
+    const bUV    = clamp(vec2(spinFace.x.sub(chromaOff), spinFace.y), 0.005, 0.995);
     const rMask  = smoothstep(float(0.5).sub(fw), float(0.5).add(fw), sampleGlyph(rUV, glyphIdx, useSDF));
     const bMask  = smoothstep(float(0.5).sub(fw), float(0.5).add(fw), sampleGlyph(bUV, glyphIdx, useSDF));
     const luma   = col2.dot(vec3(0.333, 0.334, 0.333));
@@ -765,10 +862,10 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     const fakeN = vec3(0, 0, 1).toVar('fakeN');
     If(trail.greaterThan(0.25), () => {
       const eps = float(0.04);
-      const mL  = sampleGlyph(finalFace.add(vec2(eps.negate(), 0)), glyphIdx, useSDF);
-      const mR  = sampleGlyph(finalFace.add(vec2(eps,           0)), glyphIdx, useSDF);
-      const mD  = sampleGlyph(finalFace.add(vec2(0, eps.negate())), glyphIdx, useSDF);
-      const mU  = sampleGlyph(finalFace.add(vec2(0, eps          )), glyphIdx, useSDF);
+      const mL  = sampleGlyph(spinFace.add(vec2(eps.negate(), 0)), glyphIdx, useSDF);
+      const mR  = sampleGlyph(spinFace.add(vec2(eps,           0)), glyphIdx, useSDF);
+      const mD  = sampleGlyph(spinFace.add(vec2(0, eps.negate())), glyphIdx, useSDF);
+      const mU  = sampleGlyph(spinFace.add(vec2(0, eps          )), glyphIdx, useSDF);
       const Kx  = mR.sub(mL).toVar('Kx');
       const Ky  = mU.sub(mD);
       Kx.mulAssign(select(frontFacing, float(1), float(-1)));
@@ -800,8 +897,8 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
 
     // ── Final alpha ────────────────────────────────────────────────────
     const rawBright = trail.mul(mask).mul(vAlpha).mul(vDepthDim).toVar('rawBright');
-    // Locked head cell: force full brightness so the glyph always shows at head position
-    rawBright.assign(select(isLockHead, float(1.0), rawBright));
+    // Locked head cell: force full brightness, then fade via uMsgRevealProgress (1→0 on despawn)
+    rawBright.assign(select(isLockHead, uMsgRevealProgress, rawBright));
     // Trail cells of locked columns: fade in over 0.6 s so they don't pop in abruptly
     const trailFadeIn = smoothstep(0.0, 0.6, lockAge);
     const isLockTrail = lockActive.and(isLockHead.not());

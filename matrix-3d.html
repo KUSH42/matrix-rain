@@ -633,6 +633,10 @@
         </span>
       </label>
 
+      <label style="flex-direction:row;gap:6px;align-items:center;">Waves
+        <input id="ctl-wave-enabled" type="checkbox" checked>
+      </label>
+
       <label>Wave speed
         <span style="display:flex;align-items:center;gap:4px;">
           <input id="ctl-wave-speed"     type="range"  min="0" max="0.5" step="0.01" value="0.15">
@@ -769,6 +773,63 @@
           </label>
         </div>
       </details>
+    </div>
+
+    <!-- Glyph FX B sub-panel -->
+    <div style="border-top:1px solid #00ff7044;margin-top:4px;padding-top:4px;
+                display:flex;flex-direction:column;gap:4px;">
+      <label style="color:#7fffaa;font-size:10px;letter-spacing:0.1em;text-transform:uppercase;">
+        — Glyph FX B —
+      </label>
+
+      <label>Shimmer Amt
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="sl-shimmer-amt"     type="range"  min="0"   max="0.15" step="0.005" value="0">
+          <input id="sl-shimmer-amt-num" type="number" min="0"   max="0.15" step="0.005" value="0">
+        </span>
+      </label>
+      <label>Shimmer Freq
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="sl-shimmer-freq"     type="range"  min="0.5" max="8.0" step="0.1" value="2.0">
+          <input id="sl-shimmer-freq-num" type="number" min="0.5" max="8.0" step="0.1" value="2.0">
+        </span>
+      </label>
+      <label>Inversion Chance
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="sl-inversion-chance"     type="range"  min="0" max="1" step="0.01" value="0">
+          <input id="sl-inversion-chance-num" type="number" min="0" max="1" step="0.01" value="0">
+        </span>
+      </label>
+      <label>Glyph Spin Amt
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="sl-glyph-spin-amt"     type="range"  min="0" max="1" step="0.01" value="0">
+          <input id="sl-glyph-spin-amt-num" type="number" min="0" max="1" step="0.01" value="0">
+        </span>
+      </label>
+      <label>Glyph Spin Speed
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="sl-glyph-spin-speed"     type="range"  min="0" max="2" step="0.05" value="1">
+          <input id="sl-glyph-spin-speed-num" type="number" min="0" max="2" step="0.05" value="1">
+        </span>
+      </label>
+      <label>Hue Drift Rate
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="sl-hue-drift-rate"     type="range"  min="0" max="0.5" step="0.01" value="0">
+          <input id="sl-hue-drift-rate-num" type="number" min="0" max="0.5" step="0.01" value="0">
+        </span>
+      </label>
+      <label>Hue Drift Amt
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="sl-hue-drift-amt"     type="range"  min="0" max="45" step="1" value="0">
+          <input id="sl-hue-drift-amt-num" type="number" min="0" max="45" step="1" value="0">
+        </span>
+      </label>
+      <label>Head Overshoot
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="sl-head-overshoot"     type="range"  min="0" max="3" step="0.05" value="0">
+          <input id="sl-head-overshoot-num" type="number" min="0" max="3" step="0.05" value="0">
+        </span>
+      </label>
     </div>
 
     <!-- Columns sub-panel -->
@@ -1645,9 +1706,18 @@
   // Organic controls
   linkSlider('ctl-brightness', 'ctl-brightness-num', v => rain.setBrightness(v));
   linkSlider('ctl-breath-amt', 'ctl-breath-amt-num', v => rain.setBreathAmt(v));
-  linkSlider('ctl-wave-speed', 'ctl-wave-speed-num', v => rain.setWaveSpeed(v));
-  linkSlider('ctl-wave-amt',     'ctl-wave-amt-num',     v => rain.setWaveAmt(v));
-  linkSlider('ctl-wave-crests', 'ctl-wave-crests-num', v => rain.setWaveCrests(v));
+  linkSlider('ctl-wave-speed', 'ctl-wave-speed-num', v => { if (document.getElementById('ctl-wave-enabled').checked) rain.setWaveSpeed(v); });
+  linkSlider('ctl-wave-amt',     'ctl-wave-amt-num',   v => { if (document.getElementById('ctl-wave-enabled').checked) rain.setWaveAmt(v); });
+  linkSlider('ctl-wave-crests', 'ctl-wave-crests-num', v => { if (document.getElementById('ctl-wave-enabled').checked) rain.setWaveCrests(v); });
+  document.getElementById('ctl-wave-enabled').addEventListener('change', e => {
+    if (e.target.checked) {
+      rain.setWaveSpeed(parseFloat(document.getElementById('ctl-wave-speed').value));
+      rain.setWaveAmt(parseFloat(document.getElementById('ctl-wave-amt').value));
+      rain.setWaveCrests(parseFloat(document.getElementById('ctl-wave-crests').value));
+    } else {
+      rain.setWaveAmt(0);
+    }
+  });
   bind('ctl-weighted', on => rain.setWeightedGlyphs(on ? 1.0 : 0.0));
   linkSlider('ctl-reverse', 'ctl-reverse-num', v => rain.setReverseChance(v));
   function pushCellSize() {
@@ -1675,6 +1745,15 @@
   linkSlider('ctl-eol-fade',   'ctl-eol-fade-num',   v => rain.setEolFadeStart(v));
   linkSlider('ctl-hue-range',  'ctl-hue-range-num',  v => rain.setColorBlend(v));
   linkSlider('ctl-burst-prob', 'ctl-burst-prob-num', v => rain.setBurstProb(v));
+  // Glyph FX B controls
+  linkSlider('sl-shimmer-amt',      'sl-shimmer-amt-num',      v => rain.setShimmerAmt(v));
+  linkSlider('sl-shimmer-freq',     'sl-shimmer-freq-num',     v => rain.setShimmerFreq(v));
+  linkSlider('sl-inversion-chance', 'sl-inversion-chance-num', v => rain.setInversionChance(v));
+  linkSlider('sl-glyph-spin-amt',   'sl-glyph-spin-amt-num',   v => rain.setGlyphSpinAmt(v));
+  linkSlider('sl-glyph-spin-speed', 'sl-glyph-spin-speed-num', v => rain.setGlyphSpinSpeed(v));
+  linkSlider('sl-hue-drift-rate',   'sl-hue-drift-rate-num',   v => rain.setHueDriftRate(v));
+  linkSlider('sl-hue-drift-amt',    'sl-hue-drift-amt-num',    v => rain.setHueDriftAmt(v));
+  linkSlider('sl-head-overshoot',   'sl-head-overshoot-num',   v => rain.setHeadOvershootAmt(v));
   linkSlider('ctl-contagion',       'ctl-contagion-num',       v => rain.setContagion(v));
   linkSlider('ctl-squad-coherence', 'ctl-squad-coherence-num', v => rain.setSquadCoherence(v));
   linkSlider('ctl-squad-size', 'ctl-squad-size-num', () => {

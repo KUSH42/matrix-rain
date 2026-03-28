@@ -152,6 +152,11 @@ All items go in `specs/` before implementation.
   - **Files**: `matrix-rain-tsl.js`, `matrix-rain-webgpu.js`
 
 - [ ] Tests — `tests/` for any pure-JS logic extracted to a `matrix-rain-math.js`
+- [x] **SPEC-effects-category-a** — 5 per-glyph shader effects
+  - `matrix-rain-tsl.js`: `hueRotateRGB` Rodrigues Fn at module scope; 8 new uniforms (`uShimmerAmt/Freq`, `uInversionChance`, `uGlyphSpinAmt/Speed`, `uHueDriftRate/Amt`, `uHeadOvershootAmt`); added to `buildGlyphMaterial` destructure; vertex Fn: head overshoot (Gaussian pulse on `headY`, gated by `isLocked`) + lateral shimmer (per-column sinusoidal `colCenter` displacement, gated by `isVertLockHead`); fragment Fn: glyph rotation (`spinFace` from `finalFace` rotation, replaces all downstream `finalFace` uses in sdfG/chroma/normals), mask→`.toVar()`, inversion (stable per-cell hash, gated by `isLockHead.not()`), tintedColor→`.toVar()`, hue drift (Rodrigues oscillation, gated by `isLockHead`)
+  - `matrix-rain-webgpu.js`: `aHeadOvershoot` buffer baked in `buildGeometry()` (per-column random phase replicated per row); `geom.setAttribute('aHeadOvershoot', ...)` added; 8 handle methods: `setShimmerAmt/Freq`, `setInversionChance`, `setGlyphSpinAmt/Speed`, `setHueDriftRate/Amt`, `setHeadOvershootAmt`
+  - `matrix-3d.html`: "Glyph FX B" sub-panel with 8 sliders + number inputs; `linkSlider` bindings added
+
 - [ ] `prefers-reduced-motion` — disable/reduce heat, god rays, burst bloom
 - [ ] README.md — public documentation before any npm/gh-pages publish
 - [ ] `package.json` npm publish — subpath exports already wired

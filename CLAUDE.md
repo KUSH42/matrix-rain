@@ -195,6 +195,15 @@ Returns a control handle with methods below.
 | `setEolFlash(v)` | Terminal flash intensity 0–2 (0 = off, default 0.6) |
 | `setEolFreezeStart(v)` | Cycle phase at which head glyph freezes 0–1 (1 = off, default 0.80) |
 | `setEolFadeStart(v)` | Cycle phase at which death fade begins 0.5–1 (default 0.88) |
+| `setMessageReserves(n)` | Pre-allocate reserve pool size (integer ≥ 1, capped at nCols/4); no-op with console.warn while message is active |
+| `setShimmerAmt(v)` | Lateral shimmer amplitude 0–0.15 world units (0 = off) |
+| `setShimmerFreq(v)` | Shimmer oscillation frequency 0.5–8.0 Hz |
+| `setInversionChance(v)` | Fraction of cells rendered inverted 0–1 (0 = off) |
+| `setGlyphSpinAmt(v)` | Glyph rotation blend 0–1 (0 = off) |
+| `setGlyphSpinSpeed(v)` | Glyph spin speed 0–2 Hz |
+| `setHueDriftRate(v)` | Per-column hue drift oscillation rate 0–0.5 Hz |
+| `setHueDriftAmt(v)` | Per-column hue drift peak angle 0–45 degrees |
+| `setHeadOvershootAmt(v)` | Head overshoot surge max displacement 0–3 cells |
 
 **Note**: `setHeat`, `setSoften`, `setStreaks`, `setHoloAberration`, `setGodRays`, `setBurstBloom`, `setPhosphorDecay`, `setBloomThreshold`, `setBloomStrength` are no-ops (silent) in `'crt'` and `'none'` modes.
 
@@ -239,6 +248,14 @@ Tears down the instance registered on `element`.
 | `uEolFlash` | `0.6` | Terminal flash intensity; 0 = off |
 | `uEolFreezeStart` | `0.80` | Head glyph freeze threshold; 1.0 = off |
 | `uEolFadeStart` | `0.88` | Death fade start threshold (was hardcoded) |
+| `uShimmerAmt` | `0.0` | Lateral shimmer amplitude (world units) 0–0.15 |
+| `uShimmerFreq` | `2.0` | Shimmer base frequency Hz 0.5–8.0 |
+| `uInversionChance` | `0.0` | Fraction of cells rendered inverted 0–1 |
+| `uGlyphSpinAmt` | `0.0` | Glyph rotation blend 0–1; 0=off |
+| `uGlyphSpinSpeed` | `1.0` | Glyph spin speed Hz 0–2 |
+| `uHueDriftRate` | `0.0` | Per-column hue drift rate Hz 0–0.5 |
+| `uHueDriftAmt` | `0.0` | Per-column hue drift max degrees 0–45 |
+| `uHeadOvershootAmt` | `0.0` | Head overshoot max displacement (cells) 0–3 |
 
 ---
 
