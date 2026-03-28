@@ -297,8 +297,10 @@ function buildGeometry({
     // fmod into [0, 2π] first so the mapping is uniform when clusterUniform=1.
     const TWO_PI   = Math.PI * 2;
     const thetaNorm = (((theta % TWO_PI) + TWO_PI) % TWO_PI) / TWO_PI * 2 - 1;  // [-1, 1]
-    // Radial position: cluster-centered so columns in the same cluster occupy similar shell depths.
-    const rSeed  = Math.max(0, Math.min(1, clusterRSeeds[clusterIdx] + (Math.random() - 0.5) * 2 * clusterRJitter));
+    // Radial position: cluster-centered for shell only — ring/curtain/rectangle override r below.
+    const rSeed  = topology === 'shell'
+      ? Math.max(0, Math.min(1, clusterRSeeds[clusterIdx] + (Math.random() - 0.5) * 2 * clusterRJitter))
+      : Math.random();
     let r        = inner + Math.pow(rSeed, exp_) * (outer - inner);
 
     let wx, wz;
@@ -444,12 +446,16 @@ function buildGeometry({
       reserveColTheta = (rwx / rectW + 1) / 2;
     }
 
+    // Assign cluster-coherent Y so the reserve falls in the right vertical band during idle.
+    // This also becomes the restore value on _releaseReserve so it returns to the correct band.
+    const reserveYOff = clusterYCenters[nearestCluster];
     const base  = c * N_ROWS;
-    reserveOrigYOff[i] = colBBuf[base * 4];   // save original aYOff (yOff is component 0)
+    reserveOrigYOff[i] = reserveYOff;
     for (let r = 0; r < N_ROWS; r++) {
       const i4 = (base + r) * 4;
       colABuf[i4]     = rwx;
       colABuf[i4 + 1] = rwz;
+      colBBuf[i4]     = reserveYOff;   // overwrite stale round-robin Y with cluster Y
       const idx = base + r;
       clusterBiasBuf[idx]      = reserveClusterBias;
       clusterBurstSeedBuf[idx] = reserveBurstSeed;
@@ -1530,19 +1536,20 @@ export function initMatrixRain(element, opts = {}) {
         if (t >= msgHoldEnd) {
           msgState = 'fading';
           msgFadeStart = t;
-          // Stop band suppression so unlocked columns show rain again as they fade out
+          // Stop band suppression so non-locked columns show rain again as message fades
           uniforms.uMsgRevealActive.value = 0;
-          // Assign each claimed slot a random unlock time within the fade window
-          for (const slot of _msgSlots) {
-            slot.fadeDelay = Math.random();  // [0,1] fraction of fadeDuration
-          }
         }
 
       } else if (msgState === 'fading') {
         const fadeDur = 1.0 / msgFadeSpeed;
         const elapsed = t - msgFadeStart;
-        let lockDirty = false;
+        const fadeT   = Math.min(1.0, elapsed / fadeDur);
+
+        // Fade locked-head glyphs to invisible via the shader uniform (1 → 0)
+        uniforms.uMsgRevealProgress.value = 1.0 - fadeT;
+
         // Expire any lingering spawn-below columns
+        let lockDirty = false;
         for (const c of [..._msgSpawnCols]) {
           const headY = _headYjs(colABuf, colBBuf, nRows, c, t);
           if (headY < _msgWorldY - uniforms.uWorldH.value) {
@@ -1551,26 +1558,10 @@ export function initMatrixRain(element, opts = {}) {
             lockDirty = true;
           }
         }
-        let anyRemaining = false;
-        for (const slot of _msgSlots) {
-          if (!slot.claimed || slot.colIdx < 0) continue;
-          if (elapsed >= slot.fadeDelay * fadeDur) {
-            // Unlock this slot — column rejoins normal rain flow
-            const pool = geomNow._reservePool;
-            if (pool && pool.used.has(slot.colIdx)) {
-              _releaseReserve(pool, slot.colIdx, colBBuf, lockData, colBAttr, lockAttr, nRows);
-            } else {
-              _writeLockRows(lockData, nRows, slot.colIdx, -9999, -1, 0, 0);
-            }
-            _msgLockedCols.delete(slot.colIdx);
-            slot.colIdx = -1;
-            lockDirty = true;
-          } else {
-            anyRemaining = true;
-          }
-        }
         if (lockDirty && lockAttr) lockAttr.needsUpdate = true;
-        if (!anyRemaining) _clearAllLocks(true);
+
+        // Release all locks once glyphs are fully invisible
+        if (fadeT >= 1.0) _clearAllLocks(true);
       }
     }
 
@@ -1852,6 +1843,7 @@ export function initMatrixRain(element, opts = {}) {
     uniforms.uMsgRevealActive.value = 0;
     uniforms.uMsgXMin.value = 0.0;
     uniforms.uMsgXMax.value = 1.0;
+    uniforms.uMsgRevealProgress.value = 0.0;
     if (resetState) msgState = 'idle';
   }
 
@@ -2677,6 +2669,7 @@ export function initMatrixRain(element, opts = {}) {
       msgFadeSpeed      = fadeDuration > 0 ? 1.0 / fadeDuration : Infinity;
       msgRevealEnd       = now + revealDuration;
       msgRevealFallbackT = now + revealDuration * 0.75;
+      uniforms.uMsgRevealProgress.value = 1.0;
       msgState          = 'revealing';
     },
 
@@ -2688,11 +2681,8 @@ export function initMatrixRain(element, opts = {}) {
     clearMessage(opts = {}) {
       const { fadeDuration = 0.8 } = opts;
       if (msgState === 'idle') return;
-      // Assign stagger delays and transition directly to fading.
-      // Let the fading tick release each slot individually for a staggered effect.
-      // Unclaimed/unassigned columns are cleaned up by _clearAllLocks when fading ends.
-      for (const slot of _msgSlots) { slot.fadeDelay = Math.random(); }
       uniforms.uMsgRevealActive.value = 0;  // stop band suppression immediately
+      uniforms.uMsgRevealProgress.value = 1.0; // ensure we fade from full brightness
       uniforms.uMsgXMin.value = 0.0;
       uniforms.uMsgXMax.value = 1.0;
       msgFadeSpeed = fadeDuration > 0 ? 1.0 / fadeDuration : Infinity;
