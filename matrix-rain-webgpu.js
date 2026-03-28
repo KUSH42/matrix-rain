@@ -1907,52 +1907,50 @@ export function initMatrixRain(element, opts = {}) {
   }
 
   // ── CCP extras helpers (flag + Tiananmen) ─────────────────────────────
+  // Extras also use THREE.Sprite to avoid the MeshBasicNodeMaterial vertex-buffer
+  // overflow (PlaneGeometry + MeshBasicMaterial compiles a WGSL pipeline with ~12
+  // vertex buffer slots due to node-builder attribute contamination from the main
+  // instanced geometry, exceeding WebGPU's hard limit of 8).
   function _initCCPExtras() {
     if (_ccpExtraMeshes.length > 0) return;
 
     // Five-star flag
-    const flagTex  = buildFlagTexture();
-    const flagW    = 14 * _ccpScale;
-    const flagH    = flagW * (341 / 512);
-    const flagGeom = new THREE.PlaneGeometry(flagW, flagH);
-    const flagMat  = new THREE.MeshBasicMaterial({
-      map:         flagTex,
+    const flagTex    = buildFlagTexture();
+    const flagW      = 14 * _ccpScale;
+    const flagH      = flagW * (341 / 512);
+    const flagSprite = new THREE.Sprite(new THREE.SpriteMaterial({
+      map:        flagTex,
       transparent: true,
       opacity:     0,
       depthWrite:  false,
-      side:        THREE.DoubleSide,
       blending:    THREE.AdditiveBlending,
-    });
-    const flagMesh = new THREE.Mesh(flagGeom, flagMat);
-    const flagAz   = 0.52;
-    flagMesh.position.set(Math.sin(flagAz) * 15, 4.0, -Math.cos(flagAz) * 15);
-    flagMesh.lookAt(0, 4.0, 0);
-    scene.add(flagMesh);
+    }));
+    flagSprite.scale.set(flagW, flagH, 1);
+    const flagAz = 0.52;
+    flagSprite.position.set(Math.sin(flagAz) * 15, 4.0, -Math.cos(flagAz) * 15);
+    scene.add(flagSprite);
     _ccpExtraMeshes.push({
-      mesh:      flagMesh,
+      mesh:      flagSprite,
       canvasTex: flagTex,
       opacityFn: (t, fadeT) => (0.4 + 0.15 * Math.sin(t * 0.6)) * fadeT,
     });
 
     // Tiananmen gate
-    const tTex  = buildTiananmenTexture();
-    const tW    = 13 * _ccpScale;
-    const tH    = tW * (480 / 768);
-    const tGeom = new THREE.PlaneGeometry(tW, tH);
-    const tMat  = new THREE.MeshBasicMaterial({
-      map:         tTex,
+    const tTex    = buildTiananmenTexture();
+    const tW      = 13 * _ccpScale;
+    const tH      = tW * (480 / 768);
+    const tSprite = new THREE.Sprite(new THREE.SpriteMaterial({
+      map:        tTex,
       transparent: true,
       opacity:     0,
       depthWrite:  false,
-      side:        THREE.DoubleSide,
       blending:    THREE.AdditiveBlending,
-    });
-    const tMesh = new THREE.Mesh(tGeom, tMat);
-    tMesh.position.set(Math.sin(Math.PI) * 20, -3.0, -Math.cos(Math.PI) * 20);
-    tMesh.lookAt(0, -3.0, 0);
-    scene.add(tMesh);
+    }));
+    tSprite.scale.set(tW, tH, 1);
+    tSprite.position.set(Math.sin(Math.PI) * 20, -3.0, -Math.cos(Math.PI) * 20);
+    scene.add(tSprite);
     _ccpExtraMeshes.push({
-      mesh:      tMesh,
+      mesh:      tSprite,
       canvasTex: tTex,
       opacityFn: (_t, fadeT) => 0.45 * fadeT,
     });
@@ -1961,7 +1959,6 @@ export function initMatrixRain(element, opts = {}) {
   function _destroyCCPExtras() {
     for (const m of _ccpExtraMeshes) {
       scene.remove(m.mesh);
-      m.mesh.geometry.dispose();
       m.mesh.material.dispose();
       m.canvasTex.dispose();
     }
