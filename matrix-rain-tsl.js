@@ -77,6 +77,9 @@ export function makeUniforms(glyphCount = 56, gridW = 8, gridH = 8, lutTexture =
     uSwayDecay:      uniform(1.5),   // exponential decay rate — higher = settles faster
     uMsgRevealProgress:  uniform(0.0),                   // overall effect opacity 0→1→0
     uMsgBoost:           uniform(2.0),                   // brightness multiplier for locked head glyphs
+    uMsgRevealY:         uniform(0.0),                   // world Y of locked head zone
+    uMsgRevealBand:      uniform(0.35),                  // half-height of suppression band (world units)
+    uMsgRevealActive:    uniform(0.0),                   // 1 = suppress non-locked glyphs in band
     uGlyphWeightLUT:    texture(lutTexture),             // 256×1 inverse-CDF glyph weight LUT
     uBrightness:     uniform(1.0),   // output brightness multiplier — range [0.2, 2.0]
     uBreathAmt:      uniform(1.0),   // speed-oscillation amplitude scale — 0 = off, 1 = ±15%
@@ -136,7 +139,7 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     uColor, uGlobalAlpha, uDepth, uPomSteps, uNormalStrength,
     uLightDir, uGlyphChroma,
     uSpeedMul, uMaxYaw, uFacingJitter, uFlatZ, uForwardFacing, uGlobeInteract, uSwayAmt, uSwayDecay,
-    uMsgRevealProgress, uMsgBoost,
+    uMsgRevealProgress, uMsgBoost, uMsgRevealY, uMsgRevealBand, uMsgRevealActive,
     uGlyphWeightLUT,
     uBrightness, uBreathAmt, uWaveSpeed, uWaveAmt, uWaveCrests, uEntrainAmt, uEntrainSpeed, uEntrainCrests, uWeightedGlyphs, uReverseChance,
     uDensity,
@@ -176,8 +179,9 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
   const vBurst     = varying(float(),  'vBurst');
   const vBootFade  = varying(float(),  'vBootFade');
   const vDeathFade  = varying(float(),  'vDeathFade');
-  const vColCenterX = varying(float(),  'vColCenterX'); // baked world X of column centre
-  const vLockState  = varying(vec4(),   'vLockState');  // (lockY, lockGlyph, lockTime, spawnActive)
+  const vColCenterX  = varying(float(),  'vColCenterX'); // baked world X of column centre
+  const vCellWorldY  = varying(float(),  'vCellWorldY'); // world Y of this cell (for Y-band suppression)
+  const vLockState   = varying(vec4(),   'vLockState');  // (lockY, lockGlyph, lockTime, spawnActive)
 
   // ── MTSDF sampling (closure over atlasTexture + uniforms) ─────────────
   // blendSDF: 0 = pure MSDF (accurate corners, large scale / CRT),
@@ -404,6 +408,7 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
           .and(dist.greaterThanEqual(float(-0.5)))
           .and(dist.lessThan(float(0.5)));
         const lockedCellY = select(isVertLockHead, aLockStateAttr.x, cellY.add(waveOffset));
+        vCellWorldY.assign(lockedCellY);
         const colCenter   = vec3(aWX, lockedCellY, wz).toVar();
         const toTarget    = vec2(aWX.negate(), float(-2).sub(wz));
         const targetAngle = atan(toTarget.x, toTarget.y);
@@ -486,6 +491,14 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     const accel    = select(d.greaterThan(halfDist), float(1.5), float(1.0));
     const trail    = exp(d.negate().mul(vTrail).mul(accel));
     If(trail.lessThan(0.012), () => { Discard(); });
+
+    // Suppress non-locked fragments inside the message reveal Y band.
+    // Other columns animate normally and their glyphs pass through the locked head
+    // position; with additive blending they add colour noise on top of the message
+    // letters. Discard those fragments so only the locked column shows at lockY.
+    If(uMsgRevealActive.greaterThan(float(0.0)).and(lockActive.not()), () => {
+      If(abs(vCellWorldY.sub(uMsgRevealY)).lessThan(uMsgRevealBand), () => { Discard(); });
+    });
 
     // View-space vectors — used by POM tangent frame below
     const toFrag   = vWorldPos.sub(cameraPosition);

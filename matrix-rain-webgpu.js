@@ -1105,6 +1105,7 @@ export function initMatrixRain(element, opts = {}) {
   let msgHoldDuration = 0;       // hold duration in seconds
   let msgHoldEnd      = 0;       // absolute timestamp when hold ends
   let msgFadeSpeed    = 0;       // progress units per second (1/fadeDuration)
+  let msgFadeStart    = 0;       // absolute timestamp when fading began (for stagger)
   let msgRevealEnd         = 0;    // absolute timestamp when reveal phase ends
   let msgRevealFallbackT   = 0;    // timestamp for fallback spawn (75% of revealDuration)
   let msgSpawnChance       = 0.85; // probability of spawn-below on each lock
@@ -1153,6 +1154,10 @@ export function initMatrixRain(element, opts = {}) {
   let _reducedMotion  = false;
   let _savedSpeedMul  = uniforms.uSpeedMul.value;
   let _spawnWaveAnim  = null;  // { startTime, endTime, startFront, endFront, easing } or null
+
+  // Scratch objects reused across ticks — avoids per-tick allocations in the message state machine
+  const _msgTv    = new THREE.Vector4();
+  const _msgVpMat = new THREE.Matrix4();
 
   // syncCamera reference — assigned to state after state object is created
   let activeSyncCamera = syncCamera;
@@ -1241,27 +1246,16 @@ export function initMatrixRain(element, opts = {}) {
 
       if (msgState === 'revealing') {
         uniforms.uMsgRevealProgress.value = 1.0;
-        let lockDirty    = false;
-        let colBDirty    = false;
-        let allClaimed   = true;
+        let lockDirty  = false;
+        let colBDirty  = false;
+        let allClaimed = true;
 
-        // ── Check each slot for fallback (75% of reveal duration elapsed) ──
-        const revealElapsed = t - (msgRevealEnd - (msgRevealEnd - (msgRevealEnd - msgHoldDuration)));
-        // simpler: track reveal start time
-        // Actually we stored msgRevealEnd = revealStart + revealDuration
-        // so revealElapsed = t - (msgRevealEnd - revealDuration) ... but we don't have revealDuration
-        // We stored msgRevealEnd = revealEnd. Use it: fallback triggers after 75% of duration.
-        // We need the reveal start — stored implicitly as msgRevealEnd - revealDuration.
-        // Reconstruct: fallbackThresh = msgRevealEnd - revealDuration * 0.25
-        // We don't have revealDuration here. So store it in a closure var.
-        // (handled via msgRevealFallbackT set in showMessage)
+        // Reserve-column boundary — slots recruitment and spawn-below both stay below this
+        const reserveStart = geomNow._reservePool?.reserveStart ?? nCols;
 
         // Pre-compute VP matrix once for screen-space projection in this tick
         camera.updateMatrixWorld();
-        const vpMat2 = new THREE.Matrix4().multiplyMatrices(
-          camera.projectionMatrix, camera.matrixWorldInverse
-        );
-        const tv = new THREE.Vector4();
+        _msgVpMat.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
 
         for (let si = 0; si < _msgSlots.length; si++) {
           const slot = _msgSlots[si];
@@ -1269,19 +1263,12 @@ export function initMatrixRain(element, opts = {}) {
           allClaimed = false;
 
           // ── Recruit a column for unassigned slots every tick ──────────
-          // Try reserve pool first; fall back to nearest regular column.
+          // Try reserve pool first; fall back to nearest non-reserve column.
           if (slot.colIdx < 0) {
             let bestCol = _claimReserve(geomNow._reservePool, slot.screenX, _msgWorldY,
-              colABuf, colBBuf, lockData, colAAttr, colBAttr, lockAttr, nRows, vpMat2);
+              colABuf, colBBuf, lockData, colAAttr, colBAttr, lockAttr, nRows, _msgVpMat);
             if (bestCol >= 0) {
-              // Adjust aYOff to bring reserve's head to _msgWorldY (spawn-below mechanism)
-              const spd     = colABuf[bestCol * nRows * 4 + 2];
-              const seed    = colABuf[bestCol * nRows * 4 + 3];
-              const sc      = colBBuf[bestCol * nRows * 4 + 1];
-              const cs      = uniforms.uCellH.value * sc * 1.85;
-              const ch      = uniforms.uWorldH.value + nRows * cs;
-              const cp      = ((t * spd * Math.max(0.01, uniforms.uSpeedMul.value) + seed * ch) % ch + ch) % ch;
-              const newYOff = _msgWorldY - uniforms.uWorldH.value / 2 + cp;
+              const newYOff = _yOffForHead(colABuf, colBBuf, nRows, bestCol, _msgWorldY, t);
               for (let r = 0; r < nRows; r++) colBBuf[(bestCol * nRows + r) * 4] = newYOff;
               colBDirty = true;
               slot.colIdx = bestCol;
@@ -1291,7 +1278,6 @@ export function initMatrixRain(element, opts = {}) {
               lockDirty = true;
             } else {
               // Pool exhausted — fall back to nearest non-reserve column
-              const reserveStart = geomNow._reservePool?.reserveStart ?? nCols;
               let bestDist = Infinity;
               bestCol = -1;
               for (let c = 0; c < reserveStart; c++) {
@@ -1299,9 +1285,9 @@ export function initMatrixRain(element, opts = {}) {
                 const base = c * nRows * 4;
                 const wx   = colABuf[base + 0] + uniforms.uColumnOffset.value.x;
                 const wz   = colABuf[base + 1] + uniforms.uColumnOffset.value.y;
-                tv.set(wx, _msgWorldY, wz, 1.0).applyMatrix4(vpMat2);
-                if (tv.w <= 0) continue;
-                const sx   = (tv.x / tv.w + 1.0) * 0.5;
+                _msgTv.set(wx, _msgWorldY, wz, 1.0).applyMatrix4(_msgVpMat);
+                if (_msgTv.w <= 0) continue;
+                const sx   = (_msgTv.x / _msgTv.w + 1.0) * 0.5;
                 const dist = Math.abs(sx - slot.screenX);
                 if (dist < bestDist) { bestDist = dist; bestCol = c; }
               }
@@ -1316,22 +1302,15 @@ export function initMatrixRain(element, opts = {}) {
 
           // ── Force head to worldY for assigned columns past fallback time ──
           if (slot.colIdx >= 0 && t >= msgRevealFallbackT) {
-            const c       = slot.colIdx;
-            const base    = c * nRows * 4;
-            const spd     = colABuf[base + 2];
-            const seed    = colABuf[base + 3];
-            const sc      = colBBuf[base + 1];
-            const cs      = uniforms.uCellH.value * sc * 1.85;
-            const ch      = uniforms.uWorldH.value + nRows * cs;
-            const cp      = ((t * spd * Math.max(0.01, uniforms.uSpeedMul.value) + seed * ch) % ch + ch) % ch;
-            const newYOff = _msgWorldY - uniforms.uWorldH.value / 2 + cp;
-            for (let r = 0; r < nRows; r++) colBBuf[(c * nRows + r) * 4] = newYOff;
+            const newYOff = _yOffForHead(colABuf, colBBuf, nRows, slot.colIdx, _msgWorldY, t);
+            for (let r = 0; r < nRows; r++) colBBuf[(slot.colIdx * nRows + r) * 4] = newYOff;
             colBDirty = true;
           }
         }
 
         // ── Check assigned columns for head lock ──────────────────────────
-        for (const [colIdx, slotIdx] of _msgAssigned) {
+        // Snapshot keys to allow safe deletion during iteration
+        for (const [colIdx, slotIdx] of [..._msgAssigned]) {
           const slot = _msgSlots[slotIdx];
           if (slot.claimed) { _msgAssigned.delete(colIdx); continue; }
           const headY    = _headYjs(colABuf, colBBuf, nRows, colIdx, t);
@@ -1350,7 +1329,7 @@ export function initMatrixRain(element, opts = {}) {
             _msgAssigned.delete(colIdx);
 
             // Clear other columns assigned to this same slot
-            for (const [oc, os] of _msgAssigned) {
+            for (const [oc, os] of [..._msgAssigned]) {
               if (os === slotIdx) {
                 _writeLockRows(lockData, nRows, oc, -9999, -1, 0, 0);
                 _msgAssigned.delete(oc);
@@ -1358,7 +1337,7 @@ export function initMatrixRain(element, opts = {}) {
               }
             }
 
-            // Spawn-below
+            // Spawn-below: pick the nearest non-reserve column within SEARCH_R world units
             if (Math.random() < msgSpawnChance && lockData) {
               const wx0  = colABuf[colIdx * nRows * 4 + 0] + uniforms.uColumnOffset.value.x;
               const aScl = colBBuf[colIdx * nRows * 4 + 1];
@@ -1366,7 +1345,7 @@ export function initMatrixRain(element, opts = {}) {
               const tgt  = _msgWorldY - 1.5 * cs;
               const SEARCH_R = 2.0;
               let bestDist = Infinity, bestSpawn = -1;
-              for (let c = 0; c < nCols; c++) {
+              for (let c = 0; c < reserveStart; c++) {
                 if (_msgLockedCols.has(c) || _msgAssigned.has(c) || _msgSpawnCols.has(c)) continue;
                 const base = c * nRows * 4;
                 const wx   = colABuf[base + 0] + uniforms.uColumnOffset.value.x;
@@ -1378,14 +1357,7 @@ export function initMatrixRain(element, opts = {}) {
                 if (score < bestDist) { bestDist = score; bestSpawn = c; }
               }
               if (bestSpawn >= 0) {
-                const base   = bestSpawn * nRows * 4;
-                const spd    = colABuf[base + 2];
-                const seed   = colABuf[base + 3];
-                const sc2    = colBBuf[base + 1];
-                const cs2    = uniforms.uCellH.value * sc2 * 1.85;
-                const ch2    = uniforms.uWorldH.value + nRows * cs2;
-                const cp2    = ((t * spd * Math.max(0.01, uniforms.uSpeedMul.value) + seed * ch2) % ch2 + ch2) % ch2;
-                const newY   = tgt - uniforms.uWorldH.value / 2 + cp2;
+                const newY = _yOffForHead(colABuf, colBBuf, nRows, bestSpawn, tgt, t);
                 for (let r = 0; r < nRows; r++) colBBuf[(bestSpawn * nRows + r) * 4] = newY;
                 colBDirty = true;
                 _writeLockRows(lockData, nRows, bestSpawn, -9999, -1, 0, 1); // spawnActive=1
@@ -1396,8 +1368,8 @@ export function initMatrixRain(element, opts = {}) {
           }
         }
 
-        // Expire spawn-below columns that have completed one cycle
-        for (const c of _msgSpawnCols) {
+        // Expire spawn-below columns that have completed one cycle (snapshot for safe deletion)
+        for (const c of [..._msgSpawnCols]) {
           const headY = _headYjs(colABuf, colBBuf, nRows, c, t);
           if (headY < _msgWorldY - uniforms.uWorldH.value) {
             _writeLockRows(lockData, nRows, c, -9999, -1, 0, 0);
@@ -1420,7 +1392,7 @@ export function initMatrixRain(element, opts = {}) {
         // Expire any spawn-below columns
         if (_msgSpawnCols.size && lockData) {
           let dirty = false;
-          for (const c of _msgSpawnCols) {
+          for (const c of [..._msgSpawnCols]) {
             const headY = _headYjs(colABuf, colBBuf, nRows, c, t);
             if (headY < _msgWorldY - uniforms.uWorldH.value) {
               _writeLockRows(lockData, nRows, c, -9999, -1, 0, 0);
@@ -1430,13 +1402,48 @@ export function initMatrixRain(element, opts = {}) {
           }
           if (dirty && lockAttr) lockAttr.needsUpdate = true;
         }
-        if (t >= msgHoldEnd) msgState = 'fading';
+        if (t >= msgHoldEnd) {
+          msgState = 'fading';
+          msgFadeStart = t;
+          // Assign each claimed slot a random unlock time within the fade window
+          for (const slot of _msgSlots) {
+            slot.fadeDelay = Math.random();  // [0,1] fraction of fadeDuration
+          }
+        }
 
       } else if (msgState === 'fading') {
-        uniforms.uMsgRevealProgress.value = Math.max(0, uniforms.uMsgRevealProgress.value - msgFadeSpeed * dt);
-        if (uniforms.uMsgRevealProgress.value <= 0) {
-          _clearAllLocks(true);
+        const fadeDur = 1.0 / msgFadeSpeed;
+        const elapsed = t - msgFadeStart;
+        let lockDirty = false;
+        // Expire any lingering spawn-below columns
+        for (const c of [..._msgSpawnCols]) {
+          const headY = _headYjs(colABuf, colBBuf, nRows, c, t);
+          if (headY < _msgWorldY - uniforms.uWorldH.value) {
+            _writeLockRows(lockData, nRows, c, -9999, -1, 0, 0);
+            _msgSpawnCols.delete(c);
+            lockDirty = true;
+          }
         }
+        let anyRemaining = false;
+        for (const slot of _msgSlots) {
+          if (!slot.claimed || slot.colIdx < 0) continue;
+          if (elapsed >= slot.fadeDelay * fadeDur) {
+            // Unlock this slot — column rejoins normal rain flow
+            const pool = geomNow._reservePool;
+            if (pool && pool.used.has(slot.colIdx)) {
+              _releaseReserve(pool, slot.colIdx, colBBuf, lockData, colBAttr, lockAttr, nRows);
+            } else {
+              _writeLockRows(lockData, nRows, slot.colIdx, -9999, -1, 0, 0);
+            }
+            _msgLockedCols.delete(slot.colIdx);
+            slot.colIdx = -1;
+            lockDirty = true;
+          } else {
+            anyRemaining = true;
+          }
+        }
+        if (lockDirty && lockAttr) lockAttr.needsUpdate = true;
+        if (!anyRemaining) _clearAllLocks(true);
       }
     }
 
@@ -1620,22 +1627,34 @@ export function initMatrixRain(element, opts = {}) {
     }
   }
 
+  // Compute the aYOff value that places column c's head at targetWorldY at time t.
+  // Mirrors the JS-side head-Y approximation used throughout the message reveal system.
+  function _yOffForHead(colABuf, colBBuf, nRows, c, targetWorldY, t) {
+    const base = c * nRows * 4;
+    const spd  = colABuf[base + 2];
+    const seed = colABuf[base + 3];
+    const sc   = colBBuf[base + 1];
+    const cs   = uniforms.uCellH.value * sc * 1.85;
+    const ch   = uniforms.uWorldH.value + nRows * cs;
+    const cp   = ((t * spd * Math.max(0.01, uniforms.uSpeedMul.value) + seed * ch) % ch + ch) % ch;
+    return targetWorldY - uniforms.uWorldH.value / 2 + cp;
+  }
+
   // Claim the best-matching free reserve column for a message slot.
   // "Best" = closest by screen X projection to slotScreenX.
   // Sets spawnActive=1 (bypasses density+frustum cull). Returns colIdx or -1 if pool empty.
   function _claimReserve(pool, slotScreenX, worldY, colABuf, colBBuf, lockData,
                           colAAttr, colBAttr, lockAttr, nRows, vpMat) {
     if (!pool || pool.free.length === 0) return -1;
-    const tmpV = new THREE.Vector4();
     let bestDist = Infinity, bestFreeIdx = -1;
     for (let fi = 0; fi < pool.free.length; fi++) {
       const c    = pool.free[fi];
       const base = c * nRows * 4;
       const wx   = colABuf[base];
       const wz   = colABuf[base + 1];
-      tmpV.set(wx, worldY, wz, 1.0).applyMatrix4(vpMat);
-      if (tmpV.w <= 0) continue;
-      const sx   = (tmpV.x / tmpV.w + 1.0) * 0.5;
+      _msgTv.set(wx, worldY, wz, 1.0).applyMatrix4(vpMat);
+      if (_msgTv.w <= 0) continue;
+      const sx   = (_msgTv.x / _msgTv.w + 1.0) * 0.5;
       const dist = Math.abs(sx - slotScreenX);
       if (dist < bestDist) { bestDist = dist; bestFreeIdx = fi; }
     }
@@ -1694,6 +1713,7 @@ export function initMatrixRain(element, opts = {}) {
     if (resetState) {
       msgState = 'idle';
       uniforms.uMsgRevealProgress.value = 0;
+      uniforms.uMsgRevealActive.value   = 0;
     }
   }
 
@@ -2420,14 +2440,16 @@ export function initMatrixRain(element, opts = {}) {
       // ── Initialise state ─────────────────────────────────────────────
       uniforms.uMsgBoost.value           = boost;
       uniforms.uMsgRevealProgress.value  = 1.0;
+      uniforms.uMsgRevealY.value         = _msgWorldY;
+      uniforms.uMsgRevealActive.value    = 1.0;
       msgSpawnChance    = spawnChance;
       msgTolMultMin     = tolMultMin;
       msgTolMultMax     = tolMultMax;
       msgTolMinScale    = tolMinScale;
+      const now = prevTs || performance.now() * 0.001;
       msgRevealStart    = now;
       msgHoldDuration   = holdDuration;
-      msgFadeSpeed      = 1.0 / fadeDuration;
-      const now = prevTs || performance.now() * 0.001;
+      msgFadeSpeed      = fadeDuration > 0 ? 1.0 / fadeDuration : Infinity;
       msgRevealEnd       = now + revealDuration;
       msgRevealFallbackT = now + revealDuration * 0.75;
       msgState          = 'revealing';
