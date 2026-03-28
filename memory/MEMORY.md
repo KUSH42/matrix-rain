@@ -5,6 +5,8 @@ Append notable events at session end. Prune entries older than 30 days.
 
 - [Future: real contagion](future_real_contagion.md) — true neighbor-propagation burst needs ping-pong storage texture; current "cluster sync" is simultaneous cluster firing
 
+- 2026-03-28: **SPEC-message-reveal-improvements** implemented. 4 changes: (1) auto-size reserve pool (`_geomParams.spawnReserves` raised to `max(48, nChars*3)` capped at nCols/4, + `setMessageReserves(n)` handle method); (2) saturating spawn-below (up to SPAWN_CAP=4 columns per lock, slot-width-gated, replaces probabilistic single-column; `_msgSpawnCols` Set→Map); (3) multi-line `showMessage` accepts `string | string[]`, `lineSpacing=0.12`, `_msgWorldY` → `_msgWorldYs[]`, slots gain `lineIdx`+`worldY`; (4) camera-Y tracking via `trackCamera: true` opt. Key patterns: `_msgSpawnCols` is now a `Map<colIdx, worldY>` — all 3 expiry loops use `for (const [c, spawnWorldY] of [..._msgSpawnCols])`. Reserve Y-offset wrap block uses `_msgWorldYs[slot.lineIdx]`. Change 4 tracking block declares its own `let trackDirty = false` (not shared with state machine blocks).
+
 - 2026-03-28: **SPEC-eol-effects** implemented. 3 new uniforms (`uEolFlash=0.6`, `uEolFreezeStart=0.80`, `uEolFadeStart=0.88`), `vCyclePhase` varying, terminal flash Gaussian block, glyph freeze `select()` on `changeTick`, death fade threshold promoted. 3 handle methods + 3 sliders in matrix-3d.html. Changes on by default (flash=0.6, freeze=0.80).
 
 - 2026-03-27: **SPEC-webgl-fallback** implemented. Three.js WebGPURenderer auto-falls

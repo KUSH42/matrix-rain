@@ -178,6 +178,9 @@ Returns a control handle with methods below.
 | `setHueRange(deg)` | Per-column G-B hue rotation max 0–45° (default 8°) |
 | `setBurstProb(v)` | Fraction of columns that burst per 4 s cycle 0–1 (default 0.005) |
 | `setClusterUniform(v)` | Cluster-to-uniform angular blend 0–1 (0=clustered, 1=scatter) — triggers geometry rebuild |
+| `setClusterHueRange(v)` | Max per-cluster hue rotation in degrees 0–45 (0 = monochrome, default 18) |
+| `setClusterBrightRange(v)` | Per-cluster brightness bias magnitude 0–1 (0 = uniform, default 0.35) |
+| `setClusterSpeedRange(v)` | Per-cluster speed bias magnitude 0–1 (0 = uniform, default 0.30) |
 | `setSectorCenter(deg)` | World XZ angle of sector center −180–180° (default 0 = +Z axis) |
 | `setSectorWidth(deg)` | Half-angle of active sector 1–180° (default 180 = widest arc) |
 | `setSectorStrength(v)` | Fraction masked outside sector 0–1 (0 = off, default) |
@@ -241,6 +244,9 @@ Tears down the instance registered on `element`.
 | God rays `uExposure` | `0.45` | |
 | `uMsgBoost` | `2.0` | Brightness multiplier in message region (was 3.0 before message-reveal rework) |
 | `uContagionStrength` | `0.0` | Cluster burst contagion 0–1; 0 = off |
+| `uClusterHueRange` | `18.0` | Max hue rotation per cluster in degrees; 0 = monochrome |
+| `uClusterBrightRange` | `0.35` | Brightness bias magnitude; 0 = uniform brightness |
+| `uClusterSpeedRange` | `0.30` | Speed bias magnitude; 0 = uniform speed |
 | `uEntrainAmt` | `0.0` | Speed entrainment wave amplitude 0–0.8; 0 = off |
 | `uEntrainSpeed` | `0.25` | Entrainment wave angular speed rad/s |
 | `uEntrainCrests` | `3.0` | Entrainment crests around shell 1–12 |

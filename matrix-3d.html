@@ -1025,10 +1025,22 @@
         </span>
       </label>
 
-      <label id="lbl-cluster-bias">Cluster bias
+      <label id="lbl-cluster-hue">Cluster hue range (°)
         <span style="display:flex;align-items:center;gap:4px;">
-          <input id="ctl-cluster-bias"     type="range"  min="0" max="1" step="0.01" value="0.40">
-          <input id="ctl-cluster-bias-num" type="number" min="0" max="1" step="0.01" value="0.40">
+          <input id="ctl-cluster-hue"     type="range"  min="0" max="45" step="1" value="18">
+          <input id="ctl-cluster-hue-num" type="number" min="0" max="45" step="1" value="18">
+        </span>
+      </label>
+      <label id="lbl-cluster-bright">Cluster brightness range
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-cluster-bright"     type="range"  min="0" max="1" step="0.01" value="0.35">
+          <input id="ctl-cluster-bright-num" type="number" min="0" max="1" step="0.01" value="0.35">
+        </span>
+      </label>
+      <label id="lbl-cluster-speed">Cluster speed range
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-cluster-speed"     type="range"  min="0" max="1" step="0.01" value="0.30">
+          <input id="ctl-cluster-speed-num" type="number" min="0" max="1" step="0.01" value="0.30">
         </span>
       </label>
       <label id="lbl-cluster-speed-jitter">Cluster speed jitter
@@ -1666,7 +1678,9 @@
     'lbl-clusters':        ['shell', 'ring', 'curtain', 'rectangle'],
     'lbl-cluster-spread':  ['shell', 'ring', 'curtain', 'rectangle'],
     'lbl-cluster-uniform': ['shell', 'ring', 'curtain', 'rectangle'],
-    'lbl-cluster-bias':          ['shell', 'ring', 'curtain', 'rectangle'],
+    'lbl-cluster-hue':           ['shell', 'ring', 'curtain', 'rectangle'],
+    'lbl-cluster-bright':        ['shell', 'ring', 'curtain', 'rectangle'],
+    'lbl-cluster-speed':         ['shell', 'ring', 'curtain', 'rectangle'],
     'lbl-cluster-speed-jitter':  ['shell', 'ring', 'curtain', 'rectangle'],
     'lbl-cluster-y-spread':      ['shell', 'ring', 'curtain', 'rectangle'],
     'lbl-cluster-r-jitter':      ['shell'],
@@ -1724,7 +1738,9 @@
   linkSlider('ctl-cluster-uniform', 'ctl-cluster-uniform-num', () => {
     debounceRebuild(() => rain.setClusterUniform(parseFloat(document.getElementById('ctl-cluster-uniform').value)));
   });
-  linkSlider('ctl-cluster-bias', 'ctl-cluster-bias-num', v => rain.setClusterBias(v));
+  linkSlider('ctl-cluster-hue',    'ctl-cluster-hue-num',    v => rain.setClusterHueRange(v));
+  linkSlider('ctl-cluster-bright', 'ctl-cluster-bright-num', v => rain.setClusterBrightRange(v));
+  linkSlider('ctl-cluster-speed',  'ctl-cluster-speed-num',  v => rain.setClusterSpeedRange(v));
   linkSlider('ctl-cluster-speed-jitter', 'ctl-cluster-speed-jitter-num', () => {
     debounceRebuild(() => rain.setClusterSpeedJitter(parseFloat(document.getElementById('ctl-cluster-speed-jitter').value)));
   });
@@ -1965,7 +1981,9 @@
       densityIn:     fv('ctl-density-in'),
       densityOut:    fv('ctl-density-out'),
       clusterUniform:      fv('ctl-cluster-uniform'),
-      clusterBias:         fv('ctl-cluster-bias'),
+      clusterHueRange:     fv('ctl-cluster-hue'),
+      clusterBrightRange:  fv('ctl-cluster-bright'),
+      clusterSpeedRange:   fv('ctl-cluster-speed'),
       clusterSpeedJitter:  fv('ctl-cluster-speed-jitter'),
       clusterYSpread:      fv('ctl-cluster-y-spread'),
       clusterRJitter:      fv('ctl-cluster-r-jitter'),
@@ -2157,7 +2175,9 @@
     set('ctl-density-in',     s.densityIn);
     set('ctl-density-out',    s.densityOut);
     set('ctl-cluster-uniform',     s.clusterUniform);
-    set('ctl-cluster-bias',        s.clusterBias);
+    set('ctl-cluster-hue',         s.clusterHueRange);
+    set('ctl-cluster-bright',      s.clusterBrightRange);
+    set('ctl-cluster-speed',       s.clusterSpeedRange);
     set('ctl-cluster-speed-jitter', s.clusterSpeedJitter);
     set('ctl-cluster-y-spread',    s.clusterYSpread);
     set('ctl-cluster-r-jitter',    s.clusterRJitter);
@@ -2181,8 +2201,10 @@
       s.clusterSpread ?? parseFloat(document.getElementById('ctl-cluster-spread').value),
     );
     if (s.radialBias      !== undefined) rain.setRadialBias(s.radialBias);
-    if (s.clusterUniform  !== undefined) rain.setClusterUniform(s.clusterUniform);
-    if (s.clusterBias     !== undefined) rain.setClusterBias(s.clusterBias);
+    if (s.clusterUniform     !== undefined) rain.setClusterUniform(s.clusterUniform);
+    if (s.clusterHueRange    !== undefined) rain.setClusterHueRange(s.clusterHueRange);
+    if (s.clusterBrightRange !== undefined) rain.setClusterBrightRange(s.clusterBrightRange);
+    if (s.clusterSpeedRange  !== undefined) rain.setClusterSpeedRange(s.clusterSpeedRange);
     if (s.clusterSpeedJitter !== undefined) rain.setClusterSpeedJitter(s.clusterSpeedJitter);
     if (s.clusterYSpread     !== undefined) rain.setClusterYSpread(s.clusterYSpread);
     if (s.clusterRJitter     !== undefined) rain.setClusterRJitter(s.clusterRJitter);

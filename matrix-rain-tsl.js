@@ -137,7 +137,9 @@ export function makeUniforms(glyphCount = 56, gridW = 8, gridH = 8, lutTexture =
     uHueRange:       uniform(0.5),   // per-column colour blend spread 0–1 (0=all uColor, 1=full mix)
     uBurstProb:      uniform(0.005), // fraction of columns that burst per 4 s cycle
     uContagionStrength: uniform(0.35), // fraction of cluster members joining a cluster burst 0–1
-    uClusterBiasAmt: uniform(0.40),  // per-cluster brightness bias magnitude 0–1
+    uClusterHueRange:    uniform(18.0),  // max hue rotation per cluster in degrees  0–45
+    uClusterBrightRange: uniform(0.35),  // per-cluster brightness bias magnitude    0–1
+    uClusterSpeedRange:  uniform(0.30),  // per-cluster speed bias magnitude         0–1
     uSquadCoherence: uniform(0.3),   // 0 = full squad phase lock, 1 = individual random
     uScanSyncAmt:    uniform(0.0),   // blend toward synchronised cyclePos [0=off, 1=full sync]
     uScanPhase:      uniform(0.0),   // shared cyclePos value driven by JS [0 → cycleH]
@@ -185,7 +187,7 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     uBootEnabled, uBootStart, uStability, uHoldMult, uBurstGlyphRate,
     uColor2, uHueRange, uBurstProb,
     uContagionStrength,
-    uClusterBiasAmt, uSquadCoherence,
+    uClusterHueRange, uClusterBrightRange, uClusterSpeedRange, uSquadCoherence,
     uScanSyncAmt, uScanPhase,
     uAtlasMTSDF,
     uColumnOffset,
@@ -202,8 +204,10 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
   const aRowIdxAttr      = attribute('aRowIdx',      'float');
   const aColAAttr        = attribute('aColA',        'vec4');  // wx, wz, speed, seed
   const aColBAttr        = attribute('aColB',        'vec4');  // yOff, scale, alpha, trail
-  const aClusterBiasAttr      = attribute('aClusterBias',      'float'); // per-cluster bias [-1, 1]
-  const aClusterBurstSeedAttr = attribute('aClusterBurstSeed', 'float'); // per-cluster burst phase offset [0, 1]
+  const aClusterHueAttr        = attribute('aClusterHue',       'float'); // per-cluster hue offset [-1, 1]
+  const aClusterBrightAttr     = attribute('aClusterBright',    'float'); // per-cluster brightness bias [-1, 1]
+  const aClusterSpeedAttr      = attribute('aClusterSpeed',     'float'); // per-cluster speed bias [-1, 1]
+  const aClusterBurstSeedAttr  = attribute('aClusterBurstSeed', 'float'); // per-cluster burst phase offset [0, 1]
   const aSquadPhaseAttr       = attribute('aSquadPhase',       'float'); // shared cyclePos phase seed within squad
   const aFrustumVisAttr       = attribute('aFrustumVis',       'float'); // 1 = visible in frustum, 0 = culled
   const aSpawnThetaAttr       = attribute('aSpawnTheta',       'float'); // normalised angular position [0, 1] for spawn wave
@@ -225,6 +229,10 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
   const vCellWorldY  = varying(float(),  'vCellWorldY'); // world Y of this cell (for Y-band suppression)
   const vLockState   = varying(vec4(),   'vLockState');  // (lockY, lockGlyph, lockTime, spawnActive)
   const vCyclePhase  = varying(float(),  'vCyclePhase'); // forward cyclePhase [0, 1] passed to fragment
+  const vClusterHue  = varying(float(),  'vClusterHue'); // per-cluster hue offset [-1, 1] passed to fragment
+
+  // ── Degrees-to-radians conversion constant (build-time JS float node) ───
+  const DEG_TO_RAD = float(Math.PI / 180);
 
   // ── MTSDF sampling (closure over atlasTexture + uniforms) ─────────────
   // blendSDF: 0 = pure MSDF (accurate corners, large scale / CRT),
@@ -272,6 +280,7 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     vColCenterX.assign(0.0);
     vLockState.assign(vec4(float(-9999), float(-1), float(0), float(0)));
     vCyclePhase.assign(0.0);
+    vClusterHue.assign(0.0);
 
     // Unpack per-column attributes — apply camera-follow offset to XZ world position
     const aWX    = aColAAttr.x.add(uColumnOffset.x);
@@ -353,8 +362,9 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
         h2(vec2(aColIdxAttr.mul(0.67), aRowIdxAttr.mul(0.31))).sub(0.5).mul(0.24)
       );
       const zoneBrightBias  = mix(uZoneBrightInner, uZoneBrightOuter, t_zone);
-      const clusterAlphaMul = float(1.0).add(aClusterBiasAttr.mul(uClusterBiasAmt));
+      const clusterAlphaMul = float(1.0).add(aClusterBrightAttr.mul(uClusterBrightRange));
       vAlpha.assign(aAlpha.mul(alphaJitter).mul(zoneBrightBias).mul(clusterAlphaMul));
+      vClusterHue.assign(aClusterHueAttr);
 
       // Static world-Y of this cell
       const cellY = aYOff.add(uWorldH.mul(0.5))
@@ -410,9 +420,9 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
       const wavePhase  = thetaWave.mul(uWaveCrests).add(uTime.mul(uWaveSpeed));
       const waveOffset = sin(wavePhase).mul(uWaveAmt.mul(4.0));
 
-      // Cluster speed bias — applied here so setClusterBias() takes effect without a rebuild.
-      // uClusterBiasAmt ∈ [0, 1]; aClusterBias ∈ [−1, 1] → speed multiplier ∈ [0.6, 1.4] at bias=0.40.
-      const effectiveSpeed = aSpeed.mul(float(1.0).add(aClusterBiasAttr.mul(uClusterBiasAmt)));
+      // Cluster speed bias — applied here so setClusterSpeedRange() takes effect without a rebuild.
+      // uClusterSpeedRange ∈ [0, 1]; aClusterSpeed ∈ [−1, 1] → speed multiplier ∈ [0.7, 1.3] at range=0.30.
+      const effectiveSpeed = aSpeed.mul(float(1.0).add(aClusterSpeedAttr.mul(uClusterSpeedRange)));
 
       // Squad phase coherence: blend between squad-shared phase (0) and individual random (1)
       const phaseSeed = mix(aSquadPhaseAttr, aSeed, uSquadCoherence);
@@ -738,11 +748,18 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     const depthTint = smoothstep(3.0, 8.0, length(vWorldPos));
     col2.assign(mix(col2, col2.mul(vec3(0.6, 0.85, 1.1)), depthTint.mul(uDepthTintAmt)));
 
+    // ── Per-cluster hue rotation ─────────────────────────────────────────
+    // vClusterHue ∈ [-1, 1]; uClusterHueRange in degrees.
+    // Rotation of R and B around the G (luminance) axis; preserves Matrix feel.
+    const clusterHueDeg = vClusterHue.mul(uClusterHueRange);
+    col2.assign(hueRotateRGB(col2, clusterHueDeg.mul(DEG_TO_RAD)));
+
     // ── Lock-head brightness settle ────────────────────────────────────
     // Brief flare on lock, then cool down to normal trail-head brightness over 1 s.
     const lockAge    = uTime.sub(vLockState.z);  // seconds since lock fired
     const lockSettle = smoothstep(0.0, 1.0, lockAge); // 0 → 1 over 1 s
-    const lockBoost  = mix(uMsgBoost, float(1.0), lockSettle);
+    // Flare briefly on lock (1.5× boost), then settle permanently at uMsgBoost.
+    const lockBoost  = mix(uMsgBoost.mul(1.5), uMsgBoost, lockSettle);
     col2.mulAssign(select(isLockHead, lockBoost, float(1.0)));
 
     // ── Panel tangent frame (kept for lighting) ───────────────────────

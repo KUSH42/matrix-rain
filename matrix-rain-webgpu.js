@@ -190,6 +190,34 @@ function loadMSDF(path) {
   return tex;
 }
 
+// ── Cluster class — owns all per-cluster state ────────────────────────────
+class Cluster {
+  constructor(thetaCenter, worldH) {
+    this.theta      = thetaCenter;
+    this.hue        = Math.random() * 2 - 1;   // per-cluster hue offset [-1, 1]
+    this.brightness = Math.random() * 2 - 1;   // per-cluster brightness bias [-1, 1]
+    this.speed      = Math.random() * 2 - 1;   // per-cluster speed bias [-1, 1]
+    this.burstSeed  = Math.random();            // burst desync offset [0, 1]
+    this.yCenter    = (Math.random() - 0.5) * worldH;  // spawn Y band center
+    this.rSeed      = Math.random();            // shell depth seed [0, 1]
+    this.phase      = Math.random();            // cycle phase seed [0, 1]
+    this._colCount  = 0;
+    this.squadPhases      = null;
+    this.squadTrailBiases = null;
+  }
+
+  initSquads(maxSquadsPerCluster) {
+    this.squadPhases = Array.from({ length: maxSquadsPerCluster }, () => {
+      return Math.max(0, Math.min(1, this.phase + (Math.random() - 0.5) * 0.2));
+    });
+    this.squadTrailBiases = Array.from({ length: maxSquadsPerCluster }, () => Math.random() * 2 - 1);
+  }
+
+  nextSquadIdx(squadSize) {
+    return Math.floor(this._colCount++ / squadSize);
+  }
+}
+
 // ── Instanced buffer geometry ─────────────────────────────────────────────
 function buildGeometry({
   speedMin      = 0.8,
@@ -206,7 +234,6 @@ function buildGeometry({
   clusterSpread = 0.017,      // σ as fraction of full circle; 0.017 ≈ 6°
   radialBias    = 0.0,        // −1 = inner-concentrated, 0 = uniform, +1 = outer-concentrated
   clusterUniform = 0.0,       // 0 = clustered, 1 = fully uniform angular scatter
-  clusterBiasAmt   = 0.40,    // per-cluster speed/brightness bias magnitude 0–1
   clusterSpeedJitter = 0.18,  // ±jitter on [0,1] speed seed within cluster; 0=identical speeds
   clusterYSpread   = 3.0,     // ±world-units jitter on Y offset within cluster; 0=same spawn Y
   clusterRJitter   = 0.20,    // ±jitter on [0,1] radius seed within cluster; 0=same shell depth
@@ -236,7 +263,9 @@ function buildGeometry({
   const colBBuf    = new Float32Array(total * 4);  // yOff, scale, alpha, trail
   const rawSpeedBuf = new Float32Array(nCols);     // raw [0,1] for speed — kept for in-place range updates
   const biasedTrailBuf = new Float32Array(nCols);  // squad-biased [0.05,0.95] for trail
-  const clusterBiasBuf      = new Float32Array(total);  // per-instance cluster bias [-1, 1]
+  const clusterHueBuf       = new Float32Array(total);  // per-instance cluster hue offset [-1, 1]
+  const clusterBrightBuf    = new Float32Array(total);  // per-instance cluster brightness bias [-1, 1]
+  const clusterSpeedBuf     = new Float32Array(total);  // per-instance cluster speed bias [-1, 1]
   const clusterBurstSeedBuf = new Float32Array(total);  // per-instance cluster burst phase [0, 1]
   const squadPhaseBuf       = new Float32Array(total);  // per-instance squad cycle-phase seed [0, 1]
   const spawnThetaBuf       = new Float32Array(total);  // per-instance normalised angular position [0, 1]
@@ -248,52 +277,27 @@ function buildGeometry({
   const exp_         = Math.pow(2, -radialBias);  // bias=0→exp=1 (uniform)
   // Stratified placement: one center per arc — eliminates cluster-of-clusters bunching.
   const arcSize      = (Math.PI * 2) / nClusters;
-  const clusterThetas = Array.from({ length: nClusters }, (_, i) =>
-    i * arcSize + Math.random() * arcSize
-  );
-  // Per-cluster bias values — uniform in [-1, 1]; same index used for theta + bias below.
-  const clusterBiases = Array.from({ length: nClusters }, () => Math.random() * 2 - 1);
-  // Per-cluster burst seed — offsets the 4 s cluster burst window so clusters desync.
-  const clusterBurstSeeds = Array.from({ length: nClusters }, () => Math.random());
-  // Per-cluster speed seed [0, 1] — per-column speed is this ± clusterSpeedJitter.
-  // Keeps columns within a cluster at similar speeds so heads stay in the same Y band.
-  const clusterSpeedSeeds = Array.from({ length: nClusters }, () => Math.random());
-  // Per-cluster Y offset — columns in the same cluster spawn near the same world Y.
-  const clusterYCenters   = Array.from({ length: nClusters }, () => (Math.random() - 0.5) * WORLD_H);
-  // Per-cluster radial seed [0, 1] — per-column r is this ± clusterRJitter, mapped to [inner, outer].
-  // Keeps columns in the same cluster at similar shell depths so they stay together in XYZ.
-  const clusterRSeeds     = Array.from({ length: nClusters }, () => Math.random());
   // Squad structure: subdivides each cluster into squads of ~squadSize columns.
   // With round-robin assignment each cluster gets ceil(nCols/nClusters) columns, so the
   // per-cluster squad count is ceil(ceil(nCols/nClusters) / squadSize) + 1 safety margin.
   const maxColsPerCluster   = Math.ceil(nCols / nClusters);
   const maxSquadsPerCluster = Math.ceil(maxColsPerCluster / squadSize) + 1;
-  // Squad phases are cluster-centered (±0.1 jitter) so uSquadCoherence naturally pulls
-  // all columns toward the cluster's shared cycle phase — needed for heads to stay together.
-  const clusterPhases = Array.from({ length: nClusters }, () => Math.random());
-  const squadPhases   = Array.from({ length: nClusters }, (_, ci) =>
-    Array.from({ length: maxSquadsPerCluster }, () => {
-      const jitter = (Math.random() - 0.5) * 0.2; // ±10% around cluster phase
-      return Math.max(0, Math.min(1, clusterPhases[ci] + jitter));
-    })
+  // Create Cluster instances — all per-cluster state lives inside each object.
+  const clusters = Array.from({ length: nClusters }, (_, i) =>
+    new Cluster(i * arcSize + Math.random() * arcSize, WORLD_H)
   );
-  const squadTrailBiases = Array.from({ length: nClusters }, () =>
-    Array.from({ length: maxSquadsPerCluster }, () => Math.random() * 2 - 1)
-  );
-  // Column counter per cluster — used to assign squad sub-index round-robin
-  const clusterColCount = new Int32Array(nClusters);
+  clusters.forEach(cl => cl.initSquads(maxSquadsPerCluster));
 
   for (let c = 0; c < nCols; c++) {
     // Round-robin cluster assignment: guarantees balanced populations so squad sizes
     // are consistent (each cluster gets exactly ceil(nCols/nClusters) columns).
     const clusterIdx   = c % nClusters;
-    const clustered    = clusterThetas[clusterIdx] + _gaussRand() * sigma;
-    const colBias       = clusterBiases[clusterIdx];
-    const colBurstSeed  = clusterBurstSeeds[clusterIdx];
-    const squadSubIdx   = Math.floor(clusterColCount[clusterIdx] / squadSize);
-    const colSquadPhase = squadPhases[clusterIdx][squadSubIdx];
-    const colTrailBias  = squadTrailBiases[clusterIdx][squadSubIdx];
-    clusterColCount[clusterIdx]++;
+    const cl           = clusters[clusterIdx];
+    const clustered    = cl.theta + _gaussRand() * sigma;
+    const colBurstSeed  = cl.burstSeed;
+    const squadSubIdx   = cl.nextSquadIdx(squadSize);
+    const colSquadPhase = cl.squadPhases[squadSubIdx];
+    const colTrailBias  = cl.squadTrailBiases[squadSubIdx];
     const uniformTheta = Math.random() * Math.PI * 2;
     const theta        = clustered + (uniformTheta - clustered) * clusterUniform;
     // Normalize theta to [-1, 1] for linear topologies (curtain/rectangle X axis).
@@ -302,7 +306,7 @@ function buildGeometry({
     const thetaNorm = (((theta % TWO_PI) + TWO_PI) % TWO_PI) / TWO_PI * 2 - 1;  // [-1, 1]
     // Radial position: cluster-centered for shell only — ring/curtain/rectangle override r below.
     const rSeed  = topology === 'shell'
-      ? Math.max(0, Math.min(1, clusterRSeeds[clusterIdx] + (Math.random() - 0.5) * 2 * clusterRJitter))
+      ? Math.max(0, Math.min(1, cl.rSeed + (Math.random() - 0.5) * 2 * clusterRJitter))
       : Math.random();
     let r        = inner + Math.pow(rSeed, exp_) * (outer - inner);
 
@@ -350,15 +354,16 @@ function buildGeometry({
 
     // Y offset: cluster-centered so columns in the same cluster spawn in the same world-Y band.
     const yOff  = Math.max(-WORLD_H / 2, Math.min(WORLD_H / 2,
-      clusterYCenters[clusterIdx] + (Math.random() - 0.5) * 2 * clusterYSpread
+      cl.yCenter + (Math.random() - 0.5) * 2 * clusterYSpread
     ));
     // Speed: cluster-centered so heads stay in the same vertical band over time.
+    // cl.speed ∈ [−1, 1] mapped to [0, 1] center via *0.5+0.5; cluster centers span full range.
     const sr    = Math.max(0, Math.min(1,
-      clusterSpeedSeeds[clusterIdx] + (Math.random() - 0.5) * 2 * clusterSpeedJitter
+      cl.speed * 0.5 + 0.5 + (Math.random() - 0.5) * 2 * clusterSpeedJitter
     ));
     rawSpeedBuf[c] = sr;
-    // Base speed without cluster bias — bias is applied at shader-time via uClusterBiasAmt
-    // so setClusterBias() takes effect instantly without a geometry rebuild.
+    // Base speed — cluster speed bias also applied at shader-time via uClusterSpeedRange
+    // so setClusterSpeedRange() takes effect instantly without a geometry rebuild.
     const speed = sMin + sr * sr * (sMax - sMin);
     const seed  = Math.random();
     const t     = (r - inner) / (outer - inner);           // 0 = inner (close), 1 = outer (far)
@@ -384,7 +389,9 @@ function buildGeometry({
       colBBuf[i4 + 1] = scale;
       colBBuf[i4 + 2] = alpha;
       colBBuf[i4 + 3] = trail;
-      clusterBiasBuf[idx]      = colBias;
+      clusterHueBuf[idx]       = cl.hue;
+      clusterBrightBuf[idx]    = cl.brightness;
+      clusterSpeedBuf[idx]     = cl.speed;
       clusterBurstSeedBuf[idx] = colBurstSeed;
       squadPhaseBuf[idx]       = colSquadPhase;
       spawnThetaBuf[idx]       = colTheta;
@@ -429,15 +436,14 @@ function buildGeometry({
     let nearestCluster = 0, nearestDist = Infinity;
     for (let ci = 0; ci < nClusters; ci++) {
       // Signed angular difference wrapped to [-π, π]
-      const diff = Math.abs(((angle - clusterThetas[ci]) % (Math.PI * 2) + Math.PI * 3) % (Math.PI * 2) - Math.PI);
+      const diff = Math.abs(((angle - clusters[ci].theta) % (Math.PI * 2) + Math.PI * 3) % (Math.PI * 2) - Math.PI);
       if (diff < nearestDist) { nearestDist = diff; nearestCluster = ci; }
     }
-    const reserveClusterBias = clusterBiases[nearestCluster];
-    const reserveBurstSeed   = clusterBurstSeeds[nearestCluster];
+    const reserveCl = clusters[nearestCluster];
     // Pick the squad whose index reflects this reserve's position within the cluster's
-    // population — mirrors how main columns are assigned round-robin inside each cluster.
-    const reserveSquadIdx   = Math.floor(clusterColCount[nearestCluster] / squadSize);
-    const reserveSquadPhase = squadPhases[nearestCluster][Math.min(reserveSquadIdx, maxSquadsPerCluster - 1)];
+    // population — read-only, no _colCount increment (reserves not counted as active columns).
+    const reserveSquadIdx   = Math.floor(reserveCl._colCount / squadSize);
+    const reserveSquadPhase = reserveCl.squadPhases[Math.min(reserveSquadIdx, reserveCl.squadPhases.length - 1)];
 
     // Spawn theta for the reserve's actual repositioned position (not original round-robin slot).
     let reserveColTheta;
@@ -451,7 +457,7 @@ function buildGeometry({
 
     // Assign cluster-coherent Y so the reserve falls in the right vertical band during idle.
     // This also becomes the restore value on _releaseReserve so it returns to the correct band.
-    const reserveYOff = clusterYCenters[nearestCluster];
+    const reserveYOff = reserveCl.yCenter;
     const base  = c * N_ROWS;
     reserveOrigYOff[i] = reserveYOff;
     for (let r = 0; r < N_ROWS; r++) {
@@ -460,8 +466,10 @@ function buildGeometry({
       colABuf[i4 + 1] = rwz;
       colBBuf[i4]     = reserveYOff;   // overwrite stale round-robin Y with cluster Y
       const idx = base + r;
-      clusterBiasBuf[idx]      = reserveClusterBias;
-      clusterBurstSeedBuf[idx] = reserveBurstSeed;
+      clusterHueBuf[idx]       = reserveCl.hue;
+      clusterBrightBuf[idx]    = reserveCl.brightness;
+      clusterSpeedBuf[idx]     = reserveCl.speed;
+      clusterBurstSeedBuf[idx] = reserveCl.burstSeed;
       squadPhaseBuf[idx]       = reserveSquadPhase;
       spawnThetaBuf[idx]       = reserveColTheta;
     }
@@ -490,7 +498,9 @@ function buildGeometry({
   geom.setAttribute('aRowIdx',      new THREE.InstancedBufferAttribute(rowBuf,         1));
   geom.setAttribute('aColA',        new THREE.InstancedBufferAttribute(colABuf,        4));
   geom.setAttribute('aColB',        new THREE.InstancedBufferAttribute(colBBuf,        4));
-  geom.setAttribute('aClusterBias',      new THREE.InstancedBufferAttribute(clusterBiasBuf,      1));
+  geom.setAttribute('aClusterHue',       new THREE.InstancedBufferAttribute(clusterHueBuf,       1));
+  geom.setAttribute('aClusterBright',    new THREE.InstancedBufferAttribute(clusterBrightBuf,    1));
+  geom.setAttribute('aClusterSpeed',     new THREE.InstancedBufferAttribute(clusterSpeedBuf,     1));
   geom.setAttribute('aClusterBurstSeed', new THREE.InstancedBufferAttribute(clusterBurstSeedBuf, 1));
   geom.setAttribute('aSquadPhase',       new THREE.InstancedBufferAttribute(squadPhaseBuf,       1));
   geom.setAttribute('aSpawnTheta',       new THREE.InstancedBufferAttribute(spawnThetaBuf,       1));
@@ -955,7 +965,6 @@ export function initMatrixRain(element, opts = {}) {
     clusterSpread: 0.017,
     radialBias:   0.0,
     clusterUniform: 0.0,
-    clusterBiasAmt:    0.40,
     clusterSpeedJitter: 0.18,
     clusterYSpread:    3.0,
     clusterRJitter:    0.20,
@@ -1240,7 +1249,7 @@ export function initMatrixRain(element, opts = {}) {
   let msgFadeSpeed    = 0;       // progress units per second (1/fadeDuration)
   let msgFadeStart    = 0;       // absolute timestamp when fading began (for stagger)
   let msgRevealEnd         = 0;    // absolute timestamp when reveal phase ends
-  let msgRevealFallbackT   = 0;    // timestamp for fallback spawn (75% of revealDuration)
+  let msgRevealFallbackT   = 0;    // timestamp for fallback spawn (92% of revealDuration — last resort)
   let msgTolMultMin        = 4;    // hitbox multiplier at reveal start
   let msgTolMultMax        = 18;   // hitbox multiplier at reveal end
   let msgTolMinScale       = 1.3;  // minimum aScale floor for tolerance
@@ -2287,10 +2296,9 @@ export function initMatrixRain(element, opts = {}) {
       uniforms.uDensityOuter.value = outer;
     },
     setClusterUniform(v) { _geomParams.clusterUniform = Math.max(0, Math.min(1, v)); rebuildGeom(); },
-    setClusterBias(v) {
-      _geomParams.clusterBiasAmt = Math.max(0, Math.min(1, v));
-      uniforms.uClusterBiasAmt.value = _geomParams.clusterBiasAmt;
-    },
+    setClusterHueRange(v)    { uniforms.uClusterHueRange.value    = Math.max(0, Math.min(45, v)); },
+    setClusterBrightRange(v) { uniforms.uClusterBrightRange.value = Math.max(0, Math.min(1, v)); },
+    setClusterSpeedRange(v)  { uniforms.uClusterSpeedRange.value  = Math.max(0, Math.min(1, v)); },
     setClusterSpeedJitter(v) { _geomParams.clusterSpeedJitter = Math.max(0, Math.min(0.5, v)); rebuildGeom(); },
     setClusterYSpread(v)     { _geomParams.clusterYSpread     = Math.max(0, v);                rebuildGeom(); },
     setClusterRJitter(v)     { _geomParams.clusterRJitter     = Math.max(0, Math.min(0.5, v)); rebuildGeom(); },
@@ -2821,6 +2829,39 @@ export function initMatrixRain(element, opts = {}) {
           _writeLockRows(lockData, nRows, bestCol, slot.worldY, slot.glyph, 0, 0);
         }
       }
+
+      // ── Fix order inversions: adjacent same-line slots must have columns in the same
+      // left-to-right order as the characters. Greedy assignment can produce crossings
+      // (e.g. slot K gets a column visually to the right of slot E's column). One pass of
+      // bubble-sort over assigned slots on the same line resolves all inversions.
+      {
+        const colToScreenX = new Map(colScreen.map(({ c, screenX }) => [c, screenX]));
+        let swapped = true;
+        while (swapped) {
+          swapped = false;
+          for (let si = 0; si < _msgSlots.length - 1; si++) {
+            const a = _msgSlots[si];
+            const b = _msgSlots[si + 1];
+            if (a.claimed || b.claimed) continue;
+            if (a.colIdx < 0 || b.colIdx < 0) continue;
+            if (a.lineIdx !== b.lineIdx) continue;  // only fix within same line
+            const axs = colToScreenX.get(a.colIdx) ?? a.screenX;
+            const bxs = colToScreenX.get(b.colIdx) ?? b.screenX;
+            if (axs > bxs + 1e-4) {
+              // Swap column assignments
+              const tmpCol = a.colIdx;
+              a.colIdx = b.colIdx;
+              b.colIdx = tmpCol;
+              _msgAssigned.set(a.colIdx, si);
+              _msgAssigned.set(b.colIdx, si + 1);
+              _writeLockRows(lockData, nRows, a.colIdx, a.worldY, a.glyph, 0, 0);
+              _writeLockRows(lockData, nRows, b.colIdx, b.worldY, b.glyph, 0, 0);
+              swapped = true;
+            }
+          }
+        }
+      }
+
       lockAttr.needsUpdate = true;
 
       // ── Band suppression (set Y + band; active flag raised lazily on first lock) ──
@@ -2843,7 +2884,7 @@ export function initMatrixRain(element, opts = {}) {
       msgHoldDuration   = holdDuration;
       msgFadeSpeed      = fadeDuration > 0 ? 1.0 / fadeDuration : Infinity;
       msgRevealEnd       = now + revealDuration;
-      msgRevealFallbackT = now + revealDuration * 0.75;
+      msgRevealFallbackT = now + revealDuration * 0.92;
       uniforms.uMsgRevealProgress.value = 1.0;
       _msgTrackCamera   = trackCamera;
       _msgCamY0         = camera.position.y;
