@@ -570,8 +570,8 @@
 
       <label>Breath amount
         <span style="display:flex;align-items:center;gap:4px;">
-          <input id="ctl-breath-amt"     type="range"  min="0" max="0.2" step="0.005" value="1.0">
-          <input id="ctl-breath-amt-num" type="number" min="0" max="0.2" step="0.005" value="1.0">
+          <input id="ctl-breath-amt"     type="range"  min="0" max="3" step="0.05" value="1.0">
+          <input id="ctl-breath-amt-num" type="number" min="0" max="3" step="0.05" value="1.0">
         </span>
       </label>
 
@@ -941,6 +941,20 @@
         <span style="display:flex;align-items:center;gap:4px;">
           <input id="ctl-entrain-amt"     type="range"  min="0" max="0.8" step="0.01" value="0">
           <input id="ctl-entrain-amt-num" type="number" min="0" max="0.8" step="0.01" value="0">
+        </span>
+      </label>
+
+      <label>Entrain speed
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-entrain-speed"     type="range"  min="0" max="2" step="0.01" value="0.25">
+          <input id="ctl-entrain-speed-num" type="number" min="0" max="2" step="0.01" value="0.25">
+        </span>
+      </label>
+
+      <label>Entrain crests
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-entrain-crests"     type="range"  min="1" max="12" step="1" value="3">
+          <input id="ctl-entrain-crests-num" type="number" min="1" max="12" step="1" value="3">
         </span>
       </label>
 
@@ -1471,7 +1485,9 @@
   linkSlider('ctl-height-fade', 'ctl-height-fade-num', () => {
     rain.setHeightFade(parseFloat(document.getElementById('ctl-height-fade').value));
   });
-  linkSlider('ctl-entrain-amt', 'ctl-entrain-amt-num', v => rain.setEntrainment(v));
+  linkSlider('ctl-entrain-amt',    'ctl-entrain-amt-num',    v => rain.setEntrainment(v));
+  linkSlider('ctl-entrain-speed',  'ctl-entrain-speed-num',  v => rain.setEntrainSpeed(v));
+  linkSlider('ctl-entrain-crests', 'ctl-entrain-crests-num', v => rain.setEntrainCrests(v));
   linkSlider('ctl-spawn-front', 'ctl-spawn-front-num', v => rain.setSpawnWaveFront(v));
   document.getElementById('ctl-spawn-in').addEventListener('click', () => rain.spawnWave());
   document.getElementById('ctl-spawn-out').addEventListener('click', () => rain.despawnWave());

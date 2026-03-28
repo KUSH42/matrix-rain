@@ -139,7 +139,7 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     uColor, uGlobalAlpha, uDepth, uPomSteps, uNormalStrength,
     uLightDir, uGlyphChroma,
     uSpeedMul, uMaxYaw, uFacingJitter, uFlatZ, uForwardFacing, uGlobeInteract, uSwayAmt, uSwayDecay,
-    uMsgRevealProgress, uMsgBoost, uMsgRevealY, uMsgRevealBand, uMsgRevealActive,
+    uMsgBoost, uMsgRevealY, uMsgRevealBand, uMsgRevealActive,
     uGlyphWeightLUT,
     uBrightness, uBreathAmt, uWaveSpeed, uWaveAmt, uWaveCrests, uEntrainAmt, uEntrainSpeed, uEntrainCrests, uWeightedGlyphs, uReverseChance,
     uDensity,
@@ -745,8 +745,6 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     const trailFadeIn = smoothstep(0.0, 0.6, lockAge);
     const isLockTrail = lockActive.and(isLockHead.not());
     rawBright.assign(select(isLockTrail, rawBright.mul(trailFadeIn), rawBright));
-    // Fade all locked cells (head + trail) with uMsgRevealProgress during hold→fade transition
-    rawBright.assign(select(lockActive, rawBright.mul(uMsgRevealProgress), rawBright));
     const contrast  = pow(rawBright, 1.3);
     const alpha     = contrast.mul(uGlobalAlpha).mul(vBootFade).mul(vDeathFade);
     If(alpha.lessThan(0.015), () => { Discard(); });

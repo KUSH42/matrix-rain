@@ -1245,10 +1245,8 @@ export function initMatrixRain(element, opts = {}) {
       const colBBuf  = colBAttr?.array;
 
       if (msgState === 'revealing') {
-        uniforms.uMsgRevealProgress.value = 1.0;
-        let lockDirty  = false;
-        let colBDirty  = false;
-        let allClaimed = true;
+        let lockDirty = false;
+        let colBDirty = false;
 
         // Reserve-column boundary — slots recruitment and spawn-below both stay below this
         const reserveStart = geomNow._reservePool?.reserveStart ?? nCols;
@@ -1260,13 +1258,12 @@ export function initMatrixRain(element, opts = {}) {
         for (let si = 0; si < _msgSlots.length; si++) {
           const slot = _msgSlots[si];
           if (slot.claimed) continue;
-          allClaimed = false;
 
           // ── Recruit a column for unassigned slots every tick ──────────
           // Try reserve pool first; fall back to nearest non-reserve column.
           if (slot.colIdx < 0) {
             let bestCol = _claimReserve(geomNow._reservePool, slot.screenX, _msgWorldY,
-              colABuf, colBBuf, lockData, colAAttr, colBAttr, lockAttr, nRows, _msgVpMat);
+              colABuf, lockData, lockAttr, nRows, _msgVpMat);
             if (bestCol >= 0) {
               const newYOff = _yOffForHead(colABuf, colBBuf, nRows, bestCol, _msgWorldY, t);
               for (let r = 0; r < nRows; r++) colBBuf[(bestCol * nRows + r) * 4] = newYOff;
@@ -1388,7 +1385,6 @@ export function initMatrixRain(element, opts = {}) {
         }
 
       } else if (msgState === 'holding') {
-        uniforms.uMsgRevealProgress.value = 1.0;
         // Expire any spawn-below columns
         if (_msgSpawnCols.size && lockData) {
           let dirty = false;
@@ -1643,8 +1639,7 @@ export function initMatrixRain(element, opts = {}) {
   // Claim the best-matching free reserve column for a message slot.
   // "Best" = closest by screen X projection to slotScreenX.
   // Sets spawnActive=1 (bypasses density+frustum cull). Returns colIdx or -1 if pool empty.
-  function _claimReserve(pool, slotScreenX, worldY, colABuf, colBBuf, lockData,
-                          colAAttr, colBAttr, lockAttr, nRows, vpMat) {
+  function _claimReserve(pool, slotScreenX, worldY, colABuf, lockData, lockAttr, nRows, vpMat) {
     if (!pool || pool.free.length === 0) return -1;
     let bestDist = Infinity, bestFreeIdx = -1;
     for (let fi = 0; fi < pool.free.length; fi++) {
@@ -1710,11 +1705,10 @@ export function initMatrixRain(element, opts = {}) {
     _msgSpawnCols.clear();
     _msgAssigned.clear();
     _msgSlots = [];
-    if (resetState) {
-      msgState = 'idle';
-      uniforms.uMsgRevealProgress.value = 0;
-      uniforms.uMsgRevealActive.value   = 0;
-    }
+    // Always stop band suppression immediately regardless of resetState,
+    // so there's no frame where the band discards rain but no locked glyphs are shown.
+    uniforms.uMsgRevealActive.value = 0;
+    if (resetState) msgState = 'idle';
   }
 
   // Compute JS-side head Y for column c (approximation — ignores burst/breath/zone).
@@ -2079,6 +2073,8 @@ export function initMatrixRain(element, opts = {}) {
       uniforms.uEntrainSpeed.value  = speed;
       uniforms.uEntrainCrests.value = Math.round(Math.max(1, Math.min(12, crests)));
     },
+    setEntrainSpeed(v)  { uniforms.uEntrainSpeed.value  = Math.max(0, v); },
+    setEntrainCrests(n) { uniforms.uEntrainCrests.value = Math.round(Math.max(1, Math.min(12, n))); },
     setSquadCoherence(v)  { uniforms.uSquadCoherence.value = Math.max(0, Math.min(1, v)); },
     setSquadSize(n) {
       _geomParams.squadSize = Math.max(2, Math.min(20, Math.round(n)));
@@ -2349,9 +2345,11 @@ export function initMatrixRain(element, opts = {}) {
       );
       const tmpV = new THREE.Vector4();
 
-      // Build array of (colIdx, screenX) for all eligible columns
+      // Build array of (colIdx, screenX) for all eligible non-reserve columns.
+      // Reserve columns (>= reserveStart) are managed separately via _claimReserve.
+      const reserveStart = geomNow._reservePool?.reserveStart ?? nCols;
       const colScreen = [];
-      for (let c = 0; c < nCols; c++) {
+      for (let c = 0; c < reserveStart; c++) {
         const base = c * nRows * 4;
         const wx   = colABuf[base + 0] + uniforms.uColumnOffset.value.x;
         const wz   = colABuf[base + 1] + uniforms.uColumnOffset.value.y;
@@ -2438,9 +2436,8 @@ export function initMatrixRain(element, opts = {}) {
       lockAttr.needsUpdate = true;
 
       // ── Initialise state ─────────────────────────────────────────────
-      uniforms.uMsgBoost.value           = boost;
-      uniforms.uMsgRevealProgress.value  = 1.0;
-      uniforms.uMsgRevealY.value         = _msgWorldY;
+      uniforms.uMsgBoost.value   = boost;
+      uniforms.uMsgRevealY.value = _msgWorldY;
       uniforms.uMsgRevealActive.value    = 1.0;
       msgSpawnChance    = spawnChance;
       msgTolMultMin     = tolMultMin;
@@ -2464,7 +2461,8 @@ export function initMatrixRain(element, opts = {}) {
       const { fadeDuration = 0.8 } = opts;
       if (msgState === 'idle') return;
       _clearAllLocks(false);  // clear aLockState for all locked/assigned columns
-      msgFadeSpeed = 1.0 / fadeDuration;
+      msgFadeSpeed = fadeDuration > 0 ? 1.0 / fadeDuration : Infinity;
+      msgFadeStart = prevTs || performance.now() * 0.001;
       msgState     = 'fading';
     },
 
