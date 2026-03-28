@@ -1472,6 +1472,7 @@
   document.getElementById('ctl-msg-clear').addEventListener('click', () => {
     rain.clearMessage();
   });
+  bind('ctl-msg-band-suppress', on => rain.setMsgBandSuppress(on));
   // Message sliders — sync range↔number, no live callback (values read on button click)
   linkSlider('ctl-msg-boost',    'ctl-msg-boost-num',    () => {});
   linkSlider('ctl-msg-spawn',    'ctl-msg-spawn-num',    () => {});

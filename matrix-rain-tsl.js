@@ -80,6 +80,9 @@ export function makeUniforms(glyphCount = 56, gridW = 8, gridH = 8, lutTexture =
     uMsgRevealY:         uniform(0.0),                   // world Y of locked head zone
     uMsgRevealBand:      uniform(0.35),                  // half-height of suppression band (world units)
     uMsgRevealActive:    uniform(0.0),                   // 1 = suppress non-locked glyphs in band
+    uMsgXMin:            uniform(0.0),                   // screen UV left bound of message text
+    uMsgXMax:            uniform(1.0),                   // screen UV right bound of message text
+    uMsgBandSuppress:    uniform(0.0),                   // user toggle: 1 = enable band suppression
     uGlyphWeightLUT:    texture(lutTexture),             // 256×1 inverse-CDF glyph weight LUT
     uBrightness:     uniform(1.0),   // output brightness multiplier — range [0.2, 2.0]
     uBreathAmt:      uniform(1.0),   // speed-oscillation amplitude scale — 0 = off, 1 = ±15%
@@ -145,7 +148,7 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     uColor, uGlobalAlpha, uDepth, uPomSteps, uNormalStrength,
     uLightDir, uGlyphChroma,
     uSpeedMul, uMaxYaw, uFacingJitter, uFlatZ, uForwardFacing, uGlobeInteract, uSwayAmt, uSwayDecay,
-    uMsgBoost, uMsgRevealY, uMsgRevealBand, uMsgRevealActive,
+    uMsgBoost, uMsgRevealY, uMsgRevealBand, uMsgRevealActive, uMsgXMin, uMsgXMax, uMsgBandSuppress,
     uGlyphWeightLUT,
     uBrightness, uBreathAmt, uWaveSpeed, uWaveAmt, uWaveCrests, uEntrainAmt, uEntrainSpeed, uEntrainCrests, uWeightedGlyphs, uReverseChance,
     uDensity,
@@ -599,6 +602,18 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
       .and(vDist.lessThan(float(0.5)));
     const hasLockTarget = lockGlyph.greaterThanEqual(float(0.0));
     glyphIdx.assign(select(isLockHead.and(hasLockTarget), lockGlyph, glyphIdx));
+
+    // Suppress non-locked fragments inside the message reveal band.
+    // Gated by uMsgBandSuppress (user toggle) and uMsgRevealActive (set when first glyph locks).
+    // X bounds (screen UV) are computed from the message text layout so suppression
+    // covers only the text's horizontal extent, not the full screen width.
+    If(uMsgBandSuppress.greaterThan(float(0.0))
+        .and(uMsgRevealActive.greaterThan(float(0.0)))
+        .and(lockActive.not()), () => {
+      const inY = abs(vCellWorldY.sub(uMsgRevealY)).lessThan(uMsgRevealBand);
+      const inX = screenUV.x.greaterThan(uMsgXMin).and(screenUV.x.lessThan(uMsgXMax));
+      If(inY.and(inX), () => { Discard(); });
+    });
 
     // Film grain
     const sampleX = select(frontFacing, vUvRain.x, float(1).sub(vUvRain.x));
