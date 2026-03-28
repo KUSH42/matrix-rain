@@ -1689,31 +1689,33 @@ export function initMatrixRain(element, opts = {}) {
 
   // Clear all active locks and spawn-active flags; optionally reset state machine to idle.
   function _clearAllLocks(resetState = false) {
-    const geomNow = mesh.geometry;
+    const geomNow  = mesh.geometry;
     const lockAttr = geomNow.getAttribute('aLockState');
-    if (!lockAttr) return;
-    const lockData = lockAttr.array;
-    const nRows = geomNow.instanceCount / _geomParams.nCols;
-    for (const c of _msgLockedCols) _writeLockRows(lockData, nRows, c, -9999, -1, 0, 0);
-    for (const c of _msgSpawnCols)  _writeLockRows(lockData, nRows, c, -9999, -1, 0, 0);
-    for (const c of _msgAssigned.keys()) _writeLockRows(lockData, nRows, c, -9999, -1, 0, 0);
-    // Release any reserve columns back to pool
-    const colBAttr2 = geomNow.getAttribute('aColB');
-    const colBBuf2  = colBAttr2?.array;
-    const pool = geomNow._reservePool;
-    if (pool && colBBuf2) {
-      for (const c of [...pool.used]) {
-        _releaseReserve(pool, c, colBBuf2, lockData, colBAttr2, lockAttr, nRows);
+    const lockData = lockAttr?.array;
+    const nRows    = geomNow.instanceCount / _geomParams.nCols;
+    if (lockData) {
+      for (const c of _msgLockedCols) _writeLockRows(lockData, nRows, c, -9999, -1, 0, 0);
+      for (const c of _msgSpawnCols)  _writeLockRows(lockData, nRows, c, -9999, -1, 0, 0);
+      for (const c of _msgAssigned.keys()) _writeLockRows(lockData, nRows, c, -9999, -1, 0, 0);
+      // Release any reserve columns back to pool
+      const colBAttr2 = geomNow.getAttribute('aColB');
+      const colBBuf2  = colBAttr2?.array;
+      const pool = geomNow._reservePool;
+      if (pool && colBBuf2) {
+        for (const c of [...pool.used]) {
+          _releaseReserve(pool, c, colBBuf2, lockData, colBAttr2, lockAttr, nRows);
+        }
+      }
+      if ((_msgLockedCols.size || _msgSpawnCols.size || _msgAssigned.size) && lockAttr) {
+        lockAttr.needsUpdate = true;
       }
     }
-    if (_msgLockedCols.size || _msgSpawnCols.size || _msgAssigned.size) lockAttr.needsUpdate = true;
     _msgLockedCols.clear();
     _msgSpawnCols.clear();
     _msgAssigned.clear();
     _msgSlots = [];
     _msgClaimedCount = 0;
-    // Always stop band suppression immediately regardless of resetState,
-    // so there's no frame where the band discards rain but no locked glyphs are shown.
+    // Always stop band suppression regardless of resetState.
     uniforms.uMsgRevealActive.value = 0;
     if (resetState) msgState = 'idle';
   }
