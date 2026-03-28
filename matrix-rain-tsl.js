@@ -600,13 +600,6 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     const hasLockTarget = lockGlyph.greaterThanEqual(float(0.0));
     glyphIdx.assign(select(isLockHead.and(hasLockTarget), lockGlyph, glyphIdx));
 
-    // Suppress non-locked fragments inside the message reveal Y band.
-    // Other columns animate through the locked head position; with additive blending
-    // they add colour noise on top of message letters. Discard those fragments.
-    If(uMsgRevealActive.greaterThan(float(0.0)).and(lockActive.not()), () => {
-      If(abs(vCellWorldY.sub(uMsgRevealY)).lessThan(uMsgRevealBand), () => { Discard(); });
-    });
-
     // Film grain
     const sampleX = select(frontFacing, vUvRain.x, float(1).sub(vUvRain.x));
     const grain   = h2(vec2(
