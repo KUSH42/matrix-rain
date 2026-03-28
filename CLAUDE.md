@@ -151,7 +151,7 @@ Returns a control handle with methods below.
 | `setScanlines(v)` | Scanline opacity 0–0.2 |
 | `setHoloAberration(v)` | Screen-space chromatic aberration in holo pass 0–0.015 |
 | `setBrightness(v)` | Output brightness multiplier 0.2–2.0 |
-| `setBreathAmt(v)` | Speed-oscillation amplitude 0–1 (0=off) |
+| `setBreathAmt(v)` | Speed-oscillation amplitude 0–3 (0=off, 1=±15% speed) |
 | `setWaveSpeed(v)` | Wave crest angular speed rad/s (default 0.15) |
 | `setWaveAmt(v)` | Wave offset amplitude 0–1 (0=off, 1=±4 world units) |
 | `setWeightedGlyphs(v)` | Glyph weight LUT blend 0–1 (0=uniform, 1=full LUT) |
@@ -184,6 +184,8 @@ Returns a control handle with methods below.
 | `setHeightFade(v)` | Sine density fade at vertical poles 0–1 (0 = off) |
 | `setContagion(v)` | Cluster burst contagion strength 0–1 (0 = off, default) |
 | `setEntrainment(amt, speed?, crests?)` | Speed entrainment wave: amplitude 0–0.8, angular speed rad/s, crest count 1–12 |
+| `setEntrainSpeed(v)` | Entrainment wave angular speed rad/s (default 0.25) |
+| `setEntrainCrests(n)` | Entrainment crest count 1–12 (default 3) |
 | `setSquadCoherence(v)` | Squad phase lock 0–1 (0 = full squad lock, 1 = individual random, default) |
 | `setSquadSize(n)` | Squad size 2–20 — triggers geometry rebuild |
 | `setTrailCohesion(v)` | Trail-length bias within squads 0–1 — triggers geometry rebuild |
