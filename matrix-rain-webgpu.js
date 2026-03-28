@@ -203,9 +203,11 @@ function buildGeometry({
   clusterSpread = 0.017,      // σ as fraction of full circle; 0.017 ≈ 6°
   radialBias    = 0.0,        // −1 = inner-concentrated, 0 = uniform, +1 = outer-concentrated
   clusterUniform = 0.0,       // 0 = clustered, 1 = fully uniform angular scatter
-  clusterBiasAmt = 0.40,      // per-cluster speed/brightness bias magnitude 0–1
-  squadSize      = 5,         // columns per squad; squads are formed within clusters
-  trailCohesion  = 0.7,       // 0 = no trail cohesion, 1 = full squad trail bias
+  clusterBiasAmt   = 0.40,    // per-cluster speed/brightness bias magnitude 0–1
+  clusterSpeedJitter = 0.18,  // ±jitter on [0,1] speed seed within cluster; 0=identical speeds
+  clusterYSpread   = 3.0,     // ±world-units jitter on Y offset within cluster; 0=same spawn Y
+  squadSize        = 5,       // columns per squad; squads are formed within clusters
+  trailCohesion    = 0.7,     // 0 = no trail cohesion, 1 = full squad trail bias
   spawnReserves  = 48,        // pre-allocated reserve columns for message reveal
 } = {}) {
   // Guard against inverted ranges
@@ -249,13 +251,24 @@ function buildGeometry({
   const clusterBiases = Array.from({ length: nClusters }, () => Math.random() * 2 - 1);
   // Per-cluster burst seed — offsets the 4 s cluster burst window so clusters desync.
   const clusterBurstSeeds = Array.from({ length: nClusters }, () => Math.random());
+  // Per-cluster speed seed [0, 1] — per-column speed is this ± clusterSpeedJitter.
+  // Keeps columns within a cluster at similar speeds so heads stay in the same Y band.
+  const clusterSpeedSeeds = Array.from({ length: nClusters }, () => Math.random());
+  // Per-cluster Y offset — columns in the same cluster spawn near the same world Y.
+  const clusterYCenters   = Array.from({ length: nClusters }, () => (Math.random() - 0.5) * WORLD_H);
   // Squad structure: subdivides each cluster into squads of ~squadSize columns.
   // With round-robin assignment each cluster gets ceil(nCols/nClusters) columns, so the
   // per-cluster squad count is ceil(ceil(nCols/nClusters) / squadSize) + 1 safety margin.
   const maxColsPerCluster   = Math.ceil(nCols / nClusters);
   const maxSquadsPerCluster = Math.ceil(maxColsPerCluster / squadSize) + 1;
-  const squadPhases      = Array.from({ length: nClusters }, () =>
-    Array.from({ length: maxSquadsPerCluster }, () => Math.random())
+  // Squad phases are cluster-centered (±0.1 jitter) so uSquadCoherence naturally pulls
+  // all columns toward the cluster's shared cycle phase — needed for heads to stay together.
+  const clusterPhases = Array.from({ length: nClusters }, () => Math.random());
+  const squadPhases   = Array.from({ length: nClusters }, (_, ci) =>
+    Array.from({ length: maxSquadsPerCluster }, () => {
+      const jitter = (Math.random() - 0.5) * 0.2; // ±10% around cluster phase
+      return Math.max(0, Math.min(1, clusterPhases[ci] + jitter));
+    })
   );
   const squadTrailBiases = Array.from({ length: nClusters }, () =>
     Array.from({ length: maxSquadsPerCluster }, () => Math.random() * 2 - 1)
@@ -324,8 +337,14 @@ function buildGeometry({
     if (topology === 'curtain') r = (inner + outer) / 2;
     if (topology === 'rectangle') r = Math.min(Math.max(rectW, rectH), Math.max(inner, Math.sqrt(wx * wx + wz * wz)));
 
-    const yOff  = (Math.random() - 0.5) * WORLD_H;
-    const sr    = Math.random();
+    // Y offset: cluster-centered so columns in the same cluster spawn in the same world-Y band.
+    const yOff  = Math.max(-WORLD_H / 2, Math.min(WORLD_H / 2,
+      clusterYCenters[clusterIdx] + (Math.random() - 0.5) * 2 * clusterYSpread
+    ));
+    // Speed: cluster-centered so heads stay in the same vertical band over time.
+    const sr    = Math.max(0, Math.min(1,
+      clusterSpeedSeeds[clusterIdx] + (Math.random() - 0.5) * 2 * clusterSpeedJitter
+    ));
     rawSpeedBuf[c] = sr;
     // Base speed without cluster bias — bias is applied at shader-time via uClusterBiasAmt
     // so setClusterBias() takes effect instantly without a geometry rebuild.
@@ -911,10 +930,12 @@ export function initMatrixRain(element, opts = {}) {
     clusterSpread: 0.017,
     radialBias:   0.0,
     clusterUniform: 0.0,
-    clusterBiasAmt: 0.40,
-    squadSize:      5,
-    trailCohesion:  0.7,
-    spawnReserves:  48,
+    clusterBiasAmt:    0.40,
+    clusterSpeedJitter: 0.18,
+    clusterYSpread:    3.0,
+    squadSize:         5,
+    trailCohesion:     0.7,
+    spawnReserves:     48,
   };
 
   // Resolve atlas path + grid dimensions from charSet or explicit opts
@@ -2176,6 +2197,8 @@ export function initMatrixRain(element, opts = {}) {
       _geomParams.clusterBiasAmt = Math.max(0, Math.min(1, v));
       uniforms.uClusterBiasAmt.value = _geomParams.clusterBiasAmt;
     },
+    setClusterSpeedJitter(v) { _geomParams.clusterSpeedJitter = Math.max(0, Math.min(0.5, v)); rebuildGeom(); },
+    setClusterYSpread(v)     { _geomParams.clusterYSpread     = Math.max(0, v);                rebuildGeom(); },
     setSectorCenter(deg)  { uniforms.uSectorCenter.value   = deg * Math.PI / 180; },
     setSectorWidth(deg)   { uniforms.uSectorWidth.value    = Math.max(1, deg) * Math.PI / 180; },
     setSectorStrength(v)  { uniforms.uSectorStrength.value = Math.max(0, Math.min(1, v)); },

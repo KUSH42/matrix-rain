@@ -924,6 +924,18 @@
           <input id="ctl-cluster-bias-num" type="number" min="0" max="1" step="0.01" value="0.40">
         </span>
       </label>
+      <label id="lbl-cluster-speed-jitter">Cluster speed jitter
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-cluster-speed-jitter"     type="range"  min="0" max="0.5" step="0.01" value="0.18">
+          <input id="ctl-cluster-speed-jitter-num" type="number" min="0" max="0.5" step="0.01" value="0.18">
+        </span>
+      </label>
+      <label id="lbl-cluster-y-spread">Cluster Y spread
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-cluster-y-spread"     type="range"  min="0" max="8" step="0.1" value="3.0">
+          <input id="ctl-cluster-y-spread-num" type="number" min="0" max="8" step="0.1" value="3.0">
+        </span>
+      </label>
 
       <label>Cluster sync
         <span style="display:flex;align-items:center;gap:4px;">
@@ -1518,7 +1530,9 @@
     'lbl-clusters':        ['shell', 'ring', 'curtain', 'rectangle'],
     'lbl-cluster-spread':  ['shell', 'ring', 'curtain', 'rectangle'],
     'lbl-cluster-uniform': ['shell', 'ring', 'curtain', 'rectangle'],
-    'lbl-cluster-bias':    ['shell', 'ring', 'curtain', 'rectangle'],
+    'lbl-cluster-bias':          ['shell', 'ring', 'curtain', 'rectangle'],
+    'lbl-cluster-speed-jitter':  ['shell', 'ring', 'curtain', 'rectangle'],
+    'lbl-cluster-y-spread':      ['shell', 'ring', 'curtain', 'rectangle'],
     'lbl-radial-bias':    ['shell'],
     'lbl-density-in':     ['shell', 'ring'],
     'lbl-density-out':    ['shell', 'ring'],
@@ -1574,6 +1588,12 @@
     debounceRebuild(() => rain.setClusterUniform(parseFloat(document.getElementById('ctl-cluster-uniform').value)));
   });
   linkSlider('ctl-cluster-bias', 'ctl-cluster-bias-num', v => rain.setClusterBias(v));
+  linkSlider('ctl-cluster-speed-jitter', 'ctl-cluster-speed-jitter-num', () => {
+    debounceRebuild(() => rain.setClusterSpeedJitter(parseFloat(document.getElementById('ctl-cluster-speed-jitter').value)));
+  });
+  linkSlider('ctl-cluster-y-spread', 'ctl-cluster-y-spread-num', () => {
+    debounceRebuild(() => rain.setClusterYSpread(parseFloat(document.getElementById('ctl-cluster-y-spread').value)));
+  });
   bind('ctl-sector-strength', on => rain.setSectorStrength(on ? 1 : 0));
   linkSlider('ctl-sector-center', 'ctl-sector-center-num', () => {
     rain.setSectorCenter(parseFloat(document.getElementById('ctl-sector-center').value));
@@ -1786,8 +1806,10 @@
       radialBias:    fv('ctl-radial-bias'),
       densityIn:     fv('ctl-density-in'),
       densityOut:    fv('ctl-density-out'),
-      clusterUniform:  fv('ctl-cluster-uniform'),
-      clusterBias:     fv('ctl-cluster-bias'),
+      clusterUniform:      fv('ctl-cluster-uniform'),
+      clusterBias:         fv('ctl-cluster-bias'),
+      clusterSpeedJitter:  fv('ctl-cluster-speed-jitter'),
+      clusterYSpread:      fv('ctl-cluster-y-spread'),
       sectorStrength:  cb('ctl-sector-strength'),
       sectorCenter:    fv('ctl-sector-center'),
       sectorWidth:     fv('ctl-sector-width'),
@@ -1975,8 +1997,10 @@
     set('ctl-radial-bias',    s.radialBias);
     set('ctl-density-in',     s.densityIn);
     set('ctl-density-out',    s.densityOut);
-    set('ctl-cluster-uniform',  s.clusterUniform);
-    set('ctl-cluster-bias',     s.clusterBias);
+    set('ctl-cluster-uniform',     s.clusterUniform);
+    set('ctl-cluster-bias',        s.clusterBias);
+    set('ctl-cluster-speed-jitter', s.clusterSpeedJitter);
+    set('ctl-cluster-y-spread',    s.clusterYSpread);
     chk('ctl-sector-strength',  s.sectorStrength);
     set('ctl-sector-center',    s.sectorCenter);
     set('ctl-sector-width',     s.sectorWidth);
@@ -1999,6 +2023,8 @@
     if (s.radialBias      !== undefined) rain.setRadialBias(s.radialBias);
     if (s.clusterUniform  !== undefined) rain.setClusterUniform(s.clusterUniform);
     if (s.clusterBias     !== undefined) rain.setClusterBias(s.clusterBias);
+    if (s.clusterSpeedJitter !== undefined) rain.setClusterSpeedJitter(s.clusterSpeedJitter);
+    if (s.clusterYSpread     !== undefined) rain.setClusterYSpread(s.clusterYSpread);
     if (s.densityIn     !== undefined || s.densityOut     !== undefined) rain.setRadialDensityTaper(
       s.densityIn  ?? parseFloat(document.getElementById('ctl-density-in').value),
       s.densityOut ?? parseFloat(document.getElementById('ctl-density-out').value),
