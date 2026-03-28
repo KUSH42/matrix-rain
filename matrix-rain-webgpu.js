@@ -40,6 +40,9 @@ import {
   buildStreakPass,
   buildHoloPass,
   buildGodRaysPass,
+  buildFogPass,
+  buildDustPass,
+  buildRadialChromaPass,
 } from './matrix-rain-passes-tsl.js';
 
 // ── WebGL2 TextureNode sampler fix (Three.js r183) ────────────────────────
@@ -1052,7 +1055,8 @@ export function initMatrixRain(element, opts = {}) {
   }
 
   // ── Aspect uniform shared between streak pass and resize ──────────────
-  const uAspect = uniform((element.clientWidth || 1) / (element.clientHeight || 1));
+  const uAspect        = uniform((element.clientWidth || 1) / (element.clientHeight || 1));
+  const uInterlaceResY = uniform(element.clientHeight || 720);
 
   // Track factory result so resize path can dispose all RTTNodes (not just phosphor RT)
   let currentRainNodes = null;
@@ -1076,6 +1080,11 @@ export function initMatrixRain(element, opts = {}) {
       weight:  0.35,
       exposure: 0.45,
     },
+    radialChromaAmt: 0.0,
+    interlaceAmt:    0.0,
+    fogAmt:          0.0,
+    fogColor:        '#00100a',
+    dustAmt:         0.0,
   };
 
   function _restorePP(nodes) {
@@ -1102,6 +1111,19 @@ export function initMatrixRain(element, opts = {}) {
       pb._godRaysBuild.uWeight.value     = g.weight;
       pb._godRaysBuild.uExposure.value   = g.exposure;
     }
+    if (pb._radialChromaBuild) {
+      pb._radialChromaBuild.uRadialChromaticAmt.value = _ppState.radialChromaAmt;
+    }
+    if (pb._holoBuild?.uInterlaceAmt) {
+      pb._holoBuild.uInterlaceAmt.value = _ppState.interlaceAmt;
+      // uInterlaceResY is a scope-level uniform — value persists across rebuilds
+    }
+    if (pb._fogBuild) {
+      pb._fogBuild.uFogAmt.value = _ppState.fogAmt;
+      const fc = new THREE.Color(_ppState.fogColor);
+      pb._fogBuild.uFogColor.value.set(fc.r, fc.g, fc.b);
+    }
+    if (pb._dustBuild) pb._dustBuild.uDustAmt.value = _ppState.dustAmt;
   }
 
   // ── Post-processing pipeline object (THREE.RenderPipeline) ───────────
@@ -1130,13 +1152,24 @@ export function initMatrixRain(element, opts = {}) {
     const streakBuild = buildStreakPass(afterSoftenRtt, uAspect);
     const rttPreHolo  = rtt(streakBuild.outputNode);
 
-    const holoBuild     = buildHoloPass(rttPreHolo);
+    const holoBuild     = buildHoloPass(rttPreHolo, uInterlaceResY);
     const rttPreGodRays = rtt(holoBuild.outputNode);
 
     const godRaysBuild = buildGodRaysPass(rttPreGodRays);
     godRaysBuild.uEnabled.value = 1.0;
 
-    const rttPreFxaa = rtt(godRaysBuild.outputNode);
+    // B5: fog
+    const rttPreFog  = rtt(godRaysBuild.outputNode);
+    const fogBuild   = buildFogPass(rttPreFog);
+
+    // B6: dust — takes raw outputNode, no custom UV sampling
+    const dustBuild  = buildDustPass(fogBuild.outputNode);
+
+    // B1: radial chroma — requires TextureNode input for custom UV sampling
+    const rttPreRadialChroma = rtt(dustBuild.outputNode);
+    const radialChromaBuild  = buildRadialChromaPass(rttPreRadialChroma);
+
+    const rttPreFxaa = rtt(radialChromaBuild.outputNode);
 
     function postRender(rdr) {
       ensurePrevRT();
@@ -1147,7 +1180,7 @@ export function initMatrixRain(element, opts = {}) {
 
     function dispose() {
       for (const n of [afterBloomRtt, afterHeatRtt, rttPhosphor, afterSoftenRtt,
-                        rttPreHolo, rttPreGodRays, rttPreFxaa]) {
+                        rttPreHolo, rttPreGodRays, rttPreFog, rttPreRadialChroma, rttPreFxaa]) {
         try { n?.renderTarget?.dispose(); } catch (_) {}
       }
     }
@@ -1156,12 +1189,15 @@ export function initMatrixRain(element, opts = {}) {
       outputNode: rttPreFxaa,
       rttPhosphor,
       passBuilders: {
-        _bloomNode:    bloomNode,
-        _heatBuild:    heatBuild,
-        _softenBuild:  softenBuild,
-        _streakBuild:  streakBuild,
-        _holoBuild:    holoBuild,
-        _godRaysBuild: godRaysBuild,
+        _bloomNode:          bloomNode,
+        _heatBuild:          heatBuild,
+        _softenBuild:        softenBuild,
+        _streakBuild:        streakBuild,
+        _holoBuild:          holoBuild,
+        _godRaysBuild:       godRaysBuild,
+        _fogBuild:           fogBuild,
+        _dustBuild:          dustBuild,
+        _radialChromaBuild:  radialChromaBuild,
       },
       postRender,
       dispose,
@@ -1184,12 +1220,15 @@ export function initMatrixRain(element, opts = {}) {
     const pipeline    = new THREE.RenderPipeline(renderer);
     pipeline.outputNode    = fxaa(nodes.outputNode);
     pipeline._rttPhosphor  = nodes.rttPhosphor;
-    pipeline._bloomNode    = nodes.passBuilders._bloomNode;
-    pipeline._heatBuild    = nodes.passBuilders._heatBuild;
-    pipeline._softenBuild  = nodes.passBuilders._softenBuild;
-    pipeline._streakBuild  = nodes.passBuilders._streakBuild;
-    pipeline._holoBuild    = nodes.passBuilders._holoBuild;
-    pipeline._godRaysBuild = nodes.passBuilders._godRaysBuild;
+    pipeline._bloomNode          = nodes.passBuilders._bloomNode;
+    pipeline._heatBuild          = nodes.passBuilders._heatBuild;
+    pipeline._softenBuild        = nodes.passBuilders._softenBuild;
+    pipeline._streakBuild        = nodes.passBuilders._streakBuild;
+    pipeline._holoBuild          = nodes.passBuilders._holoBuild;
+    pipeline._godRaysBuild       = nodes.passBuilders._godRaysBuild;
+    pipeline._fogBuild           = nodes.passBuilders._fogBuild;
+    pipeline._dustBuild          = nodes.passBuilders._dustBuild;
+    pipeline._radialChromaBuild  = nodes.passBuilders._radialChromaBuild;
     pipeline._bloomNode.threshold.value = bloomThreshold;
     return pipeline;
   }
@@ -1245,6 +1284,9 @@ export function initMatrixRain(element, opts = {}) {
   let burstBloomTimer  = 0;
   let lastBurstBucket  = -1;
   let burstBloomActive = true;
+  let _bloomBreathEnabled = false;
+  let _bloomBreathRate    = 0.25;   // Hz — full cycles per second
+  let _bloomBreathAmp     = 0.08;   // amplitude — threshold swings ±0.08 around base
 
   // Animation state
   let _frozen         = false;
@@ -1260,6 +1302,11 @@ export function initMatrixRain(element, opts = {}) {
 
   // syncCamera reference — assigned to state after state object is created
   let activeSyncCamera = syncCamera;
+
+  function _effectiveBloomThreshold(t) {
+    if (!_bloomBreathEnabled) return bloomThreshold;
+    return bloomThreshold + Math.sin(t * _bloomBreathRate * Math.PI * 2) * _bloomBreathAmp;
+  }
 
   // ── Per-frame state tick (called by animate() in standalone mode, or by bridge) ──
   function tick(t) {
@@ -1311,10 +1358,10 @@ export function initMatrixRain(element, opts = {}) {
             ? THREE.MathUtils.lerp(bloomThreshold, burstLow, surge / 0.2)
             : THREE.MathUtils.lerp(burstLow, bloomThreshold, (surge - 0.2) / 0.8);
         } else {
-          bloomNode.threshold.value = bloomThreshold;
+          bloomNode.threshold.value = _effectiveBloomThreshold(t);
         }
       } else {
-        bloomNode.threshold.value = bloomThreshold;
+        bloomNode.threshold.value = _effectiveBloomThreshold(t);
       }
     }
 
@@ -1768,7 +1815,8 @@ export function initMatrixRain(element, opts = {}) {
       renderer.setSize(w, h);
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
-      uAspect.value = w / h;
+      uAspect.value        = w / h;
+      uInterlaceResY.value = h * Math.min(window.devicePixelRatio, 2);
       // PostProcessing RTT resize is handled in the render loop
     });
   });
@@ -2286,6 +2334,46 @@ export function initMatrixRain(element, opts = {}) {
     // require storing per-column burst state in a GPU texture or compute buffer and
     // propagating it each frame. Planned as a future feature.
     setContagion(v)       { uniforms.uContagionStrength.value = Math.max(0, Math.min(1, v)); },
+    setRadialChroma(v) {
+      if (postProcessing !== 'rain') return;
+      _ppState.radialChromaAmt = v;
+      const b = pp?._radialChromaBuild ?? currentRainNodes?.passBuilders?._radialChromaBuild;
+      if (b) b.uRadialChromaticAmt.value = v;
+    },
+    setInterlace(v) {
+      if (postProcessing !== 'rain') return;
+      _ppState.interlaceAmt = v;
+      const b = pp?._holoBuild ?? currentRainNodes?.passBuilders?._holoBuild;
+      if (b?.uInterlaceAmt) b.uInterlaceAmt.value = v;
+    },
+    setAtmosphericFog(amt, color) {
+      if (postProcessing !== 'rain') return;
+      _ppState.fogAmt = amt;
+      if (color !== undefined) _ppState.fogColor = color;
+      const b = pp?._fogBuild ?? currentRainNodes?.passBuilders?._fogBuild;
+      if (!b) return;
+      b.uFogAmt.value = amt;
+      if (color !== undefined) {
+        const c = new THREE.Color(color);
+        b.uFogColor.value.set(c.r, c.g, c.b);
+      }
+    },
+    setDust(v) {
+      if (postProcessing !== 'rain') return;
+      _ppState.dustAmt = v;
+      const b = pp?._dustBuild ?? currentRainNodes?.passBuilders?._dustBuild;
+      if (b) b.uDustAmt.value = v;
+    },
+    setBloomBreath(enabled, rate = 0.25, amplitude = 0.08) {
+      if (postProcessing !== 'rain') return;
+      _bloomBreathEnabled = enabled;
+      _bloomBreathRate    = rate;
+      _bloomBreathAmp     = amplitude;
+      if (!enabled) {
+        const bloomNode = currentRainNodes?.passBuilders?._bloomNode ?? pp?._bloomNode;
+        if (bloomNode) bloomNode.threshold.value = bloomThreshold;
+      }
+    },
     setShimmerAmt(v)      { uniforms.uShimmerAmt.value       = Math.max(0, Math.min(0.15, v)); },
     setShimmerFreq(v)     { uniforms.uShimmerFreq.value      = Math.max(0.5, Math.min(8.0, v)); },
     setInversionChance(v) { uniforms.uInversionChance.value  = Math.max(0, Math.min(1, v)); },
@@ -2813,7 +2901,10 @@ export function initMatrixRain(element, opts = {}) {
      * @param {number} w  new width in pixels
      * @param {number} h  new height in pixels
      */
-    onResize(w, h) { uAspect.value = w / h; },
+    onResize(w, h) {
+      uAspect.value        = w / h;
+      uInterlaceResY.value = h * Math.min(window.devicePixelRatio, 2);
+    },
 
     // ── Camera controls ───────────────────────────────────────────────────
     /**

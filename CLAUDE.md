@@ -204,8 +204,13 @@ Returns a control handle with methods below.
 | `setHueDriftRate(v)` | Per-column hue drift oscillation rate 0–0.5 Hz |
 | `setHueDriftAmt(v)` | Per-column hue drift peak angle 0–45 degrees |
 | `setHeadOvershootAmt(v)` | Head overshoot surge max displacement 0–3 cells |
+| `setRadialChroma(v)` | Radial chromatic aberration strength 0–0.02 (0 = off) |
+| `setInterlace(v)` | Interlace flicker amount 0–1 (0 = off) |
+| `setAtmosphericFog(amt, color?)` | Fog amount 0–1 and optional hex colour (default dark green) |
+| `setDust(v)` | Dust mote intensity 0–1 (0 = off) |
+| `setBloomBreath(enabled, rate?, amplitude?)` | Sinusoidal bloom threshold oscillation; rate in Hz (default 0.25), amplitude (default 0.08) |
 
-**Note**: `setHeat`, `setSoften`, `setStreaks`, `setHoloAberration`, `setGodRays`, `setBurstBloom`, `setPhosphorDecay`, `setBloomThreshold`, `setBloomStrength` are no-ops (silent) in `'crt'` and `'none'` modes.
+**Note**: `setHeat`, `setSoften`, `setStreaks`, `setHoloAberration`, `setGodRays`, `setBurstBloom`, `setPhosphorDecay`, `setBloomThreshold`, `setBloomStrength`, `setRadialChroma`, `setAtmosphericFog`, `setDust`, `setInterlace`, `setBloomBreath` are no-ops (silent) in `'crt'` and `'none'` modes.
 
 ### `destroyMatrixRain(element)`
 
@@ -256,6 +261,11 @@ Tears down the instance registered on `element`.
 | `uHueDriftRate` | `0.0` | Per-column hue drift rate Hz 0–0.5 |
 | `uHueDriftAmt` | `0.0` | Per-column hue drift max degrees 0–45 |
 | `uHeadOvershootAmt` | `0.0` | Head overshoot max displacement (cells) 0–3 |
+| `uRadialChromaticAmt` | `0.0` | Radial chroma pass |
+| `uFogAmt` | `0.0` | Atmospheric fog amount |
+| `uFogColor` | `(0.0, 0.06, 0.02)` | Fog colour (dark Matrix green) |
+| `uDustAmt` | `0.0` | Dust mote intensity |
+| `uInterlaceAmt` | `0.0` | Interlace flicker amount |
 
 ---
 

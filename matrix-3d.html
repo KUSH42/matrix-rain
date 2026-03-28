@@ -301,8 +301,8 @@
 
     <label>Sway
       <span style="display:flex;align-items:center;gap:4px;">
-        <input id="ctl-sway"     type="range"  min="0" max="0.15"  step="0.005"  value="0.04">
-        <input id="ctl-sway-num" type="number" min="0" max="0.15"  step="0.005"  value="0.04">
+        <input id="ctl-sway"     type="range"  min="-0.30" max="0.30"  step="0.005"  value="0.04">
+        <input id="ctl-sway-num" type="number" min="-0.30" max="0.30"  step="0.005"  value="0.04">
       </span>
     </label>
 
@@ -448,6 +448,49 @@
       <span style="display:flex;align-items:center;gap:4px;">
         <input id="ctl-holo-aber"     type="range"  min="0" max="0.015" step="0.0005" value="0.0025">
         <input id="ctl-holo-aber-num" type="number" min="0" max="0.015" step="0.0005" value="0.0025">
+      </span>
+    </label>
+
+    <label>Interlace
+      <span style="display:flex;align-items:center;gap:4px;">
+        <input id="interlace"    type="range"  min="0" max="1" step="0.01" value="0">
+        <input id="interlaceNum" type="number" min="0" max="1" step="0.01" value="0" style="width:60px">
+      </span>
+    </label>
+
+    <label>Radial Chroma
+      <span style="display:flex;align-items:center;gap:4px;">
+        <input id="radialChroma"    type="range"  min="0" max="0.02" step="0.0005" value="0">
+        <input id="radialChromaNum" type="number" min="0" max="0.02" step="0.0005" value="0" style="width:60px">
+      </span>
+    </label>
+
+    <label>Fog Amount
+      <span style="display:flex;align-items:center;gap:4px;">
+        <input id="fogAmt"    type="range"  min="0" max="1" step="0.01" value="0">
+        <input id="fogAmtNum" type="number" min="0" max="1" step="0.01" value="0" style="width:60px">
+      </span>
+    </label>
+    <label>Fog Colour <input type="color" id="fogColor" value="#00100a"></label>
+
+    <label>Dust
+      <span style="display:flex;align-items:center;gap:4px;">
+        <input id="dust"    type="range"  min="0" max="1" step="0.01" value="0">
+        <input id="dustNum" type="number" min="0" max="1" step="0.01" value="0" style="width:60px">
+      </span>
+    </label>
+
+    <label><input type="checkbox" id="bloomBreath"> Bloom Breath</label>
+    <label>Breath Rate (Hz)
+      <span style="display:flex;align-items:center;gap:4px;">
+        <input id="bloomBreathRate"    type="range"  min="0.05" max="2.0" step="0.05" value="0.25">
+        <input id="bloomBreathRateNum" type="number" min="0.05" max="2.0" step="0.05" value="0.25" style="width:60px">
+      </span>
+    </label>
+    <label>Breath Amp
+      <span style="display:flex;align-items:center;gap:4px;">
+        <input id="bloomBreathAmp"    type="range"  min="0" max="0.3" step="0.005" value="0.08">
+        <input id="bloomBreathAmpNum" type="number" min="0" max="0.3" step="0.005" value="0.08" style="width:60px">
       </span>
     </label>
 
@@ -1512,6 +1555,28 @@
   linkSlider('ctl-vignette',   'ctl-vignette-num',   v => rain.setVignette(v));
   linkSlider('ctl-scanlines',  'ctl-scanlines-num',  v => rain.setScanlines(v));
   linkSlider('ctl-holo-aber',  'ctl-holo-aber-num',  v => rain.setHoloAberration(v));
+  linkSlider('interlace',     'interlaceNum',     v => rain.setInterlace(v));
+  linkSlider('radialChroma',  'radialChromaNum',  v => rain.setRadialChroma(v));
+  linkSlider('fogAmt',        'fogAmtNum',        v => rain.setAtmosphericFog(v));
+  document.getElementById('fogColor').addEventListener('input', e => {
+    rain.setAtmosphericFog(parseFloat(document.getElementById('fogAmt').value), e.target.value);
+  });
+  linkSlider('dust',          'dustNum',          v => rain.setDust(v));
+  document.getElementById('bloomBreath').addEventListener('change', e => {
+    rain.setBloomBreath(
+      e.target.checked,
+      parseFloat(document.getElementById('bloomBreathRate').value),
+      parseFloat(document.getElementById('bloomBreathAmp').value),
+    );
+  });
+  linkSlider('bloomBreathRate', 'bloomBreathRateNum', v => {
+    if (document.getElementById('bloomBreath').checked)
+      rain.setBloomBreath(true, v, parseFloat(document.getElementById('bloomBreathAmp').value));
+  });
+  linkSlider('bloomBreathAmp', 'bloomBreathAmpNum', v => {
+    if (document.getElementById('bloomBreath').checked)
+      rain.setBloomBreath(true, parseFloat(document.getElementById('bloomBreathRate').value), v);
+  });
 
   document.getElementById('ctl-charset').addEventListener('change', e => {
     rain.setCharSet(e.target.value);

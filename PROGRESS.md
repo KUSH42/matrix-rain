@@ -157,6 +157,11 @@ All items go in `specs/` before implementation.
   - `matrix-rain-webgpu.js`: `aHeadOvershoot` buffer baked in `buildGeometry()` (per-column random phase replicated per row); `geom.setAttribute('aHeadOvershoot', ...)` added; 8 handle methods: `setShimmerAmt/Freq`, `setInversionChance`, `setGlyphSpinAmt/Speed`, `setHueDriftRate/Amt`, `setHeadOvershootAmt`
   - `matrix-3d.html`: "Glyph FX B" sub-panel with 8 sliders + number inputs; `linkSlider` bindings added
 
+- [x] **SPEC-effects-category-b** — 6 post-processing effects
+  - `matrix-rain-passes-tsl.js`: added `mod` to imports; `buildHoloPass` gains `uInterlaceResY` parameter + `uInterlaceAmt` uniform, B2 scanline luma modulation (effectiveScanOp = opacity × (0.3 + 0.7×luma)), B3 interlace flicker block after vignette; new `buildFogPass` (B5, fog→dark regions); new `buildDustPass` (B6, 32-mote procedural particles, guarded by `If(uDustAmt > 0.001)`); new `buildRadialChromaPass` (B1, R/B shifted outward/inward from centre)
+  - `matrix-rain-webgpu.js`: imports 3 new builders; `uInterlaceResY` scope-level uniform; `_bloomBreathEnabled/Rate/Amp` closure vars; `_effectiveBloomThreshold(t)` helper; pipeline extended: godRays → rttPreFog → fog → dust → rttPreRadialChroma → radialChroma → rttPreFxaa; `dispose()` updated; `passBuilders` + `buildPP()` expose `_fogBuild/_dustBuild/_radialChromaBuild`; `_ppState` + `_restorePP` cover all new fields; ResizeObserver + `onResize()` update `uInterlaceResY`; `tick()` bloom writes use `_effectiveBloomThreshold`; 5 new handle methods
+  - `matrix-3d.html`: Interlace, Radial Chroma, Fog Amount, Fog Colour, Dust, Bloom Breath (checkbox + rate + amplitude) controls in Post-Processing panel; JS wiring added
+
 - [ ] `prefers-reduced-motion` — disable/reduce heat, god rays, burst bloom
 - [ ] README.md — public documentation before any npm/gh-pages publish
 - [ ] `package.json` npm publish — subpath exports already wired

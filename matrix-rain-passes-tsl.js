@@ -21,7 +21,7 @@
 import {
   Fn, float, int, vec2, vec3, vec4,
   uniform,
-  sin, dot, abs, max, min, exp, fract, floor, sqrt, clamp, mix,
+  sin, dot, abs, max, min, exp, fract, floor, mod, sqrt, clamp, mix,
   smoothstep, step, normalize, length,
   screenUV, texture,
   If, Loop,
@@ -155,13 +155,17 @@ export function buildStreakPass(inputNode, uAspect) {
 
 /**
  * @param {TextureNode} inputTexNode
- * @returns {{ outputNode, uVignetteStrength, uScanlineOpacity, uAberrationAmt, uGlitchAmt }}
+ * @param {UniformNode}  [uInterlaceResY]  uniform(screenHeight) — must be updated on resize
+ * @returns {{ outputNode, uVignetteStrength, uScanlineOpacity, uAberrationAmt, uGlitchAmt,
+ *             uInterlaceAmt, uInterlaceResY }}
  */
-export function buildHoloPass(inputTexNode) {
+export function buildHoloPass(inputTexNode, uInterlaceResY) {
   const uVignetteStrength = uniform(0.42);
   const uScanlineOpacity  = uniform(0.045);
   const uAberrationAmt    = uniform(0.0025);
   const uGlitchAmt        = uniform(0.0);
+  const uInterlaceAmt     = uniform(0.0);
+  if (!uInterlaceResY) uInterlaceResY = uniform(720.0);
 
   const outputNode = Fn(() => {
     // Glitch — horizontal scanline-band displacement
@@ -183,18 +187,30 @@ export function buildHoloPass(inputTexNode) {
     const b      = texture(inputTexNode, uvB).b;
     const col    = vec3(r, g, b).toVar();
 
-    // Scrolling scanlines
+    // Scrolling scanlines — luma-modulated (B2)
     const scan  = sin(screenUV.y.mul(640).add(time.mul(0.5))).mul(0.5).add(0.5);
-    col.mulAssign(float(1).sub(uScanlineOpacity.mul(float(1).sub(scan))));
+    const luma  = clamp(dot(col, vec3(0.2126, 0.7152, 0.0722)), float(0.0), float(1.0));
+    const effectiveScanOp = uScanlineOpacity.mul(float(0.3).add(float(0.7).mul(luma)));
+    col.mulAssign(float(1).sub(effectiveScanOp.mul(float(1).sub(scan))));
 
     // Vignette
     col.mulAssign(float(1).sub(edgeSq.mul(uVignetteStrength)));
+
+    // Interlace flicker (B3)
+    If(uInterlaceAmt.greaterThan(float(0.001)), () => {
+      const frameOdd = mod(floor(time.mul(60.0)), float(2.0));
+      const lineOdd  = mod(floor(screenUV.y.mul(uInterlaceResY)), float(2.0));
+      const dimFactor = float(1.0).sub(uInterlaceAmt.mul(float(0.3)));
+      const isDimmed  = abs(lineOdd.sub(frameOdd)).lessThan(float(0.5));
+      col.mulAssign(select(isDimmed, dimFactor, float(1.0)));
+    });
 
     // Preserve alpha for transparent canvas compositing
     return vec4(col, texture(inputTexNode, gUV).a);
   })();
 
-  return { outputNode, uVignetteStrength, uScanlineOpacity, uAberrationAmt, uGlitchAmt };
+  return { outputNode, uVignetteStrength, uScanlineOpacity, uAberrationAmt, uGlitchAmt,
+           uInterlaceAmt, uInterlaceResY };
 }
 
 // ── God rays ──────────────────────────────────────────────────────────────
@@ -241,5 +257,118 @@ export function buildGodRaysPass(inputTexNode) {
   })();
 
   return { outputNode, uLightPos, uDensity, uDecay, uWeight, uExposure, uEnabled };
+}
+
+// ── Atmospheric depth fog ─────────────────────────────────────────────────
+// Blends a fog colour into dark (low-luminance) regions.
+// Requires inputTexNode to be a sampleable TextureNode.
+
+/**
+ * Atmospheric depth fog — blends a fog colour into dark (low-luminance) regions.
+ * Dark areas (inverse luminance) receive maximum fog; bright areas receive none.
+ * Requires inputTexNode to be a sampleable TextureNode (wrap upstream in rtt()).
+ *
+ * @param {TextureNode} inputTexNode
+ * @returns {{ outputNode, uFogAmt, uFogColor }}
+ */
+export function buildFogPass(inputTexNode) {
+  const uFogAmt   = uniform(0.0);
+  const uFogColor = uniform(new THREE.Vector3(0.0, 0.06, 0.02));
+
+  const outputNode = Fn(() => {
+    const col      = texture(inputTexNode, screenUV).toVar('fog');
+    const luma     = clamp(dot(col.rgb, vec3(0.2126, 0.7152, 0.0722)), float(0.0), float(1.0));
+    // Fog strength = uFogAmt * (1 - luma): dark pixels get full fog, bright pixels get none.
+    const fogBlend = clamp(uFogAmt.mul(float(1.0).sub(luma)), float(0.0), float(1.0));
+    col.rgb.assign(mix(col.rgb, uFogColor, fogBlend));
+    return col;
+  })();
+
+  return { outputNode, uFogAmt, uFogColor };
+}
+
+// ── Volumetric dust motes ─────────────────────────────────────────────────
+// 32 procedural light particles drifting across the screen.
+// Additive blend; does not sample input at custom UVs.
+
+/**
+ * Volumetric dust motes — 32 procedural light particles drifting across the screen.
+ * Additive blend; does not sample input at custom UVs — takes raw inputNode.
+ *
+ * @param {Node} inputNode  upstream post-processing node
+ * @returns {{ outputNode, uDustAmt }}
+ */
+export function buildDustPass(inputNode) {
+  const uDustAmt = uniform(0.0);
+
+  const outputNode = Fn(() => {
+    const col      = inputNode.toVar('dstCol');
+    const dustAcc  = vec3(0.0).toVar('dstAcc');
+
+    If(uDustAmt.greaterThan(float(0.001)), () => {
+      Loop({ start: int(0), end: int(32), type: 'int' }, ({ i }) => {
+        const fi = i.toFloat();
+
+        // Deterministic per-mote parameters derived from index via fract-sin hash
+        const baseX  = fract(sin(fi.mul(float(47.3213))).mul(float(43758.5453)));
+        const baseY  = fract(sin(fi.mul(float(31.7891))).mul(float(12345.6789)));
+        const spdX   = float(0.012).add(fract(sin(fi.mul(float(17.1111))).mul(float(9876.5432))).mul(float(0.018)));
+        const spdY   = float(0.008).add(fract(sin(fi.mul(float(23.3333))).mul(float(5432.1098))).mul(float(0.012)));
+        const phase  = fi.mul(float(2.3998));
+        const radius = float(0.0025).add(fract(sin(fi.mul(float(13.7777))).mul(float(8765.4321))).mul(float(0.007)));
+
+        // Smoothly drifting position, wrapping in [0,1] via fract
+        const mx = fract(baseX.add(time.mul(spdX)));
+        const my = fract(baseY.add(time.mul(spdY).add(sin(time.mul(float(0.31)).add(phase)).mul(float(0.018)))));
+
+        const dist       = length(screenUV.sub(vec2(mx, my)));
+        const mote       = exp(dist.mul(dist).negate().div(radius.mul(radius).mul(float(2.0))));
+        const brightness = float(0.45).add(float(0.55).mul(sin(time.mul(float(1.1)).add(phase))));
+
+        dustAcc.addAssign(vec3(0.55, 1.0, 0.65).mul(mote).mul(brightness));
+      });
+    });
+
+    col.rgb.addAssign(dustAcc.mul(uDustAmt));
+    // Soft clamp to avoid bloom overflow
+    col.rgb.assign(min(col.rgb, vec3(3.0)));
+    return col;
+  })();
+
+  return { outputNode, uDustAmt };
+}
+
+// ── Radial chromatic aberration ───────────────────────────────────────────
+// R/G/B channels sampled at UV offsets pointing radially from screen centre.
+// Requires inputTexNode to be a sampleable TextureNode.
+
+/**
+ * Radial chromatic aberration — R/G/B channels sampled at UV offsets pointing
+ * radially away from the screen centre. G channel is unshifted.
+ * Requires inputTexNode to be a sampleable TextureNode (wrap upstream in rtt()).
+ *
+ * @param {TextureNode} inputTexNode
+ * @returns {{ outputNode, uRadialChromaticAmt }}
+ */
+export function buildRadialChromaPass(inputTexNode) {
+  const uRadialChromaticAmt = uniform(0.0);
+
+  const outputNode = Fn(() => {
+    const base = texture(inputTexNode, screenUV);
+    const ctr  = screenUV.sub(vec2(0.5, 0.5));
+
+    // R channel pushed outward from centre, B pushed inward
+    const shift = ctr.mul(uRadialChromaticAmt);
+    const uvR   = clamp(screenUV.add(shift),         float(0.001), float(0.999));
+    const uvB   = clamp(screenUV.sub(shift),         float(0.001), float(0.999));
+
+    const r = texture(inputTexNode, uvR).r;
+    const g = base.g;                                  // G unchanged
+    const b = texture(inputTexNode, uvB).b;
+
+    return vec4(r, g, b, base.a);
+  })();
+
+  return { outputNode, uRadialChromaticAmt };
 }
 
