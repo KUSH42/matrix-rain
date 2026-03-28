@@ -182,6 +182,14 @@ Returns a control handle with methods below.
 | `setSectorWidth(deg)` | Half-angle of active sector 1–180° (default 180 = widest arc) |
 | `setSectorStrength(v)` | Fraction masked outside sector 0–1 (0 = off, default) |
 | `setHeightFade(v)` | Sine density fade at vertical poles 0–1 (0 = off) |
+| `setContagion(v)` | Cluster burst contagion strength 0–1 (0 = off, default) |
+| `setEntrainment(amt, speed?, crests?)` | Speed entrainment wave: amplitude 0–0.8, angular speed rad/s, crest count 1–12 |
+| `setSquadCoherence(v)` | Squad phase lock 0–1 (0 = full squad lock, 1 = individual random, default) |
+| `setSquadSize(n)` | Squad size 2–20 — triggers geometry rebuild |
+| `setTrailCohesion(v)` | Trail-length bias within squads 0–1 — triggers geometry rebuild |
+| `spawnWave({duration?, easing?, startAngle?})` | Animate rain sweep-in from `startAngle` [0,1] over `duration` seconds |
+| `despawnWave({duration?, easing?})` | Animate rain sweep-out over `duration` seconds |
+| `setSpawnWaveFront(v)` | Manually set spawn wave front (−0.1–1.1; 2.0 = all active, default) |
 
 **Note**: `setHeat`, `setSoften`, `setStreaks`, `setHoloAberration`, `setGodRays`, `setBurstBloom`, `setPhosphorDecay`, `setBloomThreshold`, `setBloomStrength` are no-ops (silent) in `'crt'` and `'none'` modes.
 
@@ -213,6 +221,12 @@ Tears down the instance registered on `element`.
 | Streak `uStreakAmt` | `0.055` | |
 | God rays `uExposure` | `0.45` | |
 | `uMsgBoost` | `2.0` | Brightness multiplier in message region (was 3.0 before message-reveal rework) |
+| `uContagionStrength` | `0.0` | Cluster burst contagion 0–1; 0 = off |
+| `uEntrainAmt` | `0.0` | Speed entrainment wave amplitude 0–0.8; 0 = off |
+| `uEntrainSpeed` | `0.25` | Entrainment wave angular speed rad/s |
+| `uEntrainCrests` | `3.0` | Entrainment crests around shell 1–12 |
+| `uSquadCoherence` | `1.0` | 0 = full squad phase lock, 1 = individual random |
+| `uSpawnWaveFront` | `2.0` | Spawn wave gate; 2.0 = all active, < 0 = all suppressed |
 | `uMsgCascadeMode` | `0.0` | 0=wave, 1=radial, 2=column |
 | `uMsgSettleSharpness` | `4.0` | Per-cell crystallisation speed |
 | `uMsgCenter` | `(0.5, 0.5)` | Message centre in screen UV (for radial mode) |

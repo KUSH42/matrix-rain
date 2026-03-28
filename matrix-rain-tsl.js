@@ -38,11 +38,10 @@ export const median3 = Fn(([a, b, c]) => max(min(a, b), min(max(a, b), c)));
  * @param {number}              [glyphCount=56]  total glyphs in the MSDF atlas
  * @param {number}              [gridW=8]        columns in atlas grid
  * @param {number}              [gridH=8]        rows in atlas grid
- * @param {THREE.CanvasTexture} [dummyMsgTex]    1×1 black canvas texture for uMsgTex initial value
  * @param {THREE.DataTexture}   [lutTexture]     256×1 glyph weight LUT; built as uniform identity if null
  * @returns {object}  all mutable TSL uniform nodes
  */
-export function makeUniforms(glyphCount = 56, gridW = 8, gridH = 8, dummyMsgTex, lutTexture = null) {
+export function makeUniforms(glyphCount = 56, gridW = 8, gridH = 8, lutTexture = null) {
   // Build a uniform identity LUT if none supplied (placeholder; replaced via applyGlyphWeightLUT).
   if (!lutTexture) {
     const lut = new Uint8Array(256);
@@ -76,23 +75,17 @@ export function makeUniforms(glyphCount = 56, gridW = 8, gridH = 8, dummyMsgTex,
     uGlobeInteract:  uniform(1.0),   // 0 = off, 1 = on — gates globe proximity pulse
     uSwayAmt:        uniform(0.04),  // lateral sway amplitude (world units)
     uSwayDecay:      uniform(1.5),   // exponential decay rate — higher = settles faster
-    uMsgTex:             texture(dummyMsgTex, screenUV), // 1×1 black CanvasTexture; screenUV baked in
-    uMsgRevealProgress:  uniform(0.0),                   // overall effect opacity 0–1
-    uMsgWaveX:           uniform(0.0),                   // leading-edge X in screen UV (0–1)
-    uMsgBoost:           uniform(2.0),                   // brightness multiplier in text region
-    uMsgWaveR:           uniform(0.0),                   // radial wave front (screen UV distance, 0→~1.5)
-    uMsgCenter:          uniform(new THREE.Vector2(0.5, 0.5)), // message centre in screen UV
-    uMsgSettleSharpness: uniform(4.0),                   // settle speed: higher = faster per-cell crystallise
-    uMsgCascadeMode:     uniform(0.0),                   // 0=wave, 1=radial, 2=column
-    uMsgWorldXMin:       uniform(-8.0),                  // min world X for column cascade ordering
-    uMsgWorldXMax:       uniform(8.0),                   // max world X for column cascade ordering
-    uMsgHalfH:           uniform(0.08),                  // half-height of message band in screen UV (0–1)
+    uMsgRevealProgress:  uniform(0.0),                   // overall effect opacity 0→1→0
+    uMsgBoost:           uniform(2.0),                   // brightness multiplier for locked head glyphs
     uGlyphWeightLUT:    texture(lutTexture),             // 256×1 inverse-CDF glyph weight LUT
     uBrightness:     uniform(1.0),   // output brightness multiplier — range [0.2, 2.0]
     uBreathAmt:      uniform(1.0),   // speed-oscillation amplitude scale — 0 = off, 1 = ±15%
     uWaveSpeed:      uniform(0.15),  // wave crest angular speed in rad/s (hardcoded was 0.15)
     uWaveAmt:        uniform(1.0),   // wave height amplitude scale — 0 = off, 1 = ±4 world units
     uWaveCrests:     uniform(3.0),   // number of wave crests around the shell (integer 1–12)
+    uEntrainAmt:     uniform(0.0),   // speed-entrainment wave amplitude — 0 = off, range 0–0.8
+    uEntrainSpeed:   uniform(0.25),  // entrainment wave angular speed rad/s
+    uEntrainCrests:  uniform(3.0),   // entrainment crests around shell (integer 1–12)
     uWeightedGlyphs: uniform(1.0),  // LUT weight blend — 0 = uniform sampling, 1 = full LUT
     uReverseChance:  uniform(0.0),  // fraction of columns that fall upward — 0 = all down, 1 = all up
     uDensity:        uniform(1.0),   // fraction of columns active — range [0.1, 1.0]
@@ -106,6 +99,7 @@ export function makeUniforms(glyphCount = 56, gridW = 8, gridH = 8, dummyMsgTex,
     uSectorWidth:    uniform(Math.PI), // half-angle of arc (radians); default π = widest single arc
     uSectorStrength: uniform(0.0),   // 0 = off (default), 1 = full mask outside arc
     uHeightFade:     uniform(0.0),   // 0 = off, 1 = full sine density envelope; range 0–1
+    uSpawnWaveFront: uniform(2.0),   // wave-front gate: columns with aSpawnTheta < front are active; 2.0 = all
     // Glyph FX controls
     uDripAmt:        uniform(0.35),  // drip-stretch Y-scale amplitude  0–0.8
     uEdgeGlow:       uniform(0.4),   // edge-emission corona intensity   0–1.5
@@ -119,7 +113,9 @@ export function makeUniforms(glyphCount = 56, gridW = 8, gridH = 8, dummyMsgTex,
     uBurstGlyphRate: uniform(12.0),  // glyph-change rate during burst   1–30 Hz
     uHueRange:       uniform(0.5),   // per-column colour blend spread 0–1 (0=all uColor, 1=full mix)
     uBurstProb:      uniform(0.005), // fraction of columns that burst per 4 s cycle
+    uContagionStrength: uniform(0.0), // fraction of cluster members joining a cluster burst 0–1
     uClusterBiasAmt: uniform(0.25),  // per-cluster brightness bias magnitude 0–1
+    uSquadCoherence: uniform(1.0),   // 0 = full squad phase lock, 1 = individual random (default)
     uAtlasMTSDF:     uniform(1.0),   // 1 = MTSDF atlas (new); 0 = legacy single-channel (matrixcode)
     uColumnOffset:   uniform(new THREE.Vector2(0, 0)), // XZ world offset applied to all columns (camera follow)
   };
@@ -140,18 +136,18 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     uColor, uGlobalAlpha, uDepth, uPomSteps, uNormalStrength,
     uLightDir, uGlyphChroma,
     uSpeedMul, uMaxYaw, uFacingJitter, uFlatZ, uForwardFacing, uGlobeInteract, uSwayAmt, uSwayDecay,
-    uMsgTex, uMsgRevealProgress, uMsgWaveX, uMsgBoost,
-    uMsgWaveR, uMsgCenter, uMsgSettleSharpness, uMsgCascadeMode, uMsgWorldXMin, uMsgWorldXMax, uMsgHalfH,
+    uMsgRevealProgress, uMsgBoost,
     uGlyphWeightLUT,
-    uBrightness, uBreathAmt, uWaveSpeed, uWaveAmt, uWaveCrests, uWeightedGlyphs, uReverseChance,
+    uBrightness, uBreathAmt, uWaveSpeed, uWaveAmt, uWaveCrests, uEntrainAmt, uEntrainSpeed, uEntrainCrests, uWeightedGlyphs, uReverseChance,
     uDensity,
     uZoneSpeedInner, uZoneSpeedOuter, uZoneBrightInner, uZoneBrightOuter,
     uDensityInner, uDensityOuter,
-    uSectorCenter, uSectorWidth, uSectorStrength, uHeightFade,
+    uSectorCenter, uSectorWidth, uSectorStrength, uHeightFade, uSpawnWaveFront,
     uDripAmt, uEdgeGlow, uZRotRange, uGrainAmt, uDepthTintAmt,
     uBootEnabled, uBootStart, uStability, uHoldMult, uBurstGlyphRate,
     uColor2, uHueRange, uBurstProb,
-    uClusterBiasAmt,
+    uContagionStrength,
+    uClusterBiasAmt, uSquadCoherence,
     uAtlasMTSDF,
     uColumnOffset,
   } = uniforms;
@@ -161,9 +157,11 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
   const aRowIdxAttr      = attribute('aRowIdx',      'float');
   const aColAAttr        = attribute('aColA',        'vec4');  // wx, wz, speed, seed
   const aColBAttr        = attribute('aColB',        'vec4');  // yOff, scale, alpha, trail
-  const aClusterBiasAttr = attribute('aClusterBias', 'float'); // per-cluster bias [-1, 1]
-  const aFrustumVisAttr  = attribute('aFrustumVis',  'float'); // 1 = visible in frustum, 0 = culled
-  const aColMsgGlyphAttr = attribute('aColMsgGlyph', 'float'); // (glyphIdx+1)/256; 0 = no target
+  const aClusterBiasAttr      = attribute('aClusterBias',      'float'); // per-cluster bias [-1, 1]
+  const aClusterBurstSeedAttr = attribute('aClusterBurstSeed', 'float'); // per-cluster burst phase offset [0, 1]
+  const aSquadPhaseAttr       = attribute('aSquadPhase',       'float'); // shared cyclePos phase seed within squad
+  const aFrustumVisAttr       = attribute('aFrustumVis',       'float'); // 1 = visible in frustum, 0 = culled
+  const aSpawnThetaAttr       = attribute('aSpawnTheta',       'float'); // normalised angular position [0, 1] for spawn wave
 
   // ── Varyings shared between vertex and fragment stages ─────────────────
   const vUvRain    = varying(vec2(),   'vUvRain');
@@ -178,7 +176,8 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
   const vBurst     = varying(float(),  'vBurst');
   const vBootFade  = varying(float(),  'vBootFade');
   const vDeathFade  = varying(float(),  'vDeathFade');
-  const vColCenterX = varying(float(),  'vColCenterX'); // baked world X of column centre (column cascade)
+  const vColCenterX = varying(float(),  'vColCenterX'); // baked world X of column centre
+  const vLockState  = varying(vec4(),   'vLockState');  // (lockY, lockGlyph, lockTime, spawnActive)
 
   // ── MTSDF sampling (closure over atlasTexture + uniforms) ─────────────
   // blendSDF: 0 = pure MSDF (accurate corners, large scale / CRT),
@@ -224,6 +223,7 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     vOutward.assign(vec3(0, 0, 1));
     vWorldPos.assign(vec3(0));
     vColCenterX.assign(0.0);
+    vLockState.assign(vec4(float(-9999), float(-1), float(0), float(0)));
 
     // Unpack per-column attributes — apply camera-follow offset to XZ world position
     const aWX    = aColAAttr.x.add(uColumnOffset.x);
@@ -273,7 +273,20 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
       .mul(heightMask)
       .clamp(0.0, 1.0);
     const densityPasses = h2(vec2(aColIdxAttr.mul(0.137).add(0.5), float(42.7))).lessThanEqual(zonedDensity);
-    If(densityPasses.and(aFrustumVisAttr.greaterThan(float(0.5))), () => {
+
+    // ── Lock state — read before density cull so bypass logic is always available ──
+    const aLockStateAttr = attribute('aLockState', 'vec4');
+    const isLocked      = aLockStateAttr.z.greaterThan(float(0.0));
+    const isSpawnActive = aLockStateAttr.w.greaterThan(float(0.5));
+    // Write varying unconditionally so fragment always has a valid value
+    vLockState.assign(aLockStateAttr);
+
+    // Spawn wave gate — columns with aSpawnTheta >= uSpawnWaveFront are suppressed.
+    // isLocked and isSpawnActive columns (message reveal, reserves) bypass this gate.
+    const spawnGatePasses = aSpawnThetaAttr.lessThan(uSpawnWaveFront);
+
+    // Bypass density+frustum cull for locked columns and spawn-below columns
+    If(densityPasses.and(aFrustumVisAttr.greaterThan(float(0.5))).and(spawnGatePasses).or(isLocked).or(isSpawnActive), () => {
 
     If(bootFadeVal.greaterThanEqual(0.001), () => {
 
@@ -300,11 +313,25 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
         .sub(aRowIdxAttr.mul(cellStep))
         .add(yJitter);
 
+      // Speed entrainment wave — computed before speedMul to avoid a forward reference.
+      // thetaEntrain mirrors the later thetaWave expression; TSL node deduplication
+      // means no extra GPU cost (same DAG node, emitted once in the compiled shader).
+      const thetaEntrain  = atan(aWZ, aWX);   // −π..π, same angular value as thetaWave
+      const entrainWave   = sin(
+        thetaEntrain.mul(uEntrainCrests).add(uTime.mul(uEntrainSpeed))
+      ).mul(uEntrainAmt);
+
       // ── Column burst — 0.5 % of columns get a 4 s speed surge ───────
       const burstCycle  = float(4.0);
       const burstBucket = floor(uTime.div(burstCycle));
       const burstH      = h2(vec2(aColIdxAttr.mul(0.41), burstBucket.mul(0.19)));
-      const burstActive = step(float(1).sub(uBurstProb), burstH);
+      const burstIndiv  = step(float(1).sub(uBurstProb), burstH);
+      // Cluster contagion: all columns in a cluster fire when its periodic window is open
+      const clusterBurstPhase = fract(uTime.div(burstCycle).add(aClusterBurstSeedAttr));
+      const clusterIsBursting = step(clusterBurstPhase, float(0.08));
+      const colContagionRand  = h2(vec2(aColIdxAttr.mul(0.53), float(0.13)));
+      const contagionBurst    = clusterIsBursting.mul(step(colContagionRand, uContagionStrength));
+      const burstActive       = burstIndiv.add(contagionBurst).clamp(0.0, 1.0);
       const burstPhase  = fract(uTime.div(burstCycle));
       const burstFrac   = smoothstep(0.0, 0.1, burstPhase)
         .mul(float(1).sub(smoothstep(0.25, 0.35, burstPhase)));
@@ -317,7 +344,8 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
       const zoneSpeedBias = mix(uZoneSpeedInner, uZoneSpeedOuter, t_zone);
       const speedMul    = max(float(0.01), uSpeedMul.add(breathAdd))
         .mul(float(1).add(burstActive.mul(burstFrac).mul(2)))
-        .mul(zoneSpeedBias);
+        .mul(zoneSpeedBias)
+        .mul(float(1).add(entrainWave));
       vBurst.assign(burstActive.mul(burstFrac));
 
       // ── Head sweep ──────────────────────────────────────────────────
@@ -328,8 +356,10 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
       const wavePhase  = thetaWave.mul(uWaveCrests).add(uTime.mul(uWaveSpeed));
       const waveOffset = sin(wavePhase).mul(uWaveAmt.mul(4.0));
 
+      // Squad phase coherence: blend between squad-shared phase (0) and individual random (1)
+      const phaseSeed = mix(aSquadPhaseAttr, aSeed, uSquadCoherence);
       const cyclePos  = mod(
-        uTime.mul(aSpeed).mul(speedMul).add(aSeed.mul(cycleH)),
+        uTime.mul(aSpeed).mul(speedMul).add(phaseSeed.mul(cycleH)),
         cycleH
       );
       const cyclePhase = cyclePos.div(cycleH);
@@ -345,7 +375,13 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
       // Reverse columns invert cyclePos so head sweeps bottom→top.
       const revCyclePos = select(isRev, cycleH.sub(cyclePos), cyclePos);
 
-      const headY = aYOff.add(uWorldH.mul(0.5)).sub(revCyclePos);
+      const headY = aYOff.add(uWorldH.mul(0.5)).sub(revCyclePos).toVar('headY');
+
+      // ── Lock-freeze: pin headY for locked columns ────────────────────
+      headY.assign(select(isLocked, aLockStateAttr.x, headY));
+      // Suppress death-fade so the frozen glyph never vanishes mid-hold
+      vDeathFade.assign(select(isLocked, float(1.0), vDeathFade));
+
       // Signed trail distance: positive = behind head (in the trail).
       // Forward: trail is above head (cellY > headY). Reverse: below (headY > cellY).
       const rawDist = cellY.sub(headY).div(cellStep);
@@ -363,7 +399,12 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
         // waveOffset displaces the rendered glyph position in world Y, not headY.
         // Keeping it out of headY means dist (trail gradient) is never affected,
         // so the wave cannot cause apparent fall-direction reversal.
-        const colCenter   = vec3(aWX, cellY.add(waveOffset), wz).toVar();
+        // Lock-head cells snap to lockY so all message chars align on the same Y.
+        const isVertLockHead = isLocked
+          .and(dist.greaterThanEqual(float(-0.5)))
+          .and(dist.lessThan(float(0.5)));
+        const lockedCellY = select(isVertLockHead, aLockStateAttr.x, cellY.add(waveOffset));
+        const colCenter   = vec3(aWX, lockedCellY, wz).toVar();
         const toTarget    = vec2(aWX.negate(), float(-2).sub(wz));
         const targetAngle = atan(toTarget.x, toTarget.y);
         // Camera-facing angle: project camera→column direction onto XZ plane
@@ -386,9 +427,12 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
         vOutward.assign(outward);
 
         // Wobble-in: full amplitude at head (dist=0), decays exponentially into trail
-        const sway = sin(uTime.mul(0.4).add(aSeed.mul(6.2832)))
-          .mul(uSwayAmt)
-          .mul(exp(dist.negate().mul(uSwayDecay)));
+        // Suppressed for locked head cells so message chars stay perfectly still.
+        const sway = select(isVertLockHead, float(0),
+          sin(uTime.mul(0.4).add(aSeed.mul(6.2832)))
+            .mul(uSwayAmt)
+            .mul(exp(dist.negate().mul(uSwayDecay)))
+        );
         colCenter.addAssign(right.mul(sway));
 
         // Per-column Z-rotation ±5°
@@ -399,11 +443,12 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
         const rotUp    = vec3(0, 1, 0).mul(cosR).sub(right.mul(sinR));
 
         // Drip stretch — Y-scale at head for mercury-drip effect
+        // Disabled for locked heads so message chars are uniformly sized.
         const scaleJitter = float(1).add(
           h2(vec2(aColIdxAttr.mul(0.53), aRowIdxAttr.mul(0.17))).sub(0.5).mul(0.20)
         );
-        const dripStretch = float(1).add(
-          uDripAmt.mul(exp(max(dist, 0.0).negate().mul(1.5)))
+        const dripStretch = select(isVertLockHead, float(1),
+          float(1).add(uDripAmt.mul(exp(max(dist, 0.0).negate().mul(1.5))))
         );
         const sX = aScale.mul(scaleJitter).mul(2.2);
         const sY = aScale.mul(scaleJitter).mul(2.2).mul(dripStretch);
@@ -468,61 +513,13 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
       nonHeadHold
     );
 
-    // ── Message reveal ─────────────────────────────────────────────────────
-    // Cascade front — wave mode uses screen UV X; radial uses distance from uMsgCenter.
-    // Column mode reuses uMsgWaveX but compares against world X normalized across the shell.
-    const radialDist  = length(screenUV.sub(uMsgCenter));
-    // vColCenterX carries the column's baked world X centre (constant across the quad face).
-    // Using vWorldPos.x would introduce ±cellWidth quad-edge jitter in colPhase.
-    const colPhase    = clamp(vColCenterX.sub(uMsgWorldXMin).div(uMsgWorldXMax.sub(uMsgWorldXMin)), 0.0, 1.0);
-
-    // wavePast: 1 where the cascade front has passed this fragment
-    const wavePastW   = step(screenUV.x, uMsgWaveX);
-    const wavePastR   = step(radialDist, uMsgWaveR);
-    const wavePastC   = step(colPhase, uMsgWaveX);
-    const isRadial    = uMsgCascadeMode.greaterThanEqual(float(0.5)).and(uMsgCascadeMode.lessThan(float(1.5)));
-    const isColumn    = uMsgCascadeMode.greaterThanEqual(float(1.5));
-    const wavePast    = select(isColumn, wavePastC, select(isRadial, wavePastR, wavePastW));
-
-    // waveGap: normalised distance the front has moved past this fragment (0 = just passed, 1 = far past)
-    const waveGapW    = uMsgWaveX.sub(screenUV.x);
-    const waveGapR    = uMsgWaveR.sub(radialDist);
-    const waveGapC    = uMsgWaveX.sub(colPhase);
-    const waveGapRaw  = select(isColumn, waveGapC, select(isRadial, waveGapR, waveGapW));
-    const waveGap01   = clamp(waveGapRaw.mul(uMsgSettleSharpness), 0.0, 1.0);
-
-    // Per-cell settle stagger — each cell crystallises at a slightly different time
-    const settleDelay = h2(cellId.mul(0.53).add(vec2(0.7, 0.3)));  // [0, 1]
-    const settleAmt   = smoothstep(
-      settleDelay.mul(0.4),
-      settleDelay.mul(0.4).add(0.15),
-      waveGap01
-    ).mul(uMsgRevealProgress);
-
-    // Mask — soft from downscale + bilinear filtering; threshold for screen modes
-    const msgMaskSoft = uMsgTex.r;
-    const msgMaskThr  = smoothstep(float(0.15), float(0.45), msgMaskSoft);
-    // Column mode mask: column has a valid target glyph AND the fragment is within the
-    // message's vertical band. The Y-band check (in screen UV space) prevents the target
-    // glyph from showing on rows above/below the text — without it the whole column height
-    // would crystallise to the same letter.
-    const colHasTarget  = aColMsgGlyphAttr.greaterThan(float(0.001));
-    const inMsgYBand    = abs(screenUV.y.sub(uMsgCenter.y)).lessThan(uMsgHalfH);
-    const msgMask       = select(isColumn, select(colHasTarget.and(inMsgYBand), float(1.0), float(0.0)), msgMaskThr);
-
-    // msgActive: drives scramble boost and brightness boost
-    const msgActive   = msgMask.mul(wavePast).mul(uMsgRevealProgress);
-
-    // Scramble boost — fast where wave passed but cell hasn't settled yet
-    const stillScrambling = msgActive.mul(float(1.0).sub(settleAmt));
-    const msgHoldSec  = mix(holdSec, float(0.05), stillScrambling);
-    const settledHold = msgHoldSec;
+    // (Old cascade wave machinery removed — replaced by per-column lock state)
 
     const burstOffset = select(
       vBurst.greaterThan(0.5), floor(uTime.mul(uBurstGlyphRate)), float(0)
     );
     const changeTick  = floor(
-      cellPhase.mul(settledHold).add(uTime).div(settledHold)
+      cellPhase.mul(holdSec).add(uTime).div(holdSec)
     ).add(burstOffset);
     // Weighted vs uniform glyph selection — uWeightedGlyphs blends LUT → uniform.
     // A per-cell coin-flip hash selects LUT or uniform for each cell independently.
@@ -535,28 +532,6 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     const mutRaw   = floor(mutHash.mul(uGlyphCount));
     const mutLUT   = texture(uGlyphWeightLUT, vec2(mutHash, 0.5)).r.mul(255.0).floor();
     const mutGlyph = select(h2(cellId.mul(0.61).add(0.3)).lessThan(uWeightedGlyphs), mutLUT, mutRaw);
-    // ── Target glyph resolution ────────────────────────────────────────────
-    // Screen modes: decode G channel → raw atlas index (0 = no target)
-    const rawGScreen  = floor(uMsgTex.g.mul(255.0).add(0.5));    // 0 = none, 1–255 = glyphIdx+1
-    const targetGScr  = rawGScreen.sub(1.0);                     // -1 = none, 0–254 = valid
-
-    // Column mode: decode aColMsgGlyph attribute
-    const rawGCol     = floor(aColMsgGlyphAttr.mul(256.0).add(0.5)); // 0 = none, 1–255 = glyphIdx+1
-    const targetGCol  = rawGCol.sub(1.0);                            // -1 = none, 0–254 = valid
-    // Gate column target on Y-band: cells outside the message's vertical region must not
-    // resolve to the target glyph — otherwise the letter repeats the full column height.
-    // inMsgYBand is computed above from uMsgCenter.y ± uMsgHalfH.
-    const targetGColBanded = select(inMsgYBand, targetGCol, float(-1.0));
-
-    // Select target source by cascade mode
-    const targetGlyph = select(isColumn, targetGColBanded, targetGScr);
-    const hasTarget   = targetGlyph.greaterThanEqual(float(0.0));
-
-    // Probabilistic resolve: coin flip per cell per changeTick.
-    // When settleAmt > coin value, use target glyph (if available).
-    const glyphCoin   = h2(cellId.mul(0.71).add(changeTick.mul(vec2(0.03, 0.05))));
-    const useTarget   = glyphCoin.lessThan(settleAmt).and(hasTarget);
-
     // Burst columns override static: during a burst the whole column is "active".
     const isDeepTrail = d.greaterThanEqual(halfDist).and(vBurst.lessThan(0.5));
     const baseOrMut   = select(
@@ -564,11 +539,17 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
       baseGlyph,
       mutGlyph,
     );
-    const glyphIdx    = select(
-      useTarget,
-      clamp(targetGlyph, float(0.0), uGlyphCount.sub(1.0)),
-      baseOrMut,
-    );
+    const glyphIdx = baseOrMut.toVar('glyphIdx');
+
+    // ── Lock-head glyph override ───────────────────────────────────────────
+    // Locked columns have their head glyph frozen to the target character.
+    const lockGlyph  = vLockState.y;
+    const lockActive = vLockState.z.greaterThan(float(0.0));
+    const isLockHead = lockActive
+      .and(vDist.greaterThanEqual(float(-0.5)))
+      .and(vDist.lessThan(float(0.5)));
+    const hasLockTarget = lockGlyph.greaterThanEqual(float(0.0));
+    glyphIdx.assign(select(isLockHead.and(hasLockTarget), lockGlyph, glyphIdx));
 
     // Film grain
     const sampleX = select(frontFacing, vUvRain.x, float(1).sub(vUvRain.x));
@@ -611,9 +592,12 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     const depthTint = smoothstep(3.0, 8.0, length(vWorldPos));
     col2.assign(mix(col2, col2.mul(vec3(0.6, 0.85, 1.1)), depthTint.mul(uDepthTintAmt)));
 
-    // ── Message reveal — brightness boost ─────────────────────────────
-    // msgActive is 0 when uMsgRevealProgress == 0, so no branch needed.
-    col2.mulAssign(float(1.0).add(msgActive.mul(uMsgBoost.sub(1.0))));
+    // ── Lock-head brightness settle ────────────────────────────────────
+    // Brief flare on lock, then cool down to normal trail-head brightness over 1 s.
+    const lockAge    = uTime.sub(vLockState.z);  // seconds since lock fired
+    const lockSettle = smoothstep(0.0, 1.0, lockAge); // 0 → 1 over 1 s
+    const lockBoost  = mix(uMsgBoost, float(1.0), lockSettle);
+    col2.mulAssign(select(isLockHead, lockBoost, float(1.0)));
 
     // ── Panel tangent frame (kept for lighting) ───────────────────────
     const panelRight = vec3(vOutward.z, 0.0, vOutward.x.negate());
@@ -634,7 +618,11 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
 
     const numSteps = int(max(uPomSteps.toFloat(), 3.0));
     const stepSize = float(1).div(numSteps.toFloat());
-    const stepFace = screenUV.sub(0.5).mul(2.0).mul(uDepth).mul(stepSize);
+    // Locked head cells (message reveal) get zero POM depth — concave glyphs like 'R'
+    // flicker as the screen-space march direction changes with camera movement, causing
+    // the ray to oscillate between different ink regions across the glyph's counter.
+    const pomDepth = select(isLockHead, float(0.0), uDepth);
+    const stepFace = screenUV.sub(0.5).mul(2.0).mul(pomDepth).mul(stepSize);
 
     const currentFace = vUvRain.toVar('cfUV');
     const prevFace    = vUvRain.toVar('pfUV');
@@ -737,7 +725,15 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     col2.addAssign(uColor.mul(nearInner.mul(pulseFrac).mul(0.22).mul(uGlobeInteract)));
 
     // ── Final alpha ────────────────────────────────────────────────────
-    const rawBright = trail.mul(mask).mul(vAlpha).mul(vDepthDim);
+    const rawBright = trail.mul(mask).mul(vAlpha).mul(vDepthDim).toVar('rawBright');
+    // Locked head cell: force full brightness so the glyph always shows at head position
+    rawBright.assign(select(isLockHead, float(1.0), rawBright));
+    // Trail cells of locked columns: fade in over 0.6 s so they don't pop in abruptly
+    const trailFadeIn = smoothstep(0.0, 0.6, lockAge);
+    const isLockTrail = lockActive.and(isLockHead.not());
+    rawBright.assign(select(isLockTrail, rawBright.mul(trailFadeIn), rawBright));
+    // Fade all locked cells (head + trail) with uMsgRevealProgress during hold→fade transition
+    rawBright.assign(select(lockActive, rawBright.mul(uMsgRevealProgress), rawBright));
     const contrast  = pow(rawBright, 1.3);
     const alpha     = contrast.mul(uGlobalAlpha).mul(vBootFade).mul(vDeathFade);
     If(alpha.lessThan(0.015), () => { Discard(); });
@@ -764,6 +760,91 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
   material.toneMapped  = false;
   material.vertexNode  = vertexNode;
   material.outputNode  = outputNode;
+
+  return material;
+}
+
+// buildMsgColumnMaterial removed — message reveal now uses per-column lock state
+// in the main rain geometry (see aLockState attribute and vLockState varying).
+// Kept as dead stub for tree-shaking; exported name removed from imports in webgpu.js.
+function _removedBuildMsgColumnMaterial(uniforms, atlasTexture) {
+  const {
+    uAtlasGridW, uAtlasGridH, uGlyphCount,
+    uColor, uMsgBoost, uAtlasMTSDF,
+    uMsgRevealProgress, uMsgWaveX, uMsgWaveR,
+    uMsgCascadeMode, uMsgSettleSharpness,
+    uTime,
+  } = uniforms;
+
+  // Per-instance attributes — TSL auto-promotes to interpolated varyings.
+  // All 4 vertices of each instance share the same value so interpolation
+  // produces the correct per-character value in every fragment.
+  const aMsgGlyph = attribute('aMsgGlyph', 'float');
+  const aMsgPhase = attribute('aMsgPhase', 'float');
+
+  // ── Fragment ─────────────────────────────────────────────────────────────
+  // uv() reads the geometry UV (PlaneGeometry: 0→1 in XY) — auto-varying.
+  const outputNode = Fn(() => {
+    const faceUV = uv();
+
+    // ── Cascade wave front ─────────────────────────────────────────────────
+    const isRadial = uMsgCascadeMode.greaterThanEqual(float(0.5))
+      .and(uMsgCascadeMode.lessThan(float(1.5)));
+    const waveGapW   = uMsgWaveX.sub(aMsgPhase);
+    const waveGapR   = uMsgWaveR.sub(aMsgPhase);
+    const waveGapRaw = select(isRadial, waveGapR, waveGapW);
+    const waveGap01  = clamp(waveGapRaw.mul(uMsgSettleSharpness), float(0.0), float(1.0));
+    const wavePast   = step(float(0.0), waveGapRaw);
+
+    // ── Settle amount for this character ──────────────────────────────────
+    const settleAmt = smoothstep(float(0.0), float(0.35), waveGap01).mul(uMsgRevealProgress);
+
+    // ── Scramble then crystallise ──────────────────────────────────────────
+    const changeTick = floor(uTime.mul(15.0));
+    const mutGlyph   = floor(
+      fract(sin(changeTick.mul(17.3).add(aMsgPhase.mul(431.2))).mul(43758.5))
+        .mul(uGlyphCount)
+    );
+    const coin = fract(sin(changeTick.mul(23.7).add(aMsgPhase.mul(891.3))).mul(43758.5));
+
+    const hasTarget  = aMsgGlyph.greaterThanEqual(float(0.0));
+    const useTarget  = coin.lessThan(settleAmt).and(hasTarget);
+    const glyphIdx   = clamp(
+      select(useTarget, aMsgGlyph, mutGlyph),
+      float(0.0),
+      uGlyphCount.sub(1.0),
+    );
+
+    // ── MTSDF atlas sample ────────────────────────────────────────────────
+    const col     = mod(glyphIdx, uAtlasGridW);
+    const row     = floor(glyphIdx.div(uAtlasGridW));
+    const atlasUV = vec2(
+      col.add(faceUV.x).div(uAtlasGridW),
+      row.add(float(1.0).sub(faceUV.y)).div(uAtlasGridH),
+    );
+    const s    = texture(atlasTexture, atlasUV);
+    const msdf = median3(s.r, s.g, s.b);
+    const sdfV = mix(msdf, s.a, uAtlasMTSDF);
+    const fw   = abs(dFdx(sdfV)).add(abs(dFdy(sdfV))).mul(0.7);
+    const gMask = smoothstep(float(0.5).sub(fw), float(0.5).add(fw), sdfV);
+
+    If(gMask.lessThan(float(0.01)), () => { Discard(); });
+
+    const alpha = gMask.mul(wavePast).mul(uMsgRevealProgress);
+    return vec4(uColor.mul(uMsgBoost), alpha);
+  })();
+
+  // ── Material ──────────────────────────────────────────────────────────────
+  const material = new THREE.MeshBasicNodeMaterial({
+    transparent: true,
+    depthWrite:  false,
+    depthTest:   false,
+    blending:    THREE.NormalBlending,
+    side:        THREE.FrontSide,
+  });
+  material.toneMapped = false;
+  material.outputNode = outputNode;
+  // No vertexNode — Three.js InstancedMesh standard MVP handles positioning.
 
   return material;
 }

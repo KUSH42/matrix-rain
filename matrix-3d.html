@@ -424,43 +424,40 @@
                style="background:#111;color:#00ff70;border:1px solid #00ff70;
                       font-family:'Courier New',monospace;font-size:10px;width:90px;padding:1px 4px;">
       </label>
-      <label>Cascade
-        <select id="ctl-msg-cascade"
-                style="background:#111;color:#00ff70;border:1px solid #00ff70;
-                       font-family:'Courier New',monospace;font-size:10px;padding:1px 2px;">
-          <option value="wave" selected>wave →</option>
-          <option value="radial">radial ◎</option>
-          <option value="column">column ↓ 3D</option>
-        </select>
-      </label>
-      <p id="ctl-msg-col-warn"
-         style="display:none;color:#ff8800;font-size:9px;margin:0;line-height:1.4;">
-        ⚠ Column mode is view-dependent: the glyph mapping is computed once at click time
-        from the current camera position. Moving the camera after clicking SHOW will
-        misalign the text. Not compatible with active flythrough/orbit.
-      </p>
       <label>Boost
         <span style="display:flex;align-items:center;gap:4px;">
           <input id="ctl-msg-boost"     type="range"  min="1" max="6"  step="0.1" value="2">
           <input id="ctl-msg-boost-num" type="number" min="1" max="6"  step="0.1" value="2">
         </span>
       </label>
-      <label>Settle
+      <label>Spawn %
         <span style="display:flex;align-items:center;gap:4px;">
-          <input id="ctl-msg-settle"     type="range"  min="0.5" max="12" step="0.5" value="4">
-          <input id="ctl-msg-settle-num" type="number" min="0.5" max="12" step="0.5" value="4">
+          <input id="ctl-msg-spawn"     type="range"  min="0" max="1" step="0.05" value="0.85">
+          <input id="ctl-msg-spawn-num" type="number" min="0" max="1" step="0.05" value="0.85">
         </span>
       </label>
-      <label>Msg Density
+      <label>Hitbox min
         <span style="display:flex;align-items:center;gap:4px;">
-          <input id="ctl-msg-density"     type="range"  min="0.1" max="1" step="0.05" value="0.7">
-          <input id="ctl-msg-density-num" type="number" min="0.1" max="1" step="0.05" value="0.7">
+          <input id="ctl-msg-tolmult-min"     type="range"  min="1" max="60" step="1" value="4">
+          <input id="ctl-msg-tolmult-min-num" type="number" min="1" max="60" step="1" value="4">
+        </span>
+      </label>
+      <label>Hitbox max
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-msg-tolmult-max"     type="range"  min="1" max="60" step="1" value="18">
+          <input id="ctl-msg-tolmult-max-num" type="number" min="1" max="60" step="1" value="18">
+        </span>
+      </label>
+      <label>Min depth
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-msg-tolscale"     type="range"  min="0.5" max="3.0" step="0.1" value="1.3">
+          <input id="ctl-msg-tolscale-num" type="number" min="0.5" max="3.0" step="0.1" value="1.3">
         </span>
       </label>
       <label>Reveal s
         <span style="display:flex;align-items:center;gap:4px;">
-          <input id="ctl-msg-reveal"     type="range"  min="0.3" max="4" step="0.1" value="1.5">
-          <input id="ctl-msg-reveal-num" type="number" min="0.3" max="4" step="0.1" value="1.5">
+          <input id="ctl-msg-reveal"     type="range"  min="0.3" max="6" step="0.1" value="2">
+          <input id="ctl-msg-reveal-num" type="number" min="0.3" max="6" step="0.1" value="2">
         </span>
       </label>
       <label>Hold s
@@ -855,6 +852,34 @@
         </span>
       </label>
 
+      <label>Contagion
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-contagion"     type="range"  min="0" max="1" step="0.01" value="0">
+          <input id="ctl-contagion-num" type="number" min="0" max="1" step="0.01" value="0">
+        </span>
+      </label>
+
+      <label>Squad coherence
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-squad-coherence"     type="range"  min="0" max="1" step="0.01" value="1">
+          <input id="ctl-squad-coherence-num" type="number" min="0" max="1" step="0.01" value="1">
+        </span>
+      </label>
+
+      <label title="Rebuilds geometry">Squad size ⟳
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-squad-size"     type="range"  min="2" max="20" step="1" value="5">
+          <input id="ctl-squad-size-num" type="number" min="2" max="20" step="1" value="5">
+        </span>
+      </label>
+
+      <label title="Rebuilds geometry">Trail cohesion ⟳
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-trail-cohesion"     type="range"  min="0" max="1" step="0.01" value="0.5">
+          <input id="ctl-trail-cohesion-num" type="number" min="0" max="1" step="0.01" value="0.5">
+        </span>
+      </label>
+
       <label id="lbl-rect-w" title="Rebuilds geometry">Rect width X ⟳
         <span style="display:flex;align-items:center;gap:4px;">
           <input id="ctl-rect-w"     type="range"  min="0.5" max="16.0" step="0.5" value="8.0">
@@ -910,6 +935,25 @@
           <input id="ctl-height-fade"     type="range"  min="0" max="1" step="0.01" value="0">
           <input id="ctl-height-fade-num" type="number" min="0" max="1" step="0.01" value="0">
         </span>
+      </label>
+
+      <label>Entrainment
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-entrain-amt"     type="range"  min="0" max="0.8" step="0.01" value="0">
+          <input id="ctl-entrain-amt-num" type="number" min="0" max="0.8" step="0.01" value="0">
+        </span>
+      </label>
+
+      <label>Spawn wave front
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-spawn-front"     type="range"  min="-0.1" max="1.1" step="0.01" value="2">
+          <input id="ctl-spawn-front-num" type="number" min="-0.1" max="1.1" step="0.01" value="2">
+        </span>
+      </label>
+
+      <label style="flex-direction:row;gap:6px;align-items:center;">Spawn wave
+        <button id="ctl-spawn-in"  style="padding:2px 8px;cursor:pointer;">In</button>
+        <button id="ctl-spawn-out" style="padding:2px 8px;cursor:pointer;">Out</button>
       </label>
     </div>
 
@@ -1138,6 +1182,9 @@
       const panel = document.getElementById('controls');
       panel.style.display = panel.style.display === 'none' ? '' : 'none';
     }
+    if (e.code === 'KeyM' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      document.getElementById('ctl-msg-show').click();
+    }
   });
   document.addEventListener('keyup',   e => { _keys[e.code] = false; });
 
@@ -1274,31 +1321,30 @@
   });
 
   // Message reveal buttons
-  document.getElementById('ctl-msg-cascade').addEventListener('change', () => {
-    const isCol = document.getElementById('ctl-msg-cascade').value === 'column';
-    document.getElementById('ctl-msg-col-warn').style.display = isCol ? '' : 'none';
-  });
   document.getElementById('ctl-msg-show').addEventListener('click', () => {
     rain.showMessage(document.getElementById('ctl-msg-text').value, {
-      cascadeMode:     document.getElementById('ctl-msg-cascade').value,
-      boost:           parseFloat(document.getElementById('ctl-msg-boost').value),
-      settleSharpness: parseFloat(document.getElementById('ctl-msg-settle').value),
-      msgDensity:      parseFloat(document.getElementById('ctl-msg-density').value),
-      revealDuration:  parseFloat(document.getElementById('ctl-msg-reveal').value),
-      holdDuration:    parseFloat(document.getElementById('ctl-msg-hold').value),
-      fadeDuration:    parseFloat(document.getElementById('ctl-msg-fade').value),
+      boost:          parseFloat(document.getElementById('ctl-msg-boost').value),
+      spawnChance:    parseFloat(document.getElementById('ctl-msg-spawn').value),
+      tolMultMin:     parseFloat(document.getElementById('ctl-msg-tolmult-min').value),
+      tolMultMax:     parseFloat(document.getElementById('ctl-msg-tolmult-max').value),
+      tolMinScale:    parseFloat(document.getElementById('ctl-msg-tolscale').value),
+      revealDuration: parseFloat(document.getElementById('ctl-msg-reveal').value),
+      holdDuration:   parseFloat(document.getElementById('ctl-msg-hold').value),
+      fadeDuration:   parseFloat(document.getElementById('ctl-msg-fade').value),
     });
   });
   document.getElementById('ctl-msg-clear').addEventListener('click', () => {
     rain.clearMessage();
   });
   // Message sliders — sync range↔number, no live callback (values read on button click)
-  linkSlider('ctl-msg-boost',   'ctl-msg-boost-num',   () => {});
-  linkSlider('ctl-msg-settle',  'ctl-msg-settle-num',  () => {});
-  linkSlider('ctl-msg-density', 'ctl-msg-density-num', () => {});
-  linkSlider('ctl-msg-reveal',  'ctl-msg-reveal-num',  () => {});
-  linkSlider('ctl-msg-hold',   'ctl-msg-hold-num',   () => {});
-  linkSlider('ctl-msg-fade',   'ctl-msg-fade-num',   () => {});
+  linkSlider('ctl-msg-boost',    'ctl-msg-boost-num',    () => {});
+  linkSlider('ctl-msg-spawn',    'ctl-msg-spawn-num',    () => {});
+  linkSlider('ctl-msg-tolmult-min', 'ctl-msg-tolmult-min-num', () => {});
+  linkSlider('ctl-msg-tolmult-max', 'ctl-msg-tolmult-max-num', () => {});
+  linkSlider('ctl-msg-tolscale', 'ctl-msg-tolscale-num', () => {});
+  linkSlider('ctl-msg-reveal',   'ctl-msg-reveal-num',   () => {});
+  linkSlider('ctl-msg-hold',     'ctl-msg-hold-num',     () => {});
+  linkSlider('ctl-msg-fade',     'ctl-msg-fade-num',     () => {});
 
   // CRT shader selector — rain.crt is null until renderer.init() resolves in 'crt' mode;
   // optional chaining makes these calls safe at any time.
@@ -1425,6 +1471,10 @@
   linkSlider('ctl-height-fade', 'ctl-height-fade-num', () => {
     rain.setHeightFade(parseFloat(document.getElementById('ctl-height-fade').value));
   });
+  linkSlider('ctl-entrain-amt', 'ctl-entrain-amt-num', v => rain.setEntrainment(v));
+  linkSlider('ctl-spawn-front', 'ctl-spawn-front-num', v => rain.setSpawnWaveFront(v));
+  document.getElementById('ctl-spawn-in').addEventListener('click', () => rain.spawnWave());
+  document.getElementById('ctl-spawn-out').addEventListener('click', () => rain.despawnWave());
   function pushDensityTaper() {
     rain.setRadialDensityTaper(
       parseFloat(document.getElementById('ctl-density-in').value),
@@ -1464,6 +1514,14 @@
   linkSlider('ctl-pom-steps',  'ctl-pom-steps-num',  v => rain.setPomSteps(v));
   linkSlider('ctl-hue-range',  'ctl-hue-range-num',  v => rain.setColorBlend(v));
   linkSlider('ctl-burst-prob', 'ctl-burst-prob-num', v => rain.setBurstProb(v));
+  linkSlider('ctl-contagion',       'ctl-contagion-num',       v => rain.setContagion(v));
+  linkSlider('ctl-squad-coherence', 'ctl-squad-coherence-num', v => rain.setSquadCoherence(v));
+  linkSlider('ctl-squad-size', 'ctl-squad-size-num', () => {
+    debounceRebuild(() => rain.setSquadSize(parseFloat(document.getElementById('ctl-squad-size').value)));
+  });
+  linkSlider('ctl-trail-cohesion', 'ctl-trail-cohesion-num', () => {
+    debounceRebuild(() => rain.setTrailCohesion(parseFloat(document.getElementById('ctl-trail-cohesion').value)));
+  });
 
   // Camera controls
   linkSlider('ctl-fov', 'ctl-fov-num', v => rain.setFov(v));

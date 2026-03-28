@@ -174,10 +174,14 @@ function _gaussRand() {
 function loadMSDF(path) {
   const tex = new THREE.TextureLoader().load(path);
   tex.flipY           = false;
-  tex.minFilter       = THREE.LinearMipMapLinearFilter;
+  // Mipmaps must be disabled for MTSDF atlases. Standard box-filter downsampling
+  // averages SDF channel values, producing invalid distance fields at lower mip levels.
+  // The GPU's LOD interpolation then blends between valid and corrupted mips as the
+  // camera moves, causing complex glyphs (R, K, etc.) to flicker.
+  tex.minFilter       = THREE.LinearFilter;
   tex.magFilter       = THREE.LinearFilter;
   tex.colorSpace      = THREE.LinearSRGBColorSpace;
-  tex.generateMipmaps = true;
+  tex.generateMipmaps = false;
   return tex;
 }
 
@@ -198,6 +202,9 @@ function buildGeometry({
   radialBias    = 0.0,        // −1 = inner-concentrated, 0 = uniform, +1 = outer-concentrated
   clusterUniform = 0.0,       // 0 = clustered, 1 = fully uniform angular scatter
   clusterBiasAmt = 0.25,      // per-cluster speed/brightness bias magnitude 0–1
+  squadSize      = 5,         // columns per squad; squads are formed within clusters
+  trailCohesion  = 0.5,       // 0 = no trail cohesion, 1 = full squad trail bias
+  spawnReserves  = 48,        // pre-allocated reserve columns for message reveal
 } = {}) {
   // Guard against inverted ranges
   const sMin = Math.min(speedMin, speedMax);
@@ -221,7 +228,10 @@ function buildGeometry({
   const colBBuf    = new Float32Array(total * 4);  // yOff, scale, alpha, trail
   const rawSpeedBuf = new Float32Array(nCols);     // raw [0,1] for speed — kept for in-place range updates
   const rawTrailBuf = new Float32Array(nCols);     // raw [0,1] for trail
-  const clusterBiasBuf = new Float32Array(total);  // per-instance cluster bias [-1, 1]
+  const clusterBiasBuf      = new Float32Array(total);  // per-instance cluster bias [-1, 1]
+  const clusterBurstSeedBuf = new Float32Array(total);  // per-instance cluster burst phase [0, 1]
+  const squadPhaseBuf       = new Float32Array(total);  // per-instance squad cycle-phase seed [0, 1]
+  const spawnThetaBuf       = new Float32Array(total);  // per-instance normalised angular position [0, 1]
 
   // Per-instance cluster centers — fresh per buildGeometry() call so each
   // initMatrixRain() gets its own independent pattern.
@@ -235,11 +245,29 @@ function buildGeometry({
   );
   // Per-cluster bias values — uniform in [-1, 1]; same index used for theta + bias below.
   const clusterBiases = Array.from({ length: nClusters }, () => Math.random() * 2 - 1);
+  // Per-cluster burst seed — offsets the 4 s cluster burst window so clusters desync.
+  const clusterBurstSeeds = Array.from({ length: nClusters }, () => Math.random());
+  // Squad structure: subdivides each cluster into squads of ~squadSize columns.
+  // Upper bound uses nCols (worst case: all columns land in one cluster) + 2 safety.
+  const maxSquadsPerCluster = Math.ceil(nCols / squadSize) + 2;
+  const squadPhases      = Array.from({ length: nClusters }, () =>
+    Array.from({ length: maxSquadsPerCluster }, () => Math.random())
+  );
+  const squadTrailBiases = Array.from({ length: nClusters }, () =>
+    Array.from({ length: maxSquadsPerCluster }, () => Math.random() * 2 - 1)
+  );
+  // Column counter per cluster — used to assign squad sub-index round-robin
+  const clusterColCount = new Int32Array(nClusters);
 
   for (let c = 0; c < nCols; c++) {
     const clusterIdx   = Math.floor(Math.random() * nClusters);
     const clustered    = clusterThetas[clusterIdx] + _gaussRand() * sigma;
-    const colBias      = clusterBiases[clusterIdx];
+    const colBias       = clusterBiases[clusterIdx];
+    const colBurstSeed  = clusterBurstSeeds[clusterIdx];
+    const squadSubIdx   = Math.floor(clusterColCount[clusterIdx] / squadSize);
+    const colSquadPhase = squadPhases[clusterIdx][squadSubIdx];
+    const colTrailBias  = squadTrailBiases[clusterIdx][squadSubIdx];
+    clusterColCount[clusterIdx]++;
     const uniformTheta = Math.random() * Math.PI * 2;
     const theta        = clustered + (uniformTheta - clustered) * clusterUniform;
     // Normalize theta to [-1, 1] for linear topologies (curtain/rectangle X axis).
@@ -271,6 +299,11 @@ function buildGeometry({
         wz = Math.sin(theta) * r;
     }
 
+    // Normalise angular position to [0, 1] for spawn wave gate
+    const colTheta = topology === 'shell' || topology === 'ring'
+      ? ((Math.atan2(wz, wx) + Math.PI * 2) % (Math.PI * 2)) / (Math.PI * 2)
+      : ((theta % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2) / (Math.PI * 2);
+
     // Normalise r for scale gradient — non-shell topologies use a representative radius
     if (topology === 'ring')    r = (inner + outer) / 2;
     if (topology === 'curtain') r = (inner + outer) / 2;
@@ -286,9 +319,10 @@ function buildGeometry({
     const t     = (r - inner) / (outer - inner);           // 0 = inner (close), 1 = outer (far)
     const scale = (1.45 - t * 0.95) + (Math.random() - 0.5) * 0.2;
     const alpha = 0.18 + Math.random() * 0.72;
-    const tr    = Math.random();
-    rawTrailBuf[c] = tr;
-    const trail = tMin + tr * (tMax - tMin);
+    const tr       = Math.random();
+    const biasedTr = Math.max(0, Math.min(1, tr + colTrailBias * 0.5 * trailCohesion));
+    rawTrailBuf[c] = biasedTr;   // store biasedTr so setTrailRange preserves relative cohesion
+    const trail    = tMin + biasedTr * (tMax - tMin);
 
     for (let row = 0; row < N_ROWS; row++) {
       const idx = c * N_ROWS + row;
@@ -303,18 +337,81 @@ function buildGeometry({
       colBBuf[i4 + 1] = scale;
       colBBuf[i4 + 2] = alpha;
       colBBuf[i4 + 3] = trail;
-      clusterBiasBuf[idx] = colBias;
+      clusterBiasBuf[idx]      = colBias;
+      clusterBurstSeedBuf[idx] = colBurstSeed;
+      squadPhaseBuf[idx]       = colSquadPhase;
+      spawnThetaBuf[idx]       = colTheta;
     }
+  }
+
+  // ── Reserve pool — last spawnReserves columns repositioned for predictable screen coverage ──
+  // Placement depends on topology so that reserves project across the full screen-X range.
+  //   shell:     evenly-spaced angles on the inner shell (r = shellInner)
+  //   ring:      evenly-spaced angles on the ring radius ((inner+outer)/2)
+  //   curtain:   evenly-spaced wx across [-outer, outer] on the curtain plane (wz=0)
+  //   rectangle: evenly-spaced wx across [-rectW, rectW] on the front edge (wz=0)
+  const reserveStart    = nCols - spawnReserves;
+  const reserveOrigYOff = new Float32Array(spawnReserves);
+  const rRing = (inner + outer) / 2;
+  for (let i = 0; i < spawnReserves; i++) {
+    const c    = reserveStart + i;
+    const frac = spawnReserves > 1 ? i / (spawnReserves - 1) : 0.5;  // [0, 1] linear spread
+    const angle = (i / spawnReserves) * Math.PI * 2;                   // [0, 2π] angular spread
+    let rwx, rwz;
+    switch (topology) {
+      case 'ring':
+        rwx = Math.cos(angle) * rRing;
+        rwz = Math.sin(angle) * rRing;
+        break;
+      case 'curtain':
+        rwx = (frac * 2 - 1) * outer;
+        rwz = 0;
+        break;
+      case 'rectangle':
+        rwx = (frac * 2 - 1) * rectW;
+        rwz = 0;
+        break;
+      default: // 'shell'
+        rwx = Math.cos(angle) * inner;
+        rwz = Math.sin(angle) * inner;
+    }
+    const base  = c * N_ROWS;
+    reserveOrigYOff[i] = colBBuf[base * 4];   // save original aYOff (yOff is component 0)
+    for (let r = 0; r < N_ROWS; r++) {
+      const i4 = (base + r) * 4;
+      colABuf[i4]     = rwx;
+      colABuf[i4 + 1] = rwz;
+    }
+  }
+
+  // aLockState: per-instance (lockY, lockGlyph, lockTime, spawnActive)
+  // Replicated across all N_ROWS rows of each column, same as aColA/aColB.
+  const lockStateBuf = new Float32Array(total * 4);
+  for (let i = 0; i < total; i++) {
+    lockStateBuf[i * 4 + 0] = -9999;
+    lockStateBuf[i * 4 + 1] = -1;
+    lockStateBuf[i * 4 + 2] = 0;
+    lockStateBuf[i * 4 + 3] = 0;
   }
 
   geom.setAttribute('aColIdx',      new THREE.InstancedBufferAttribute(colBuf,         1));
   geom.setAttribute('aRowIdx',      new THREE.InstancedBufferAttribute(rowBuf,         1));
   geom.setAttribute('aColA',        new THREE.InstancedBufferAttribute(colABuf,        4));
   geom.setAttribute('aColB',        new THREE.InstancedBufferAttribute(colBBuf,        4));
-  geom.setAttribute('aClusterBias', new THREE.InstancedBufferAttribute(clusterBiasBuf, 1));
+  geom.setAttribute('aClusterBias',      new THREE.InstancedBufferAttribute(clusterBiasBuf,      1));
+  geom.setAttribute('aClusterBurstSeed', new THREE.InstancedBufferAttribute(clusterBurstSeedBuf, 1));
+  geom.setAttribute('aSquadPhase',       new THREE.InstancedBufferAttribute(squadPhaseBuf,       1));
+  geom.setAttribute('aSpawnTheta',       new THREE.InstancedBufferAttribute(spawnThetaBuf,       1));
+  geom.setAttribute('aLockState',        new THREE.InstancedBufferAttribute(lockStateBuf,        4));
   geom.instanceCount = total;
   geom._rawSpeed = rawSpeedBuf;
   geom._rawTrail = rawTrailBuf;
+  geom._reservePool = {
+    reserveStart,
+    free:     Array.from({ length: spawnReserves }, (_, i) => reserveStart + i),
+    used:     new Set(),
+    origYOff: reserveOrigYOff,
+  };
   return geom;
 }
 
@@ -351,159 +448,6 @@ function charToGlyphIdx(char, charSet) {
     case 'cyrillic':
     default:
       return -1;
-  }
-}
-
-/**
- * Render a dual-channel message texture at 1/4 resolution.
- * R channel: soft mask from fillText (bilinear-upsampled for soft edges).
- * G channel: per-character target glyph index encoded as (glyphIdx+1)/255.
- *
- * @param {string} text
- * @param {number} w       renderer pixel width
- * @param {number} h       renderer pixel height
- * @param {object} opts
- * @param {string} charSet active glyph set name
- * @returns {THREE.CanvasTexture}
- */
-function renderMessageToTexture(text, w, h, opts, charSet) {
-  const { font, align = 'center', yFrac = 0.5, padding = 48 } = opts;
-  const SCALE      = 0.25;
-  const cw         = Math.max(64, Math.round(w * SCALE));
-  const ch         = Math.max(32, Math.round(h * SCALE));
-  const scaledFont = font.replace(/(\d+)px/, (_, px) => `${Math.max(8, Math.round(px * SCALE))}px`);
-
-  // ── Pass 1: mask (R channel) ──────────────────────────────────────────
-  const maskCanvas  = document.createElement('canvas');
-  maskCanvas.width  = cw;
-  maskCanvas.height = ch;
-  const mCtx        = maskCanvas.getContext('2d');
-  mCtx.fillStyle    = 'black';
-  mCtx.fillRect(0, 0, cw, ch);
-  mCtx.fillStyle    = 'white';
-  mCtx.font         = scaledFont;
-  mCtx.textAlign    = align;
-  mCtx.textBaseline = 'middle';
-  const mx = align === 'center' ? cw / 2
-           : align === 'left'   ? padding * SCALE
-           :                      cw - padding * SCALE;
-  mCtx.fillText(text, mx, ch * yFrac);
-  const maskData = mCtx.getImageData(0, 0, cw, ch);
-
-  // ── Pass 2: glyph index (G channel) ──────────────────────────────────
-  const idxCanvas   = document.createElement('canvas');
-  idxCanvas.width   = cw;
-  idxCanvas.height  = ch;
-  const iCtx        = idxCanvas.getContext('2d');
-  iCtx.fillStyle    = 'black';
-  iCtx.fillRect(0, 0, cw, ch);
-  iCtx.font         = scaledFont;
-  iCtx.textAlign    = 'left';
-  iCtx.textBaseline = 'middle';
-  const charAdvances = [];
-  let totalWidth     = 0;
-  for (const c of text) {
-    const adv = iCtx.measureText(c).width;
-    charAdvances.push(adv);
-    totalWidth += adv;
-  }
-  let charX = align === 'center' ? mx - totalWidth / 2
-            : align === 'left'   ? mx
-            :                      mx - totalWidth;
-  for (let ci = 0; ci < text.length; ci++) {
-    const gi = charToGlyphIdx(text[ci], charSet);
-    if (gi >= 0) {
-      iCtx.fillStyle = `rgb(0,${gi + 1},0)`;
-      iCtx.fillRect(charX, 0, charAdvances[ci], ch);
-    }
-    charX += charAdvances[ci];
-  }
-  const idxData = iCtx.getImageData(0, 0, cw, ch);
-
-  // ── Combine R + G ──────────────────────────────────────────────────────
-  const combined  = document.createElement('canvas');
-  combined.width  = cw;
-  combined.height = ch;
-  const cCtx      = combined.getContext('2d');
-  const out       = cCtx.createImageData(cw, ch);
-  for (let i = 0; i < cw * ch; i++) {
-    out.data[i * 4 + 0] = maskData.data[i * 4 + 0]; // R = mask
-    out.data[i * 4 + 1] = idxData.data[i * 4 + 1];  // G = glyph index
-    out.data[i * 4 + 2] = 0;
-    out.data[i * 4 + 3] = 255;
-  }
-  cCtx.putImageData(out, 0, 0);
-
-  const tex       = new THREE.CanvasTexture(combined);
-  tex.needsUpdate = true;
-  return tex;
-}
-
-/**
- * Project the message text onto rain columns, writing per-column target glyph indices.
- * Call on showMessage() when cascadeMode === 'column'.
- */
-function projectMessageOntoColumns(text, charSet, font, align, yFrac, padding,
-                                   camera, columnOffset, aColA, attrOut, nCols, nRows,
-                                   rendererW, rendererH) {
-  const tmpCanvas  = document.createElement('canvas');
-  tmpCanvas.width  = rendererW;
-  tmpCanvas.height = rendererH;
-  const tCtx       = tmpCanvas.getContext('2d');
-  tCtx.font        = font;
-
-  const advances = [];
-  let totalWidth = 0;
-  for (const c of text) {
-    const adv = tCtx.measureText(c).width;
-    advances.push(adv);
-    totalWidth += adv;
-  }
-  const originX = align === 'center' ? rendererW / 2 - totalWidth / 2
-                : align === 'left'   ? padding
-                :                      rendererW - padding - totalWidth;
-  const originY = yFrac * rendererH;
-
-  const fontSizeMatch = font.match(/(\d+)px/);
-  const fontSize      = fontSizeMatch ? parseFloat(fontSizeMatch[1]) : 64;
-  const halfH         = fontSize * 0.6;
-
-  const charRects = [];
-  let cx = originX;
-  for (let i = 0; i < text.length; i++) {
-    charRects.push({ x0: cx, x1: cx + advances[i], gi: charToGlyphIdx(text[i], charSet) });
-    cx += advances[i];
-  }
-
-  const proj    = new THREE.Vector4();
-  const worldPt = new THREE.Vector3();
-  camera.updateMatrixWorld();
-  const vp = new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
-
-  attrOut.fill(0);
-
-  const colAArr = aColA.array;
-  for (let c = 0; c < nCols; c++) {
-    const base4 = c * nRows * 4;
-    const wx    = colAArr[base4    ] + columnOffset.x;
-    const wz    = colAArr[base4 + 1] + columnOffset.y;
-
-    worldPt.set(wx, 0, wz);
-    proj.set(worldPt.x, worldPt.y, worldPt.z, 1.0).applyMatrix4(vp);
-    if (proj.w <= 0) continue;
-    const screenX = ((proj.x / proj.w) * 0.5 + 0.5) * rendererW;
-    const screenY = ((proj.y / proj.w) * -0.5 + 0.5) * rendererH;
-
-    if (screenY < originY - halfH || screenY > originY + halfH) continue;
-
-    for (const rect of charRects) {
-      if (screenX >= rect.x0 && screenX < rect.x1 && rect.gi >= 0) {
-        const encoded = (rect.gi + 1) / 256;
-        const base    = c * nRows;
-        attrOut.fill(encoded, base, base + nRows);
-        break;
-      }
-    }
   }
 }
 
@@ -922,6 +866,9 @@ export function initMatrixRain(element, opts = {}) {
     radialBias:   0.0,
     clusterUniform: 0.0,
     clusterBiasAmt: 0.25,
+    squadSize:      5,
+    trailCohesion:  0.5,
+    spawnReserves:  48,
   };
 
   // Resolve atlas path + grid dimensions from charSet or explicit opts
@@ -958,15 +905,7 @@ export function initMatrixRain(element, opts = {}) {
   // ── Atlas & material ──────────────────────────────────────────────────
   const atlasTex = loadMSDF(resolvedPath);
 
-  // Dummy 1×1 black CanvasTexture — satisfies uMsgTex before any message is shown.
-  // Must be drawn to: CopyExternalImageToTexture rejects canvas with no valid bitmap.
-  const dummyMsgCanvas  = document.createElement('canvas');
-  dummyMsgCanvas.width  = 1;
-  dummyMsgCanvas.height = 1;
-  dummyMsgCanvas.getContext('2d').fillRect(0, 0, 1, 1);
-  const dummyMsgTex     = new THREE.CanvasTexture(dummyMsgCanvas);
-
-  const uniforms = makeUniforms(resolvedCount, resolvedGridW, resolvedGridH, dummyMsgTex);
+  const uniforms = makeUniforms(resolvedCount, resolvedGridW, resolvedGridH);
 
   // Apply opts
   const rgb = new THREE.Color(color);
@@ -995,12 +934,6 @@ export function initMatrixRain(element, opts = {}) {
   const frustumVisData = new Float32Array(mesh.geometry.instanceCount).fill(1);
   const frustumVisAttr = new THREE.InstancedBufferAttribute(frustumVisData, 1);
   mesh.geometry.setAttribute('aFrustumVis', frustumVisAttr);
-
-  // ── Column message glyph attribute (per-instance) ─────────────────────
-  // Filled by projectMessageOntoColumns() on showMessage(); cleared on fade-out.
-  const colMsgGlyphData = new Float32Array(mesh.geometry.instanceCount).fill(0);
-  const colMsgGlyphAttr = new THREE.InstancedBufferAttribute(colMsgGlyphData, 1);
-  mesh.geometry.setAttribute('aColMsgGlyph', colMsgGlyphAttr);
 
   // ── Phosphor persistence ──────────────────────────────────────────────
   // prevRT is lazily created at full renderer resolution on first use.
@@ -1169,13 +1102,23 @@ export function initMatrixRain(element, opts = {}) {
 
   // ── Message reveal state ──────────────────────────────────────────────
   let msgState        = 'idle';  // 'idle' | 'revealing' | 'holding' | 'fading'
-  let msgRevealSpeed  = 0;       // wave units per second (screen widths or radial)
-  let msgHoldDuration = 0;       // hold duration in seconds (set on showMessage)
-  let msgHoldEnd      = 0;       // absolute timestamp when hold ends (set on entering 'holding')
-  let msgFadeSpeed    = 0;       // progress units per second
-  let msgTex          = null;    // current CanvasTexture; disposed on new message / idle
-  let msgCascadeMode  = 0;       // mirror of uMsgCascadeMode.value for tick() branching
-  let msgDensityBoost = null;    // saved uDensity.value before boost; null = no boost active
+  let msgHoldDuration = 0;       // hold duration in seconds
+  let msgHoldEnd      = 0;       // absolute timestamp when hold ends
+  let msgFadeSpeed    = 0;       // progress units per second (1/fadeDuration)
+  let msgRevealEnd         = 0;    // absolute timestamp when reveal phase ends
+  let msgRevealFallbackT   = 0;    // timestamp for fallback spawn (75% of revealDuration)
+  let msgSpawnChance       = 0.85; // probability of spawn-below on each lock
+  let msgTolMultMin        = 4;    // hitbox multiplier at reveal start
+  let msgTolMultMax        = 18;   // hitbox multiplier at reveal end
+  let msgTolMinScale       = 1.3;  // minimum aScale floor for tolerance
+  let msgRevealStart       = 0;    // absolute timestamp when reveal began
+
+  // Per-reveal slot/column state (reset on each showMessage)
+  let _msgSlots       = [];      // charSlots[]: { xCenter, xHalf, glyph, claimed, colIdx }
+  let _msgWorldY      = 0;       // world Y of message band (fixed at trigger time)
+  let _msgLockedCols  = new Set(); // column indices currently locked
+  let _msgSpawnCols   = new Set(); // column indices with spawnActive=1 (force-render)
+  let _msgAssigned    = new Map(); // colIdx → slotIdx: columns assigned but not yet locked
 
   // ── CCP easter egg state ───────────────────────────────────────────────
   let _ccpActive      = false;
@@ -1209,6 +1152,7 @@ export function initMatrixRain(element, opts = {}) {
   let _rampGeneration = 0;
   let _reducedMotion  = false;
   let _savedSpeedMul  = uniforms.uSpeedMul.value;
+  let _spawnWaveAnim  = null;  // { startTime, endTime, startFront, endFront, easing } or null
 
   // syncCamera reference — assigned to state after state object is created
   let activeSyncCamera = syncCamera;
@@ -1270,37 +1214,228 @@ export function initMatrixRain(element, opts = {}) {
       }
     }
 
+    // ── Spawn wave animation ──────────────────────────────────────────────
+    if (_spawnWaveAnim) {
+      const { startTime, endTime, startFront, endFront, easing } = _spawnWaveAnim;
+      const elapsed  = t - startTime;
+      const duration = endTime - startTime;
+      let tw = Math.max(0, Math.min(1, elapsed / duration));
+      if (easing === 'ease-in')  tw = tw * tw;
+      if (easing === 'ease-out') tw = 1 - (1 - tw) * (1 - tw);
+      if (easing === 'ease')     tw = tw < 0.5 ? 2 * tw * tw : 1 - Math.pow(-2 * tw + 2, 2) / 2;
+      uniforms.uSpawnWaveFront.value = startFront + (endFront - startFront) * tw;
+      if (elapsed >= duration) _spawnWaveAnim = null;
+    }
+
     // ── Message state machine ────────────────────────────────────────────
     if (msgState !== 'idle') {
-      const u = uniforms;
+      const geomNow  = mesh.geometry;
+      const lockAttr = geomNow.getAttribute('aLockState');
+      const colAAttr = geomNow.getAttribute('aColA');
+      const colBAttr = geomNow.getAttribute('aColB');
+      const nCols    = _geomParams.nCols;
+      const nRows    = geomNow.instanceCount / nCols;
+      const lockData = lockAttr?.array;
+      const colABuf  = colAAttr?.array;
+      const colBBuf  = colBAttr?.array;
+
       if (msgState === 'revealing') {
-        if (msgCascadeMode === 1) {   // radial
-          u.uMsgWaveR.value = Math.min(1.6, u.uMsgWaveR.value + msgRevealSpeed * dt);
-          u.uMsgRevealProgress.value = 1.0;
-          if (u.uMsgWaveR.value >= 1.6) { msgState = 'holding'; msgHoldEnd = t + msgHoldDuration; }
-        } else {                      // wave or column
-          u.uMsgWaveX.value = Math.min(1.0, u.uMsgWaveX.value + msgRevealSpeed * dt);
-          u.uMsgRevealProgress.value = 1.0;
-          if (u.uMsgWaveX.value >= 1.0) { msgState = 'holding'; msgHoldEnd = t + msgHoldDuration; }
-        }
-      } else if (msgState === 'holding') {
-        if (t >= msgHoldEnd) msgState = 'fading';
-      } else if (msgState === 'fading') {
-        u.uMsgRevealProgress.value = Math.max(0, u.uMsgRevealProgress.value - msgFadeSpeed * dt);
-        if (u.uMsgRevealProgress.value <= 0) {
-          msgState = 'idle';
-          u.uMsgWaveX.value = 0.0;
-          u.uMsgWaveR.value = 0.0;
-          if (msgTex) { try { msgTex.dispose(); } catch (_) {} msgTex = null; }
-          u.uMsgTex.value = dummyMsgTex;
-          // Reset column mode attribute
-          const attr = mesh.geometry.getAttribute('aColMsgGlyph');
-          if (attr) { attr.array.fill(0); attr.needsUpdate = true; }
-          // Restore density if it was boosted
-          if (msgDensityBoost !== null) {
-            u.uDensity.value = msgDensityBoost;
-            msgDensityBoost  = null;
+        uniforms.uMsgRevealProgress.value = 1.0;
+        let lockDirty    = false;
+        let colBDirty    = false;
+        let allClaimed   = true;
+
+        // ── Check each slot for fallback (75% of reveal duration elapsed) ──
+        const revealElapsed = t - (msgRevealEnd - (msgRevealEnd - (msgRevealEnd - msgHoldDuration)));
+        // simpler: track reveal start time
+        // Actually we stored msgRevealEnd = revealStart + revealDuration
+        // so revealElapsed = t - (msgRevealEnd - revealDuration) ... but we don't have revealDuration
+        // We stored msgRevealEnd = revealEnd. Use it: fallback triggers after 75% of duration.
+        // We need the reveal start — stored implicitly as msgRevealEnd - revealDuration.
+        // Reconstruct: fallbackThresh = msgRevealEnd - revealDuration * 0.25
+        // We don't have revealDuration here. So store it in a closure var.
+        // (handled via msgRevealFallbackT set in showMessage)
+
+        // Pre-compute VP matrix once for screen-space projection in this tick
+        camera.updateMatrixWorld();
+        const vpMat2 = new THREE.Matrix4().multiplyMatrices(
+          camera.projectionMatrix, camera.matrixWorldInverse
+        );
+        const tv = new THREE.Vector4();
+
+        for (let si = 0; si < _msgSlots.length; si++) {
+          const slot = _msgSlots[si];
+          if (slot.claimed) continue;
+          allClaimed = false;
+
+          // ── Recruit a column for unassigned slots every tick ──────────
+          // Try reserve pool first; fall back to nearest regular column.
+          if (slot.colIdx < 0) {
+            let bestCol = _claimReserve(geomNow._reservePool, slot.screenX, _msgWorldY,
+              colABuf, colBBuf, lockData, colAAttr, colBAttr, lockAttr, nRows, vpMat2);
+            if (bestCol >= 0) {
+              // Adjust aYOff to bring reserve's head to _msgWorldY (spawn-below mechanism)
+              const spd     = colABuf[bestCol * nRows * 4 + 2];
+              const seed    = colABuf[bestCol * nRows * 4 + 3];
+              const sc      = colBBuf[bestCol * nRows * 4 + 1];
+              const cs      = uniforms.uCellH.value * sc * 1.85;
+              const ch      = uniforms.uWorldH.value + nRows * cs;
+              const cp      = ((t * spd * Math.max(0.01, uniforms.uSpeedMul.value) + seed * ch) % ch + ch) % ch;
+              const newYOff = _msgWorldY - uniforms.uWorldH.value / 2 + cp;
+              for (let r = 0; r < nRows; r++) colBBuf[(bestCol * nRows + r) * 4] = newYOff;
+              colBDirty = true;
+              slot.colIdx = bestCol;
+              _msgAssigned.set(bestCol, si);
+              // spawnActive=1 keeps reserve visible regardless of density/frustum cull
+              _writeLockRows(lockData, nRows, bestCol, _msgWorldY, slot.glyph, 0, 1);
+              lockDirty = true;
+            } else {
+              // Pool exhausted — fall back to nearest non-reserve column
+              const reserveStart = geomNow._reservePool?.reserveStart ?? nCols;
+              let bestDist = Infinity;
+              bestCol = -1;
+              for (let c = 0; c < reserveStart; c++) {
+                if (_msgLockedCols.has(c) || _msgAssigned.has(c) || _msgSpawnCols.has(c)) continue;
+                const base = c * nRows * 4;
+                const wx   = colABuf[base + 0] + uniforms.uColumnOffset.value.x;
+                const wz   = colABuf[base + 1] + uniforms.uColumnOffset.value.y;
+                tv.set(wx, _msgWorldY, wz, 1.0).applyMatrix4(vpMat2);
+                if (tv.w <= 0) continue;
+                const sx   = (tv.x / tv.w + 1.0) * 0.5;
+                const dist = Math.abs(sx - slot.screenX);
+                if (dist < bestDist) { bestDist = dist; bestCol = c; }
+              }
+              if (bestCol >= 0) {
+                slot.colIdx = bestCol;
+                _msgAssigned.set(bestCol, si);
+                _writeLockRows(lockData, nRows, bestCol, _msgWorldY, slot.glyph, 0, 0);
+                lockDirty = true;
+              }
+            }
           }
+
+          // ── Force head to worldY for assigned columns past fallback time ──
+          if (slot.colIdx >= 0 && t >= msgRevealFallbackT) {
+            const c       = slot.colIdx;
+            const base    = c * nRows * 4;
+            const spd     = colABuf[base + 2];
+            const seed    = colABuf[base + 3];
+            const sc      = colBBuf[base + 1];
+            const cs      = uniforms.uCellH.value * sc * 1.85;
+            const ch      = uniforms.uWorldH.value + nRows * cs;
+            const cp      = ((t * spd * Math.max(0.01, uniforms.uSpeedMul.value) + seed * ch) % ch + ch) % ch;
+            const newYOff = _msgWorldY - uniforms.uWorldH.value / 2 + cp;
+            for (let r = 0; r < nRows; r++) colBBuf[(c * nRows + r) * 4] = newYOff;
+            colBDirty = true;
+          }
+        }
+
+        // ── Check assigned columns for head lock ──────────────────────────
+        for (const [colIdx, slotIdx] of _msgAssigned) {
+          const slot = _msgSlots[slotIdx];
+          if (slot.claimed) { _msgAssigned.delete(colIdx); continue; }
+          const headY    = _headYjs(colABuf, colBBuf, nRows, colIdx, t);
+          const aScale   = colBBuf[colIdx * nRows * 4 + 1];
+          const revealProgress = msgRevealEnd > msgRevealStart
+            ? Math.min(1, (t - msgRevealStart) / (msgRevealEnd - msgRevealStart))
+            : 1;
+          const tolMult  = msgTolMultMin + (msgTolMultMax - msgTolMultMin) * revealProgress;
+          const tol      = uniforms.uCellH.value * Math.max(aScale, msgTolMinScale) * 1.85 * tolMult;
+          if (Math.abs(headY - _msgWorldY) < tol) {
+            // Lock this column
+            _writeLockRows(lockData, nRows, colIdx, _msgWorldY, slot.glyph, t, 0);
+            lockDirty = true;
+            slot.claimed = true;
+            _msgLockedCols.add(colIdx);
+            _msgAssigned.delete(colIdx);
+
+            // Clear other columns assigned to this same slot
+            for (const [oc, os] of _msgAssigned) {
+              if (os === slotIdx) {
+                _writeLockRows(lockData, nRows, oc, -9999, -1, 0, 0);
+                _msgAssigned.delete(oc);
+                lockDirty = true;
+              }
+            }
+
+            // Spawn-below
+            if (Math.random() < msgSpawnChance && lockData) {
+              const wx0  = colABuf[colIdx * nRows * 4 + 0] + uniforms.uColumnOffset.value.x;
+              const aScl = colBBuf[colIdx * nRows * 4 + 1];
+              const cs   = uniforms.uCellH.value * aScl * 1.85;
+              const tgt  = _msgWorldY - 1.5 * cs;
+              const SEARCH_R = 2.0;
+              let bestDist = Infinity, bestSpawn = -1;
+              for (let c = 0; c < nCols; c++) {
+                if (_msgLockedCols.has(c) || _msgAssigned.has(c) || _msgSpawnCols.has(c)) continue;
+                const base = c * nRows * 4;
+                const wx   = colABuf[base + 0] + uniforms.uColumnOffset.value.x;
+                if (Math.abs(wx - wx0) > SEARCH_R) continue;
+                // Prefer density-culled columns
+                const hash = _h2js(c * 0.137 + 0.5, 42.7);
+                const isDensityCulled = hash > uniforms.uDensity.value;
+                const score = Math.abs(wx - wx0) + (isDensityCulled ? 0 : 0.5);
+                if (score < bestDist) { bestDist = score; bestSpawn = c; }
+              }
+              if (bestSpawn >= 0) {
+                const base   = bestSpawn * nRows * 4;
+                const spd    = colABuf[base + 2];
+                const seed   = colABuf[base + 3];
+                const sc2    = colBBuf[base + 1];
+                const cs2    = uniforms.uCellH.value * sc2 * 1.85;
+                const ch2    = uniforms.uWorldH.value + nRows * cs2;
+                const cp2    = ((t * spd * Math.max(0.01, uniforms.uSpeedMul.value) + seed * ch2) % ch2 + ch2) % ch2;
+                const newY   = tgt - uniforms.uWorldH.value / 2 + cp2;
+                for (let r = 0; r < nRows; r++) colBBuf[(bestSpawn * nRows + r) * 4] = newY;
+                colBDirty = true;
+                _writeLockRows(lockData, nRows, bestSpawn, -9999, -1, 0, 1); // spawnActive=1
+                lockDirty = true;
+                _msgSpawnCols.add(bestSpawn);
+              }
+            }
+          }
+        }
+
+        // Expire spawn-below columns that have completed one cycle
+        for (const c of _msgSpawnCols) {
+          const headY = _headYjs(colABuf, colBBuf, nRows, c, t);
+          if (headY < _msgWorldY - uniforms.uWorldH.value) {
+            _writeLockRows(lockData, nRows, c, -9999, -1, 0, 0);
+            _msgSpawnCols.delete(c);
+            lockDirty = true;
+          }
+        }
+
+        if (lockDirty && lockAttr) lockAttr.needsUpdate = true;
+        if (colBDirty && colBAttr) colBAttr.needsUpdate = true;
+
+        // Transition to holding when all slots claimed or timer expired
+        if (_msgSlots.every(s => s.claimed) || t >= msgRevealEnd) {
+          msgState  = 'holding';
+          msgHoldEnd = t + msgHoldDuration;
+        }
+
+      } else if (msgState === 'holding') {
+        uniforms.uMsgRevealProgress.value = 1.0;
+        // Expire any spawn-below columns
+        if (_msgSpawnCols.size && lockData) {
+          let dirty = false;
+          for (const c of _msgSpawnCols) {
+            const headY = _headYjs(colABuf, colBBuf, nRows, c, t);
+            if (headY < _msgWorldY - uniforms.uWorldH.value) {
+              _writeLockRows(lockData, nRows, c, -9999, -1, 0, 0);
+              _msgSpawnCols.delete(c);
+              dirty = true;
+            }
+          }
+          if (dirty && lockAttr) lockAttr.needsUpdate = true;
+        }
+        if (t >= msgHoldEnd) msgState = 'fading';
+
+      } else if (msgState === 'fading') {
+        uniforms.uMsgRevealProgress.value = Math.max(0, uniforms.uMsgRevealProgress.value - msgFadeSpeed * dt);
+        if (uniforms.uMsgRevealProgress.value <= 0) {
+          _clearAllLocks(true);
         }
       }
     }
@@ -1463,32 +1598,151 @@ export function initMatrixRain(element, opts = {}) {
     });
   });
 
+  // ── Message lock-state helpers ────────────────────────────────────────
+  // JS-side replication of the GPU h2 hash (used for density culling check).
+  function _h2js(vx, vy) {
+    function fract(x) { return x - Math.floor(x); }
+    let sx = fract(vx * 0.1031);
+    let sy = fract(vy * 0.1030);
+    const d = sx * (sy + 33.33) + sy * (sx + 33.33);
+    sx += d; sy += d;
+    return fract((sx + sy) * sx);
+  }
+
+  // Write lock data to all N_ROWS entries of column c in the aLockState buffer.
+  function _writeLockRows(lockData, nRows, c, lockY, lockGlyph, lockTime, spawnActive) {
+    for (let r = 0; r < nRows; r++) {
+      const i4 = (c * nRows + r) * 4;
+      lockData[i4 + 0] = lockY;
+      lockData[i4 + 1] = lockGlyph;
+      lockData[i4 + 2] = lockTime;
+      lockData[i4 + 3] = spawnActive;
+    }
+  }
+
+  // Claim the best-matching free reserve column for a message slot.
+  // "Best" = closest by screen X projection to slotScreenX.
+  // Sets spawnActive=1 (bypasses density+frustum cull). Returns colIdx or -1 if pool empty.
+  function _claimReserve(pool, slotScreenX, worldY, colABuf, colBBuf, lockData,
+                          colAAttr, colBAttr, lockAttr, nRows, vpMat) {
+    if (!pool || pool.free.length === 0) return -1;
+    const tmpV = new THREE.Vector4();
+    let bestDist = Infinity, bestFreeIdx = -1;
+    for (let fi = 0; fi < pool.free.length; fi++) {
+      const c    = pool.free[fi];
+      const base = c * nRows * 4;
+      const wx   = colABuf[base];
+      const wz   = colABuf[base + 1];
+      tmpV.set(wx, worldY, wz, 1.0).applyMatrix4(vpMat);
+      if (tmpV.w <= 0) continue;
+      const sx   = (tmpV.x / tmpV.w + 1.0) * 0.5;
+      const dist = Math.abs(sx - slotScreenX);
+      if (dist < bestDist) { bestDist = dist; bestFreeIdx = fi; }
+    }
+    if (bestFreeIdx < 0) return -1;
+    const c = pool.free.splice(bestFreeIdx, 1)[0];
+    pool.used.add(c);
+    // Mark spawnActive=1 so isSpawnActive bypasses density+frustum cull
+    for (let r = 0; r < nRows; r++) lockData[(c * nRows + r) * 4 + 3] = 1.0;
+    lockAttr.needsUpdate = true;
+    return c;
+  }
+
+  // Release a reserve column: restore its aYOff and clear lock state.
+  function _releaseReserve(pool, colIdx, colBBuf, lockData, colBAttr, lockAttr, nRows) {
+    if (!pool) return;
+    const origIdx  = colIdx - pool.reserveStart;
+    const origYOff = pool.origYOff[origIdx];
+    const base     = colIdx * nRows;
+    for (let r = 0; r < nRows; r++) {
+      colBBuf[(base + r) * 4]      = origYOff;
+      lockData[(base + r) * 4 + 0] = -9999;
+      lockData[(base + r) * 4 + 1] = -1;
+      lockData[(base + r) * 4 + 2] = 0;
+      lockData[(base + r) * 4 + 3] = 0;
+    }
+    colBAttr.needsUpdate  = true;
+    lockAttr.needsUpdate  = true;
+    pool.used.delete(colIdx);
+    pool.free.push(colIdx);
+  }
+
+  // Clear all active locks and spawn-active flags; optionally reset state machine to idle.
+  function _clearAllLocks(resetState = false) {
+    const geomNow = mesh.geometry;
+    const lockAttr = geomNow.getAttribute('aLockState');
+    if (!lockAttr) return;
+    const lockData = lockAttr.array;
+    const nRows = geomNow.instanceCount / _geomParams.nCols;
+    for (const c of _msgLockedCols) _writeLockRows(lockData, nRows, c, -9999, -1, 0, 0);
+    for (const c of _msgSpawnCols)  _writeLockRows(lockData, nRows, c, -9999, -1, 0, 0);
+    for (const c of _msgAssigned.keys()) _writeLockRows(lockData, nRows, c, -9999, -1, 0, 0);
+    // Release any reserve columns back to pool
+    const colBAttr2 = geomNow.getAttribute('aColB');
+    const colBBuf2  = colBAttr2?.array;
+    const pool = geomNow._reservePool;
+    if (pool && colBBuf2) {
+      for (const c of [...pool.used]) {
+        _releaseReserve(pool, c, colBBuf2, lockData, colBAttr2, lockAttr, nRows);
+      }
+    }
+    if (_msgLockedCols.size || _msgSpawnCols.size || _msgAssigned.size) lockAttr.needsUpdate = true;
+    _msgLockedCols.clear();
+    _msgSpawnCols.clear();
+    _msgAssigned.clear();
+    _msgSlots = [];
+    if (resetState) {
+      msgState = 'idle';
+      uniforms.uMsgRevealProgress.value = 0;
+    }
+  }
+
+  // Compute JS-side head Y for column c (approximation — ignores burst/breath/zone).
+  // Matches shader: cyclePos = mod(uTime * aSpeed * speedMul + aSeed * cycleH, cycleH)
+  function _headYjs(colABuf, colBBuf, nRows, c, t) {
+    const base     = c * nRows * 4;
+    const aSpeed   = colABuf[base + 2];
+    const aSeed    = colABuf[base + 3];
+    const aYOff    = colBBuf[base + 0];
+    const aScale   = colBBuf[base + 1];
+    const cellStep = uniforms.uCellH.value * aScale * 1.85;
+    const cycleH   = uniforms.uWorldH.value + nRows * cellStep;
+    const spdMul   = Math.max(0.01, uniforms.uSpeedMul.value);
+    const cp       = ((t * aSpeed * spdMul + aSeed * cycleH) % cycleH + cycleH) % cycleH;
+    return aYOff + uniforms.uWorldH.value / 2 - cp;
+  }
+
   // ── State object ──────────────────────────────────────────────────────
   // _cleanup captures closure vars for destroyMatrixRain
   function _cleanup() {
     currentRainNodes?.dispose();
     crtHandle?.destroy?.();
-    if (msgTex) { try { msgTex.dispose(); } catch (_) {} msgTex = null; }
+    _clearAllLocks(true);
     clearTimeout(_ccpSloganTimer);
     _destroyCCPPanels();
     _destroyCCPExtras();
   }
-  const s = { renderer, ro, animRef, geom, material, atlasTex, dummyRT, dummyMsgTex, uniforms, mesh, _cleanup };
+  const s = { renderer, ro, animRef, geom, material, atlasTex, dummyRT, uniforms, mesh, _cleanup };
   _state.set(element, s);
 
   function rebuildGeom() {
     const newGeom = buildGeometry(_geomParams);
-    // Re-attach frustum visibility attribute (new geometry has more instances after rebuild)
+    // Re-attach frustum visibility attribute
     const newVisData = new Float32Array(newGeom.instanceCount).fill(1);
     const newVisAttr = new THREE.InstancedBufferAttribute(newVisData, 1);
     newGeom.setAttribute('aFrustumVis', newVisAttr);
-    // Re-attach column message glyph attribute (cleared on rebuild)
-    const newMsgData = new Float32Array(newGeom.instanceCount).fill(0);
-    const newMsgAttr = new THREE.InstancedBufferAttribute(newMsgData, 1);
-    newGeom.setAttribute('aColMsgGlyph', newMsgAttr);
+    // Re-attach lock state attribute (reset all locks on geometry rebuild)
+    const newLockData = new Float32Array(newGeom.instanceCount * 4);
+    for (let i = 0; i < newGeom.instanceCount; i++) {
+      newLockData[i * 4 + 0] = -9999;
+      newLockData[i * 4 + 1] = -1;
+    }
+    newGeom.setAttribute('aLockState', new THREE.InstancedBufferAttribute(newLockData, 4));
     mesh.geometry.dispose();
     mesh.geometry = newGeom;
     s.geom = newGeom;
+    // Clear any active message — geometry rebuild invalidates all lock state
+    if (msgState !== 'idle') _clearAllLocks(true);
   }
 
   function _resetFrustumVis() {
@@ -1799,6 +2053,37 @@ export function initMatrixRain(element, opts = {}) {
     setColorBlend(v)      { uniforms.uHueRange.value       = Math.max(0, Math.min(1, v)); },
     setHueRange(v)        { this.setColorBlend(v); }, // backwards compat
     setBurstProb(v)       { uniforms.uBurstProb.value      = Math.max(0, Math.min(1, v)); },
+    setContagion(v)       { uniforms.uContagionStrength.value = Math.max(0, Math.min(1, v)); },
+    setEntrainment(amt, speed = 0.25, crests = 3) {
+      uniforms.uEntrainAmt.value    = Math.max(0, Math.min(0.8, amt));
+      uniforms.uEntrainSpeed.value  = speed;
+      uniforms.uEntrainCrests.value = Math.round(Math.max(1, Math.min(12, crests)));
+    },
+    setSquadCoherence(v)  { uniforms.uSquadCoherence.value = Math.max(0, Math.min(1, v)); },
+    setSquadSize(n) {
+      _geomParams.squadSize = Math.max(2, Math.min(20, Math.round(n)));
+      rebuildGeom();
+    },
+    setTrailCohesion(v) {
+      _geomParams.trailCohesion = Math.max(0, Math.min(1, v));
+      rebuildGeom();
+    },
+    spawnWave({ duration = 2.0, easing = 'ease', startAngle = 0 } = {}) {
+      const now = performance.now() / 1000;
+      uniforms.uSpawnWaveFront.value = startAngle;
+      _spawnWaveAnim = { startTime: now, endTime: now + duration,
+        startFront: startAngle, endFront: startAngle + 1.0, easing };
+    },
+    despawnWave({ duration = 1.5, easing = 'ease' } = {}) {
+      const now     = performance.now() / 1000;
+      const current = uniforms.uSpawnWaveFront.value;
+      _spawnWaveAnim = { startTime: now, endTime: now + duration,
+        startFront: current, endFront: -1.0, easing };
+    },
+    setSpawnWaveFront(v) {
+      _spawnWaveAnim = null;
+      uniforms.uSpawnWaveFront.value = v;
+    },
 
     /** Pause / resume time advancement. Rain freezes mid-frame when true. */
     setFrozen(bool)    { _frozen = bool; },
@@ -1895,10 +2180,10 @@ export function initMatrixRain(element, opts = {}) {
       }
       new THREE.TextureLoader().load(descriptor.path, (newTex) => {
         newTex.flipY           = false;
-        newTex.minFilter       = THREE.LinearMipMapLinearFilter;
+        newTex.minFilter       = THREE.LinearFilter;
         newTex.magFilter       = THREE.LinearFilter;
         newTex.colorSpace      = THREE.LinearSRGBColorSpace;
-        newTex.generateMipmaps = true;
+        newTex.generateMipmaps = false;
         newTex.needsUpdate     = true;
 
         // Rebuild the glyph material with the new texture and update state
@@ -1989,106 +2274,163 @@ export function initMatrixRain(element, opts = {}) {
 
     // ── Message reveal API ────────────────────────────────────────────────
     /**
-     * Display a message by resolving rain glyphs into the target characters.
+     * Display a message by locking rain column heads to target characters.
+     * Characters crystallise organically as columns reach the message band.
      *
      * @param {string} text
      * @param {object} [opts]
-     * @param {string} [opts.font]             CSS font at renderer height (default: 'bold {8%h}px monospace')
-     * @param {string} [opts.align]            'left'|'center'|'right' (default: 'center')
-     * @param {number} [opts.yFrac]            vertical centre 0–1 (default: 0.5)
-     * @param {number} [opts.padding]          horizontal padding px (default: 48)
-     * @param {string} [opts.cascadeMode]      'wave'|'radial'|'column' (default: 'wave')
-     * @param {number} [opts.revealDuration]   seconds for cascade to complete (default: 1.5)
-     * @param {number} [opts.holdDuration]     seconds to hold after reveal (default: 3.0)
-     * @param {number} [opts.fadeDuration]     seconds to fade out (default: 1.0)
-     * @param {number} [opts.boost]            brightness multiplier during active reveal (default: 2.0)
-     * @param {number} [opts.settleSharpness]  how quickly per-cell crystallisation completes (default: 4.0)
-     * @param {number|null} [opts.msgDensity]  temporarily override uDensity for reveal+hold (null = no change)
+     * @param {number} [opts.yFrac]           vertical centre 0–1 (default: 0.5)
+     * @param {number} [opts.revealDuration]  seconds to allow organic reveal (default: 2.0)
+     * @param {number} [opts.holdDuration]    seconds to hold frozen message (default: 4.0)
+     * @param {number} [opts.fadeDuration]    seconds to fade out (default: 1.0)
+     * @param {number} [opts.boost]           brightness multiplier for locked head glyphs (default: 2.0)
+     * @param {number} [opts.spawnChance]     probability of spawning column below each lock (default: 0.85)
      */
     showMessage(text, opts = {}) {
-      if (msgTex) { try { msgTex.dispose(); } catch (_) {} }
-
-      const w = renderer.domElement.width  || element.clientWidth  || 512;
-      const h = renderer.domElement.height || element.clientHeight || 512;
-
       const {
-        font             = `bold ${Math.max(32, Math.round(h * 0.08))}px monospace`,
-        align            = 'center',
-        yFrac            = 0.5,
-        padding          = 48,
-        cascadeMode      = 'wave',
-        revealDuration   = 1.5,
-        holdDuration     = 3.0,
-        fadeDuration     = 1.0,
-        boost            = 2.0,
-        settleSharpness  = 4.0,
-        msgDensity       = null,   // null = don't touch uDensity; number = override for the reveal
+        yFrac          = 0.5,
+        revealDuration = 2.0,
+        holdDuration   = 4.0,
+        fadeDuration   = 1.0,
+        boost          = 2.0,
+        spawnChance    = 0.85,
+        tolMultMin     = 4,
+        tolMultMax     = 18,
+        tolMinScale    = 1.3,
       } = opts;
 
-      // Density boost — save current value and override for reveal+hold; restored on idle
-      if (msgDensityBoost !== null) {
-        // A previous message's boost is still active — restore before applying the new one
-        uniforms.uDensity.value = msgDensityBoost;
-        msgDensityBoost = null;
-      }
-      if (msgDensity !== null) {
-        msgDensityBoost         = uniforms.uDensity.value;
-        uniforms.uDensity.value = Math.min(1.0, msgDensity);
-      }
+      // Clear any active message before starting a new one
+      if (msgState !== 'idle') _clearAllLocks(true);
 
-      const modeFloat = cascadeMode === 'radial' ? 1.0 : cascadeMode === 'column' ? 2.0 : 0.0;
-      msgCascadeMode = modeFloat;
-      uniforms.uMsgCascadeMode.value     = modeFloat;
-      uniforms.uMsgBoost.value           = boost;
-      uniforms.uMsgSettleSharpness.value = settleSharpness;
-      uniforms.uMsgCenter.value.set(
-        align === 'center' ? 0.5 : align === 'left' ? 0.15 : 0.85,
-        // CanvasTexture default flipY=true: screenUV.y=0 (top) maps to canvas bottom row.
-        // Canvas draws text at pixel y = h * yFrac, so GPU sees it at screenUV.y = 1 - yFrac.
-        1.0 - yFrac,
+      const geomNow  = mesh.geometry;
+      const lockAttr = geomNow.getAttribute('aLockState');
+      const colAAttr = geomNow.getAttribute('aColA');
+      const colBAttr = geomNow.getAttribute('aColB');
+      if (!lockAttr || !colAAttr || !colBAttr) return;
+      const lockData = lockAttr.array;
+      const colABuf  = colAAttr.array;
+      const colBBuf  = colBAttr.array;
+      const nCols    = _geomParams.nCols;
+      const nRows    = geomNow.instanceCount / nCols;
+
+      // ── Compute world Y for the message band ─────────────────────────
+      // yFrac = 0 → top, 1 → bottom. Map to world Y using uWorldH.
+      // The head sweep spans roughly [−uWorldH/2, +uWorldH/2].
+      // Place message at the corresponding world Y fraction.
+      const wH     = uniforms.uWorldH.value;  // typically 16
+      const worldY = wH * (0.5 - yFrac);      // yFrac=0.5 → worldY=0 (center)
+      _msgWorldY   = worldY;
+
+      // ── Project column world positions to screen X via camera VP ──────
+      camera.updateMatrixWorld();
+      camera.updateProjectionMatrix();
+      const vpMat = new THREE.Matrix4().multiplyMatrices(
+        camera.projectionMatrix, camera.matrixWorldInverse
       );
-      // Half-height of the message band in screen UV space — limits column mode glyph resolve
-      // to only rows whose screen Y falls within the text region, preventing the target letter
-      // from repeating all the way up/down the column.
-      const fontSizeMatch = font.match(/(\d+)px/);
-      const fontSize = fontSizeMatch ? parseFloat(fontSizeMatch[1]) : h * 0.08;
-      uniforms.uMsgHalfH.value = (fontSize / h) * 0.65;
+      const tmpV = new THREE.Vector4();
 
-      if (cascadeMode === 'column') {
-        uniforms.uMsgTex.value = dummyMsgTex;
-        const attr = mesh.geometry.getAttribute('aColMsgGlyph');
-        const colA = mesh.geometry.getAttribute('aColA');
-        if (attr && colA) {
-          projectMessageOntoColumns(
-            text, _activeCharSet, font, align, yFrac, padding,
-            camera, _columnOffset, colA, attr.array,
-            _geomParams.nCols, N_ROWS, w, h,
-          );
-          attr.needsUpdate = true;
-        }
-        if (colA) {
-          const colAArr = colA.array;
-          let xMin = Infinity, xMax = -Infinity;
-          for (let c = 0; c < _geomParams.nCols; c++) {
-            const wx = colAArr[c * N_ROWS * 4] + _columnOffset.x;
-            if (wx < xMin) xMin = wx;
-            if (wx > xMax) xMax = wx;
-          }
-          uniforms.uMsgWorldXMin.value = xMin;
-          uniforms.uMsgWorldXMax.value = xMax;
-        }
-      } else {
-        msgTex = renderMessageToTexture(text, w, h, { font, align, yFrac, padding }, _activeCharSet);
-        uniforms.uMsgTex.value = msgTex;
+      // Build array of (colIdx, screenX) for all eligible columns
+      const colScreen = [];
+      for (let c = 0; c < nCols; c++) {
+        const base = c * nRows * 4;
+        const wx   = colABuf[base + 0] + uniforms.uColumnOffset.value.x;
+        const wz   = colABuf[base + 1] + uniforms.uColumnOffset.value.y;
+
+        // Skip reversed columns
+        const revHash = _h2js(c * 0.23, 0.69);
+        if (revHash >= 1.0 - uniforms.uReverseChance.value) continue;
+
+        // Skip density-culled columns
+        const densHash = _h2js(c * 0.137 + 0.5, 42.7);
+        if (densHash > uniforms.uDensity.value) continue;
+
+        // Project column world position (at message worldY) to screen UV x
+        tmpV.set(wx, worldY, wz, 1.0).applyMatrix4(vpMat);
+        if (tmpV.w <= 0) continue;  // behind camera
+        const ndcX   = tmpV.x / tmpV.w;
+        if (ndcX < -1.2 || ndcX > 1.2) continue;  // off screen
+        const screenX = (ndcX + 1.0) * 0.5;  // 0..1 screen UV
+
+        colScreen.push({ c, screenX });
+      }
+      // Sort by screen X for faster matching
+      colScreen.sort((a, b) => a.screenX - b.screenX);
+
+      // ── Build slot array: one per character ───────────────────────────
+      // Measure character widths and compute screen UV x for each char center
+      const w = renderer.domElement.width  || element.clientWidth  || 512;
+      const h = renderer.domElement.height || element.clientHeight || 512;
+      const font = `bold ${Math.max(24, Math.round(h * 0.07))}px monospace`;
+      const tmpCanvas = document.createElement('canvas');
+      tmpCanvas.width = w; tmpCanvas.height = 16;
+      const tCtx = tmpCanvas.getContext('2d');
+      tCtx.font  = font;
+
+      const chars    = [...text];
+      const advances = chars.map(ch => tCtx.measureText(ch).width);
+      const totalPx  = advances.reduce((a, b) => a + b, 0);
+      if (totalPx === 0) return;
+
+      // Centre the text string in screen UV — each char gets a screenX center
+      const startUV = 0.5 - (totalPx / w) * 0.5;  // left edge in screen UV
+      _msgSlots = [];
+      let curPx = 0;
+      for (let i = 0; i < chars.length; i++) {
+        const centerUV = startUV + (curPx + advances[i] * 0.5) / w;
+        const halfUV   = (advances[i] * 0.5) / w;
+        const glyph    = charToGlyphIdx(chars[i], _activeCharSet);
+        const isSpace  = chars[i] === ' ';
+        _msgSlots.push({
+          screenX: centerUV,
+          halfUV:  Math.max(halfUV, 0.01),
+          glyph,           // -1 for unsupported charsets — head still freezes, glyph stays random
+          claimed: isSpace, // only skip spaces; unsupported chars get a freeze-band effect
+          colIdx:  -1,
+        });
+        curPx += advances[i];
       }
 
-      uniforms.uMsgRevealProgress.value = 0.0;
-      uniforms.uMsgWaveX.value  = 0.0;
-      uniforms.uMsgWaveR.value  = 0.0;
-      msgRevealSpeed   = 1.0 / revealDuration;
-      msgHoldDuration  = holdDuration;
-      msgFadeSpeed     = 1.0 / fadeDuration;
-      msgState         = 'revealing';
+      // ── Assign best column to each character slot ─────────────────────
+      const usedCols = new Set();
+      for (let si = 0; si < _msgSlots.length; si++) {
+        const slot = _msgSlots[si];
+        if (slot.claimed) continue;
+
+        // Find closest projected column to this slot's screen X
+        let bestDist = Infinity, bestCol = -1;
+        for (let ci = 0; ci < colScreen.length; ci++) {
+          const cs = colScreen[ci];
+          if (usedCols.has(cs.c)) continue;
+          const d = Math.abs(cs.screenX - slot.screenX);
+          if (d > 0.08) continue;  // max ~8% screen width tolerance
+          if (d < bestDist) { bestDist = d; bestCol = cs.c; }
+        }
+
+        if (bestCol >= 0) {
+          slot.colIdx = bestCol;
+          usedCols.add(bestCol);
+          _msgAssigned.set(bestCol, si);
+          // lockTime=0 signals "assigned but not yet locked" — tick() will set lockTime=t
+          // when the head reaches worldY
+          _writeLockRows(lockData, nRows, bestCol, worldY, slot.glyph, 0, 0);
+        }
+      }
+      lockAttr.needsUpdate = true;
+
+      // ── Initialise state ─────────────────────────────────────────────
+      uniforms.uMsgBoost.value           = boost;
+      uniforms.uMsgRevealProgress.value  = 1.0;
+      msgSpawnChance    = spawnChance;
+      msgTolMultMin     = tolMultMin;
+      msgTolMultMax     = tolMultMax;
+      msgTolMinScale    = tolMinScale;
+      msgRevealStart    = now;
+      msgHoldDuration   = holdDuration;
+      msgFadeSpeed      = 1.0 / fadeDuration;
+      const now = prevTs || performance.now() * 0.001;
+      msgRevealEnd       = now + revealDuration;
+      msgRevealFallbackT = now + revealDuration * 0.75;
+      msgState          = 'revealing';
     },
 
     /**
@@ -2099,6 +2441,7 @@ export function initMatrixRain(element, opts = {}) {
     clearMessage(opts = {}) {
       const { fadeDuration = 0.8 } = opts;
       if (msgState === 'idle') return;
+      _clearAllLocks(false);  // clear aLockState for all locked/assigned columns
       msgFadeSpeed = 1.0 / fadeDuration;
       msgState     = 'fading';
     },
@@ -2340,7 +2683,6 @@ export function destroyMatrixRain(element) {
   s.geom.dispose();
   s.atlasTex.dispose();
   s.dummyRT.dispose();
-  s.dummyMsgTex?.dispose();
   s._cleanup?.();
   s.renderer.dispose();
   s.renderer.domElement.remove();

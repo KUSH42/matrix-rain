@@ -143,6 +143,14 @@ All items go in `specs/` before implementation.
   - `.gitignore`: `data/fonts/` added
   - Atlas PNGs generated: `matrix1999`, `latin`, `ascii`, `cyber`, `cyrillic`, `japanese`, `chinese`, `orbitron`, `iosevka`, `datatype`, `gsanscode` (all in `data/`)
 
+- [x] **SPEC-column-flocking-spawn** — inter-column group behaviour + spawn helpers (5 changes)
+  - **Change 1 — Cluster Burst Contagion**: `aClusterBurstSeed` attribute (same seed per cluster); `uContagionStrength` uniform; `burstIndiv` + `contagionBurst` → `burstActive`; `setContagion(v)` handle method
+  - **Change 2 — Speed Entrainment Wave**: `uEntrainAmt/Speed/Crests` uniforms; `thetaEntrain`/`entrainWave` before `speedMul` (no forward-ref); `speedMul` multiplied by `(1 + entrainWave)`; `setEntrainment(amt, speed?, crests?)` handle method
+  - **Change 3 — Spawn Reserve Pool**: last `spawnReserves=48` columns overwritten to evenly-spaced inner-shell positions; `geom._reservePool` with free/used/origYOff; `_claimReserve` screen-X matching + spawnActive=1; `_releaseReserve` restores aYOff; tick slot-recruitment tries pool before fallback (fallback excluded from reserve range); `_clearAllLocks` releases used reserves; no new shader code
+  - **Change 4 — Squad Phase Coherence + Trail Cohesion**: `aSquadPhase` attribute (shared seed per squad within cluster); `uSquadCoherence` uniform; `phaseSeed = mix(aSquadPhase, aSeed, uSquadCoherence)` in `cyclePos`; `colTrailBias` per squad baked into `rawTrailBuf` (biasedTr stored to preserve cohesion across range updates); `setSquadCoherence(v)`, `setSquadSize(n)`, `setTrailCohesion(v)` handle methods
+  - **Change 5 — Spawn Wave**: `aSpawnTheta` attribute (normalised angular position [0,1]); `uSpawnWaveFront` uniform (default 2.0 = all active); `spawnGatePasses` gate in density `If()` (isLocked/isSpawnActive bypass); `_spawnWaveAnim` state; tick animation with easing; `spawnWave({duration,easing,startAngle})`, `despawnWave({duration,easing})`, `setSpawnWaveFront(v)` handle methods
+  - **Files**: `matrix-rain-tsl.js`, `matrix-rain-webgpu.js`
+
 - [ ] Tests — `tests/` for any pure-JS logic extracted to a `matrix-rain-math.js`
 - [ ] `prefers-reduced-motion` — disable/reduce heat, god rays, burst bloom
 - [ ] README.md — public documentation before any npm/gh-pages publish

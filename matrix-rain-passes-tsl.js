@@ -11,6 +11,11 @@
  *   buildStreakPass(inputTexNode)
  *   buildHoloPass(inputTexNode)
  *   buildGodRaysPass(inputTexNode)
+ *
+ * NOTE: buildMsgOverlayPass has been removed. Message text is now rendered by a
+ * dedicated instanced mesh (buildMsgColumnMaterial in matrix-rain-tsl.js) added
+ * directly to the scene with NormalBlending — the only correct way to occlude rain
+ * columns behind message glyphs.
  */
 
 import {
@@ -237,3 +242,4 @@ export function buildGodRaysPass(inputTexNode) {
 
   return { outputNode, uLightPos, uDensity, uDecay, uWeight, uExposure, uEnabled };
 }
+
