@@ -123,6 +123,10 @@ export function makeUniforms(glyphCount = 56, gridW = 8, gridH = 8, lutTexture =
     uScanPhase:      uniform(0.0),   // shared cyclePos value driven by JS [0 → cycleH]
     uAtlasMTSDF:     uniform(1.0),   // 1 = MTSDF atlas (new); 0 = legacy single-channel (matrixcode)
     uColumnOffset:   uniform(new THREE.Vector2(0, 0)), // XZ world offset applied to all columns (camera follow)
+    // End-of-life effects
+    uEolFlash:       uniform(0.6),   // terminal flash intensity  0–2   (0 = off)
+    uEolFreezeStart: uniform(0.80),  // cyclePhase at which head glyph freezes  0–1 (1 = off)
+    uEolFadeStart:   uniform(0.88),  // cyclePhase at which death fade begins   0.5–1
   };
 }
 
@@ -156,6 +160,7 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     uScanSyncAmt, uScanPhase,
     uAtlasMTSDF,
     uColumnOffset,
+    uEolFlash, uEolFreezeStart, uEolFadeStart,
   } = uniforms;
 
   // ── Per-instance buffer attributes ────────────────────────────────────
@@ -185,6 +190,7 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
   const vColCenterX  = varying(float(),  'vColCenterX'); // baked world X of column centre
   const vCellWorldY  = varying(float(),  'vCellWorldY'); // world Y of this cell (for Y-band suppression)
   const vLockState   = varying(vec4(),   'vLockState');  // (lockY, lockGlyph, lockTime, spawnActive)
+  const vCyclePhase  = varying(float(),  'vCyclePhase'); // forward cyclePhase [0, 1] passed to fragment
 
   // ── MTSDF sampling (closure over atlasTexture + uniforms) ─────────────
   // blendSDF: 0 = pure MSDF (accurate corners, large scale / CRT),
@@ -231,6 +237,7 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     vWorldPos.assign(vec3(0));
     vColCenterX.assign(0.0);
     vLockState.assign(vec4(float(-9999), float(-1), float(0), float(0)));
+    vCyclePhase.assign(0.0);
 
     // Unpack per-column attributes — apply camera-follow offset to XZ world position
     const aWX    = aColAAttr.x.add(uColumnOffset.x);
@@ -382,9 +389,10 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
         uScanSyncAmt
       ).toVar('cyclePos');
       const cyclePhase = cyclePos.div(cycleH);
+      vCyclePhase.assign(cyclePhase);
 
-      // Death fade — smooth-out in the last 12 % of cycle before wrap
-      const deathRamp = smoothstep(0.88, 1.0, cyclePhase);
+      // Death fade — smooth-out in the last portion of cycle before wrap (tunable via uEolFadeStart)
+      const deathRamp = smoothstep(uEolFadeStart, float(1.0), cyclePhase);
       vDeathFade.assign(float(1).sub(deathRamp));
 
       // Per-column reverse: stable per-column hash decides direction.
@@ -543,8 +551,19 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     const isBursting       = vBurst.greaterThan(0.5);
     const burstHoldSec     = float(1.0).div(uBurstGlyphRate);
     const effectiveHoldSec = select(isBursting, burstHoldSec, holdSec);
-    const changeTick       = floor(
+    // Glyph freeze — during EOL window the head glyph locks to a cycle-stable tick.
+    // select() avoids non-uniform control flow; both branches evaluate but no divergence cost.
+    const isFreezeActive = vCyclePhase.greaterThan(uEolFreezeStart);
+    const isHeadCell     = vDist.greaterThanEqual(float(-0.5))
+                               .and(vDist.lessThan(float(0.5)));
+    const frozenTick     = floor(vCyclePhase.mul(20.0));
+    const normalTick     = floor(
       cellPhase.mul(effectiveHoldSec).add(uTime).div(effectiveHoldSec)
+    );
+    const changeTick     = select(
+      isFreezeActive.and(isHeadCell),
+      frozenTick,
+      normalTick
     );
     // Weighted vs uniform glyph selection — uWeightedGlyphs blends LUT → uniform.
     // A per-cell coin-flip hash selects LUT or uniform for each cell independently.
@@ -610,6 +629,16 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     // Head drip — leading 2-3 glyphs distinctly brighter
     const drip = exp(vDist.negate().mul(0.8));
     col2.addAssign(col2.mul(drip.mul(0.5)));
+
+    // ── Terminal flash — head surges bright near EOL ───────────────────────
+    // Gaussian peak centred just before the death fade (eolFlashPeak ≈ uEolFadeStart - 0.01).
+    // Applied only at the head (dist ≈ 0) via headFrac to avoid lighting the trail.
+    const eolFlashPeak   = uEolFadeStart.sub(0.01);
+    const eolFlashWidth  = float(0.04);
+    const eolFlashDelta  = vCyclePhase.sub(eolFlashPeak).div(eolFlashWidth);
+    const eolFlashCurve  = exp(eolFlashDelta.mul(eolFlashDelta).negate());
+    const eolFlashAmt    = eolFlashCurve.mul(uEolFlash).mul(headFrac);
+    col2.addAssign(col2.mul(eolFlashAmt));
 
     // Glyph flash — ~0.8 % of cells flare white
     const flashBucket    = floor(uTime.mul(30.0));

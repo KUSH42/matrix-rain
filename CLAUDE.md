@@ -192,6 +192,9 @@ Returns a control handle with methods below.
 | `spawnWave({duration?, easing?, startAngle?})` | Animate rain sweep-in from `startAngle` [0,1] over `duration` seconds |
 | `despawnWave({duration?, easing?})` | Animate rain sweep-out over `duration` seconds |
 | `setSpawnWaveFront(v)` | Manually set spawn wave front (−0.1–1.1; 2.0 = all active, default) |
+| `setEolFlash(v)` | Terminal flash intensity 0–2 (0 = off, default 0.6) |
+| `setEolFreezeStart(v)` | Cycle phase at which head glyph freezes 0–1 (1 = off, default 0.80) |
+| `setEolFadeStart(v)` | Cycle phase at which death fade begins 0.5–1 (default 0.88) |
 
 **Note**: `setHeat`, `setSoften`, `setStreaks`, `setHoloAberration`, `setGodRays`, `setBurstBloom`, `setPhosphorDecay`, `setBloomThreshold`, `setBloomStrength` are no-ops (silent) in `'crt'` and `'none'` modes.
 
@@ -233,6 +236,9 @@ Tears down the instance registered on `element`.
 | `uMsgSettleSharpness` | `4.0` | Per-cell crystallisation speed |
 | `uMsgCenter` | `(0.5, 0.5)` | Message centre in screen UV (for radial mode) |
 | `uMsgWorldXMin/Max` | `−8/8` | World X range for column cascade ordering |
+| `uEolFlash` | `0.6` | Terminal flash intensity; 0 = off |
+| `uEolFreezeStart` | `0.80` | Head glyph freeze threshold; 1.0 = off |
+| `uEolFadeStart` | `0.88` | Death fade start threshold (was hardcoded) |
 
 ---
 

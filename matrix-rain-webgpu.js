@@ -2205,6 +2205,9 @@ export function initMatrixRain(element, opts = {}) {
     setColorBlend(v)      { uniforms.uHueRange.value       = Math.max(0, Math.min(1, v)); },
     setHueRange(v)        { this.setColorBlend(v); }, // backwards compat
     setBurstProb(v)       { uniforms.uBurstProb.value      = Math.max(0, Math.min(1, v)); },
+    setEolFlash(v)        { uniforms.uEolFlash.value       = Math.max(0, Math.min(2, v)); },
+    setEolFreezeStart(v)  { uniforms.uEolFreezeStart.value = Math.max(0, Math.min(1, v)); },
+    setEolFadeStart(v)    { uniforms.uEolFadeStart.value   = Math.max(0.5, Math.min(1, v)); },
     // NOTE (future): current "contagion" is cluster-simultaneous burst (all columns in a
     // cluster's window fire with probability uContagionStrength). True neighbor-propagation
     // contagion — where a burst spreads column-by-column based on angular proximity — would

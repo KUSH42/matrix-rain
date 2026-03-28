@@ -5,6 +5,8 @@ Append notable events at session end. Prune entries older than 30 days.
 
 - [Future: real contagion](future_real_contagion.md) — true neighbor-propagation burst needs ping-pong storage texture; current "cluster sync" is simultaneous cluster firing
 
+- 2026-03-28: **SPEC-eol-effects** implemented. 3 new uniforms (`uEolFlash=0.6`, `uEolFreezeStart=0.80`, `uEolFadeStart=0.88`), `vCyclePhase` varying, terminal flash Gaussian block, glyph freeze `select()` on `changeTick`, death fade threshold promoted. 3 handle methods + 3 sliders in matrix-3d.html. Changes on by default (flash=0.6, freeze=0.80).
+
 - 2026-03-27: **SPEC-webgl-fallback** implemented. Three.js WebGPURenderer auto-falls
   back to WebGL2 — the only required fix is the TextureNode sampler patch (appended to
   module preamble of `matrix-rain-webgpu.js`). Added `handle.backend` property (null →

@@ -727,6 +727,24 @@
           <input id="ctl-pom-steps-num" type="number" min="3" max="12"  step="1"     value="6">
         </span>
       </label>
+      <label>EOL flash
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-eol-flash"     type="range"  min="0" max="2"   step="0.05"  value="0.6">
+          <input id="ctl-eol-flash-num" type="number" min="0" max="2"   step="0.05"  value="0.6">
+        </span>
+      </label>
+      <label>EOL freeze start
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-eol-freeze"     type="range"  min="0" max="1"  step="0.01"  value="0.80">
+          <input id="ctl-eol-freeze-num" type="number" min="0" max="1"  step="0.01"  value="0.80">
+        </span>
+      </label>
+      <label>EOL fade start
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-eol-fade"     type="range"  min="0.5" max="1" step="0.01"  value="0.88">
+          <input id="ctl-eol-fade-num" type="number" min="0.5" max="1" step="0.01"  value="0.88">
+        </span>
+      </label>
 
       <!-- Debug controls (collapsed by default) -->
       <details>
@@ -1618,6 +1636,9 @@
   linkSlider('ctl-hold-mult',  'ctl-hold-mult-num',  v => rain.setHoldMult(v));
   linkSlider('ctl-burst-rate', 'ctl-burst-rate-num', v => rain.setBurstGlyphRate(v));
   linkSlider('ctl-pom-steps',  'ctl-pom-steps-num',  v => rain.setPomSteps(v));
+  linkSlider('ctl-eol-flash',  'ctl-eol-flash-num',  v => rain.setEolFlash(v));
+  linkSlider('ctl-eol-freeze', 'ctl-eol-freeze-num', v => rain.setEolFreezeStart(v));
+  linkSlider('ctl-eol-fade',   'ctl-eol-fade-num',   v => rain.setEolFadeStart(v));
   linkSlider('ctl-hue-range',  'ctl-hue-range-num',  v => rain.setColorBlend(v));
   linkSlider('ctl-burst-prob', 'ctl-burst-prob-num', v => rain.setBurstProb(v));
   linkSlider('ctl-contagion',       'ctl-contagion-num',       v => rain.setContagion(v));
@@ -1784,6 +1805,9 @@
       pomSteps:       fv('ctl-pom-steps'),
       hueRange:       fv('ctl-hue-range'),
       burstProb:      fv('ctl-burst-prob'),
+      eolFlash:       fv('ctl-eol-flash'),
+      eolFreezeStart: fv('ctl-eol-freeze'),
+      eolFadeStart:   fv('ctl-eol-fade'),
     };
   }
 
@@ -1857,6 +1881,9 @@
     set('ctl-pom-steps',   s.pomSteps);
     set('ctl-hue-range',   s.hueRange);
     set('ctl-burst-prob',  s.burstProb);
+    set('ctl-eol-flash',   s.eolFlash);
+    set('ctl-eol-freeze',  s.eolFreezeStart);
+    set('ctl-eol-fade',    s.eolFadeStart);
 
     // ── Rebuild if ppmode changed ────────────────────────────────────────
     if (s.ppmode !== undefined && s.ppmode !== prevMode) {
@@ -1918,6 +1945,9 @@
     if (s.pomSteps       !== undefined) rain.setPomSteps(s.pomSteps);
     if (s.hueRange       !== undefined) rain.setColorBlend(s.hueRange);
     if (s.burstProb      !== undefined) rain.setBurstProb(s.burstProb);
+    if (s.eolFlash       !== undefined) rain.setEolFlash(s.eolFlash);
+    if (s.eolFreezeStart !== undefined) rain.setEolFreezeStart(s.eolFreezeStart);
+    if (s.eolFadeStart   !== undefined) rain.setEolFadeStart(s.eolFadeStart);
 
     set('ctl-spd-min',      s.spdMin);
     set('ctl-spd-max',      s.spdMax);
