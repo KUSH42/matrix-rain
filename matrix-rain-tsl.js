@@ -492,14 +492,6 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     const trail    = exp(d.negate().mul(vTrail).mul(accel));
     If(trail.lessThan(0.012), () => { Discard(); });
 
-    // Suppress non-locked fragments inside the message reveal Y band.
-    // Other columns animate normally and their glyphs pass through the locked head
-    // position; with additive blending they add colour noise on top of the message
-    // letters. Discard those fragments so only the locked column shows at lockY.
-    If(uMsgRevealActive.greaterThan(float(0.0)).and(lockActive.not()), () => {
-      If(abs(vCellWorldY.sub(uMsgRevealY)).lessThan(uMsgRevealBand), () => { Discard(); });
-    });
-
     // View-space vectors — used by POM tangent frame below
     const toFrag   = vWorldPos.sub(cameraPosition);
     const fragDist = length(toFrag);
@@ -563,6 +555,13 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
       .and(vDist.lessThan(float(0.5)));
     const hasLockTarget = lockGlyph.greaterThanEqual(float(0.0));
     glyphIdx.assign(select(isLockHead.and(hasLockTarget), lockGlyph, glyphIdx));
+
+    // Suppress non-locked fragments inside the message reveal Y band.
+    // Other columns animate through the locked head position; with additive blending
+    // they add colour noise on top of message letters. Discard those fragments.
+    If(uMsgRevealActive.greaterThan(float(0.0)).and(lockActive.not()), () => {
+      If(abs(vCellWorldY.sub(uMsgRevealY)).lessThan(uMsgRevealBand), () => { Discard(); });
+    });
 
     // Film grain
     const sampleX = select(frontFacing, vUvRain.x, float(1).sub(vUvRain.x));

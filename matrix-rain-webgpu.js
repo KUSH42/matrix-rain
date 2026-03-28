@@ -1115,11 +1115,12 @@ export function initMatrixRain(element, opts = {}) {
   let msgRevealStart       = 0;    // absolute timestamp when reveal began
 
   // Per-reveal slot/column state (reset on each showMessage)
-  let _msgSlots       = [];      // charSlots[]: { xCenter, xHalf, glyph, claimed, colIdx }
-  let _msgWorldY      = 0;       // world Y of message band (fixed at trigger time)
-  let _msgLockedCols  = new Set(); // column indices currently locked
-  let _msgSpawnCols   = new Set(); // column indices with spawnActive=1 (force-render)
-  let _msgAssigned    = new Map(); // colIdx → slotIdx: columns assigned but not yet locked
+  let _msgSlots        = [];      // charSlots[]: { xCenter, xHalf, glyph, claimed, colIdx }
+  let _msgClaimedCount = 0;       // how many slots are claimed (avoids O(n) .every each frame)
+  let _msgWorldY       = 0;       // world Y of message band (fixed at trigger time)
+  let _msgLockedCols   = new Set(); // column indices currently locked
+  let _msgSpawnCols    = new Set(); // column indices with spawnActive=1 (force-render)
+  let _msgAssigned     = new Map(); // colIdx → slotIdx: columns assigned but not yet locked
 
   // ── CCP easter egg state ───────────────────────────────────────────────
   let _ccpActive      = false;
@@ -1263,7 +1264,7 @@ export function initMatrixRain(element, opts = {}) {
           // Try reserve pool first; fall back to nearest non-reserve column.
           if (slot.colIdx < 0) {
             let bestCol = _claimReserve(geomNow._reservePool, slot.screenX, _msgWorldY,
-              colABuf, lockData, lockAttr, nRows, _msgVpMat);
+              colABuf, nRows, _msgVpMat);
             if (bestCol >= 0) {
               const newYOff = _yOffForHead(colABuf, colBBuf, nRows, bestCol, _msgWorldY, t);
               for (let r = 0; r < nRows; r++) colBBuf[(bestCol * nRows + r) * 4] = newYOff;
@@ -1277,8 +1278,10 @@ export function initMatrixRain(element, opts = {}) {
               // Pool exhausted — fall back to nearest non-reserve column
               let bestDist = Infinity;
               bestCol = -1;
+              const revThresh = 1.0 - uniforms.uReverseChance.value;
               for (let c = 0; c < reserveStart; c++) {
                 if (_msgLockedCols.has(c) || _msgAssigned.has(c) || _msgSpawnCols.has(c)) continue;
+                if (_h2js(c * 0.23, 0.69) >= revThresh) continue;  // skip reversed columns
                 const base = c * nRows * 4;
                 const wx   = colABuf[base + 0] + uniforms.uColumnOffset.value.x;
                 const wz   = colABuf[base + 1] + uniforms.uColumnOffset.value.y;
@@ -1322,6 +1325,7 @@ export function initMatrixRain(element, opts = {}) {
             _writeLockRows(lockData, nRows, colIdx, _msgWorldY, slot.glyph, t, 0);
             lockDirty = true;
             slot.claimed = true;
+            _msgClaimedCount++;
             _msgLockedCols.add(colIdx);
             _msgAssigned.delete(colIdx);
 
@@ -1342,8 +1346,10 @@ export function initMatrixRain(element, opts = {}) {
               const tgt  = _msgWorldY - 1.5 * cs;
               const SEARCH_R = 2.0;
               let bestDist = Infinity, bestSpawn = -1;
+              const spawnRevThresh = 1.0 - uniforms.uReverseChance.value;
               for (let c = 0; c < reserveStart; c++) {
                 if (_msgLockedCols.has(c) || _msgAssigned.has(c) || _msgSpawnCols.has(c)) continue;
+                if (_h2js(c * 0.23, 0.69) >= spawnRevThresh) continue;  // skip reversed columns
                 const base = c * nRows * 4;
                 const wx   = colABuf[base + 0] + uniforms.uColumnOffset.value.x;
                 if (Math.abs(wx - wx0) > SEARCH_R) continue;
@@ -1379,7 +1385,7 @@ export function initMatrixRain(element, opts = {}) {
         if (colBDirty && colBAttr) colBAttr.needsUpdate = true;
 
         // Transition to holding when all slots claimed or timer expired
-        if (_msgSlots.every(s => s.claimed) || t >= msgRevealEnd) {
+        if (_msgClaimedCount >= _msgSlots.length || t >= msgRevealEnd) {
           msgState  = 'holding';
           msgHoldEnd = t + msgHoldDuration;
         }
@@ -1401,6 +1407,8 @@ export function initMatrixRain(element, opts = {}) {
         if (t >= msgHoldEnd) {
           msgState = 'fading';
           msgFadeStart = t;
+          // Stop band suppression so unlocked columns show rain again as they fade out
+          uniforms.uMsgRevealActive.value = 0;
           // Assign each claimed slot a random unlock time within the fade window
           for (const slot of _msgSlots) {
             slot.fadeDelay = Math.random();  // [0,1] fraction of fadeDuration
@@ -1637,9 +1645,9 @@ export function initMatrixRain(element, opts = {}) {
   }
 
   // Claim the best-matching free reserve column for a message slot.
-  // "Best" = closest by screen X projection to slotScreenX.
-  // Sets spawnActive=1 (bypasses density+frustum cull). Returns colIdx or -1 if pool empty.
-  function _claimReserve(pool, slotScreenX, worldY, colABuf, lockData, lockAttr, nRows, vpMat) {
+  // "Best" = closest by screen X projection to slotScreenX. Returns colIdx or -1 if pool empty.
+  // Caller must call _writeLockRows to set spawnActive=1.
+  function _claimReserve(pool, slotScreenX, worldY, colABuf, nRows, vpMat) {
     if (!pool || pool.free.length === 0) return -1;
     let bestDist = Infinity, bestFreeIdx = -1;
     for (let fi = 0; fi < pool.free.length; fi++) {
@@ -1656,9 +1664,7 @@ export function initMatrixRain(element, opts = {}) {
     if (bestFreeIdx < 0) return -1;
     const c = pool.free.splice(bestFreeIdx, 1)[0];
     pool.used.add(c);
-    // Mark spawnActive=1 so isSpawnActive bypasses density+frustum cull
-    for (let r = 0; r < nRows; r++) lockData[(c * nRows + r) * 4 + 3] = 1.0;
-    lockAttr.needsUpdate = true;
+    // spawnActive=1 is written by the caller's _writeLockRows — no need to write here
     return c;
   }
 
@@ -1705,6 +1711,7 @@ export function initMatrixRain(element, opts = {}) {
     _msgSpawnCols.clear();
     _msgAssigned.clear();
     _msgSlots = [];
+    _msgClaimedCount = 0;
     // Always stop band suppression immediately regardless of resetState,
     // so there's no frame where the band discards rain but no locked glyphs are shown.
     uniforms.uMsgRevealActive.value = 0;
@@ -2392,6 +2399,7 @@ export function initMatrixRain(element, opts = {}) {
       // Centre the text string in screen UV — each char gets a screenX center
       const startUV = 0.5 - (totalPx / w) * 0.5;  // left edge in screen UV
       _msgSlots = [];
+      _msgClaimedCount = 0;
       let curPx = 0;
       for (let i = 0; i < chars.length; i++) {
         const centerUV = startUV + (curPx + advances[i] * 0.5) / w;
@@ -2405,6 +2413,7 @@ export function initMatrixRain(element, opts = {}) {
           claimed: isSpace, // only skip spaces; unsupported chars get a freeze-band effect
           colIdx:  -1,
         });
+        if (isSpace) _msgClaimedCount++;
         curPx += advances[i];
       }
 
@@ -2460,7 +2469,11 @@ export function initMatrixRain(element, opts = {}) {
     clearMessage(opts = {}) {
       const { fadeDuration = 0.8 } = opts;
       if (msgState === 'idle') return;
-      _clearAllLocks(false);  // clear aLockState for all locked/assigned columns
+      // Assign stagger delays and transition directly to fading.
+      // Let the fading tick release each slot individually for a staggered effect.
+      // Unclaimed/unassigned columns are cleaned up by _clearAllLocks when fading ends.
+      for (const slot of _msgSlots) { slot.fadeDelay = Math.random(); }
+      uniforms.uMsgRevealActive.value = 0;  // stop band suppression immediately
       msgFadeSpeed = fadeDuration > 0 ? 1.0 / fadeDuration : Infinity;
       msgFadeStart = prevTs || performance.now() * 0.001;
       msgState     = 'fading';
