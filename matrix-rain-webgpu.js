@@ -1365,6 +1365,26 @@ export function initMatrixRain(element, opts = {}) {
           const tolMult  = msgTolMultMin + (msgTolMultMax - msgTolMultMin) * revealProgress;
           const tol      = uniforms.uCellH.value * Math.max(aScale, msgTolMinScale) * 1.85 * tolMult;
           if (Math.abs(headY - _msgWorldY) < tol) {
+            // For reserve columns: _yOffForHead can produce cp ≥ nRows*cellStep (~53% chance),
+            // placing the lock-head row index out of range → no bright glyph appears at lockY.
+            // Wrap cp to [0, nRows*cellStep) so the lock-head row is always valid.
+            if (colIdx >= reserveStart) {
+              const base0    = colIdx * nRows * 4;
+              const sc0      = colBBuf[base0 + 1];
+              const cs0      = uniforms.uCellH.value * sc0 * 1.85;
+              const headRange = nRows * cs0;
+              const aYOff0   = colBBuf[base0];
+              const cp0      = aYOff0 + uniforms.uWorldH.value * 0.5 - _msgWorldY;
+              if (cp0 < 0 || cp0 >= headRange) {
+                const cpW  = ((cp0 % headRange) + headRange) % headRange;
+                const yOff = _msgWorldY - uniforms.uWorldH.value * 0.5 + cpW;
+                for (let r = 0; r < nRows; r++) colBBuf[(colIdx * nRows + r) * 4] = yOff;
+                colBDirty = true;
+              }
+            }
+            // Activate band suppression on first actual glyph lock (not on trigger, to avoid
+            // a blank black bar during the approach phase before any glyphs have locked).
+            uniforms.uMsgRevealActive.value = 1.0;
             // Lock this column
             _writeLockRows(lockData, nRows, colIdx, _msgWorldY, slot.glyph, t, 0);
             lockDirty = true;
@@ -2533,7 +2553,10 @@ export function initMatrixRain(element, opts = {}) {
       // ── Initialise state ─────────────────────────────────────────────
       uniforms.uMsgBoost.value   = boost;
       uniforms.uMsgRevealY.value = _msgWorldY;
-      uniforms.uMsgRevealActive.value    = 1.0;
+      // uMsgRevealActive is set to 1.0 lazily — when the first column actually locks.
+      // Setting it here would create a blank black bar during the entire approach phase
+      // (typically ~0–1.5 s) before any glyphs have locked.
+      uniforms.uMsgRevealActive.value = 0.0;
       msgSpawnChance    = spawnChance;
       msgTolMultMin     = tolMultMin;
       msgTolMultMax     = tolMultMax;
