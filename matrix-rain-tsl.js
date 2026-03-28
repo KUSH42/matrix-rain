@@ -119,6 +119,8 @@ export function makeUniforms(glyphCount = 56, gridW = 8, gridH = 8, lutTexture =
     uContagionStrength: uniform(0.0), // fraction of cluster members joining a cluster burst 0–1
     uClusterBiasAmt: uniform(0.25),  // per-cluster brightness bias magnitude 0–1
     uSquadCoherence: uniform(1.0),   // 0 = full squad phase lock, 1 = individual random (default)
+    uScanSyncAmt:    uniform(0.0),   // blend toward synchronised cyclePos [0=off, 1=full sync]
+    uScanPhase:      uniform(0.0),   // shared cyclePos value driven by JS [0 → cycleH]
     uAtlasMTSDF:     uniform(1.0),   // 1 = MTSDF atlas (new); 0 = legacy single-channel (matrixcode)
     uColumnOffset:   uniform(new THREE.Vector2(0, 0)), // XZ world offset applied to all columns (camera follow)
   };
@@ -151,6 +153,7 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     uColor2, uHueRange, uBurstProb,
     uContagionStrength,
     uClusterBiasAmt, uSquadCoherence,
+    uScanSyncAmt, uScanPhase,
     uAtlasMTSDF,
     uColumnOffset,
   } = uniforms;
@@ -367,10 +370,17 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
 
       // Squad phase coherence: blend between squad-shared phase (0) and individual random (1)
       const phaseSeed = mix(aSquadPhaseAttr, aSeed, uSquadCoherence);
-      const cyclePos  = mod(
+      const naturalCyclePos = mod(
         uTime.mul(effectiveSpeed).mul(speedMul).add(phaseSeed.mul(cycleH)),
         cycleH
       );
+      // Scanline sync: blend natural per-column phase toward a shared phase.
+      // uScanSyncAmt=0 → identity (vanilla rain); uScanSyncAmt=1 → all heads at same Y.
+      const cyclePos = mix(
+        naturalCyclePos,
+        mod(uScanPhase, cycleH),
+        uScanSyncAmt
+      ).toVar('cyclePos');
       const cyclePhase = cyclePos.div(cycleH);
 
       // Death fade — smooth-out in the last 12 % of cycle before wrap

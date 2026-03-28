@@ -1024,6 +1024,34 @@
         <button id="ctl-spawn-in"  style="padding:2px 8px;cursor:pointer;">In</button>
         <button id="ctl-spawn-out" style="padding:2px 8px;cursor:pointer;">Out</button>
       </label>
+
+      <label>Scan speed
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-scan-speed"     type="range"  min="1" max="12" step="0.5" value="4">
+          <input id="ctl-scan-speed-num" type="number" min="1" max="12" step="0.5" value="4">
+        </span>
+      </label>
+      <label>Scan dissolve (s)
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-scan-dissolve"     type="range"  min="0.5" max="4" step="0.1" value="1.5">
+          <input id="ctl-scan-dissolve-num" type="number" min="0.5" max="4" step="0.1" value="1.5">
+        </span>
+      </label>
+      <label style="flex-direction:row;gap:6px;align-items:center;">Scanline boot
+        <button id="ctl-scan-trigger" style="padding:2px 8px;cursor:pointer;">Trigger</button>
+      </label>
+      <label>Scan sync amt
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-scan-sync"     type="range"  min="0" max="1" step="0.01" value="0">
+          <input id="ctl-scan-sync-num" type="number" min="0" max="1" step="0.01" value="0">
+        </span>
+      </label>
+      <label>Scan phase
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-scan-phase"     type="range"  min="0" max="40" step="0.1" value="0">
+          <input id="ctl-scan-phase-num" type="number" min="0" max="40" step="0.1" value="0">
+        </span>
+      </label>
     </div>
 
     <!-- CRT sub-panel — shown only in 'crt' mode -->
@@ -1544,6 +1572,15 @@
   linkSlider('ctl-spawn-front', 'ctl-spawn-front-num', v => rain.setSpawnWaveFront(v));
   document.getElementById('ctl-spawn-in').addEventListener('click', () => rain.spawnWave());
   document.getElementById('ctl-spawn-out').addEventListener('click', () => rain.despawnWave());
+  linkSlider('ctl-scan-speed',   'ctl-scan-speed-num',   () => {});  // read on trigger
+  linkSlider('ctl-scan-dissolve','ctl-scan-dissolve-num',() => {});  // read on trigger
+  document.getElementById('ctl-scan-trigger').addEventListener('click', () => {
+    const speed       = parseFloat(document.getElementById('ctl-scan-speed').value);
+    const dissolveTime = parseFloat(document.getElementById('ctl-scan-dissolve').value);
+    rain.triggerScanlineSweep({ speed, dissolveTime });
+  });
+  linkSlider('ctl-scan-sync',  'ctl-scan-sync-num',  v => rain.setScanlineSync(v));
+  linkSlider('ctl-scan-phase', 'ctl-scan-phase-num', v => rain.setScanlinePhase(v));
   function pushDensityTaper() {
     rain.setRadialDensityTaper(
       parseFloat(document.getElementById('ctl-density-in').value),

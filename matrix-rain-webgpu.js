@@ -1203,6 +1203,7 @@ export function initMatrixRain(element, opts = {}) {
   let _reducedMotion  = false;
   let _savedSpeedMul  = uniforms.uSpeedMul.value;
   let _spawnWaveAnim  = null;  // { startTime, endTime, startFront, endFront, easing } or null
+  let _scanAnim       = null;  // { state:'sweeping'|'dissolving', startTime, endTime, sweepSpeed, dissolveTime } or null
 
   // Scratch objects reused across ticks — avoids per-tick allocations in the message state machine
   const _msgTv    = new THREE.Vector4();
@@ -1279,6 +1280,30 @@ export function initMatrixRain(element, opts = {}) {
       if (easing === 'ease')     tw = tw < 0.5 ? 2 * tw * tw : 1 - Math.pow(-2 * tw + 2, 2) / 2;
       uniforms.uSpawnWaveFront.value = startFront + (endFront - startFront) * tw;
       if (elapsed >= duration) _spawnWaveAnim = null;
+    }
+
+    // ── Scanline sweep animation ──────────────────────────────────────────
+    if (_scanAnim) {
+      const { state, startTime, endTime, sweepSpeed, dissolveTime } = _scanAnim;
+      const elapsed  = t - startTime;
+      const duration = endTime - startTime;
+      const tw = Math.max(0, Math.min(1, elapsed / duration));
+
+      if (state === 'sweeping') {
+        uniforms.uScanPhase.value = elapsed * sweepSpeed;
+        if (tw >= 1.0) {
+          _scanAnim = { state: 'dissolving',
+                        startTime: t, endTime: t + dissolveTime,
+                        sweepSpeed, dissolveTime };
+        }
+      } else {
+        // ease-out: slow diverge at start, rapid scatter at end
+        uniforms.uScanSyncAmt.value = 1 - tw * tw;
+        if (tw >= 1.0) {
+          uniforms.uScanSyncAmt.value = 0.0;
+          _scanAnim = null;
+        }
+      }
     }
 
     // ── Message state machine ────────────────────────────────────────────
@@ -1654,6 +1679,11 @@ export function initMatrixRain(element, opts = {}) {
 
       if (!externalLoop) ro.observe(element);
       if (preset) handle?.applyPreset(preset);
+      if (opts.bootSweep) {
+        handle.triggerScanlineSweep(
+          typeof opts.bootSweep === 'object' ? opts.bootSweep : {}
+        );
+      }
       const _isWebGPU = renderer.backend?.isWebGPUBackend === true;
       handle.backend  = _isWebGPU ? 'webgpu' : 'webgl2';
       element.dispatchEvent(
@@ -2212,6 +2242,43 @@ export function initMatrixRain(element, opts = {}) {
     setSpawnWaveFront(v) {
       _spawnWaveAnim = null;
       uniforms.uSpawnWaveFront.value = v;
+    },
+
+    /**
+     * Trigger an animated scanline boot sweep — a horizontal bright band scans from
+     * top to bottom, then dissolves into natural per-column movement.
+     * @param {object} [opts]
+     * @param {number} [opts.speed=4.0]        - cyclePos units/s for the sweep
+     * @param {number} [opts.dissolveTime=1.5] - seconds for sync→natural ease-out blend
+     */
+    triggerScanlineSweep({ speed = 4.0, dissolveTime = 1.5 } = {}) {
+      const cycleHApprox = uniforms.uWorldH.value
+                         + uniforms.uNRows.value * uniforms.uCellH.value * 1.9;
+      const now       = performance.now() / 1000;
+      const sweepTime = cycleHApprox / speed;
+      uniforms.uScanPhase.value   = 0.0;
+      uniforms.uScanSyncAmt.value = 1.0;
+      _scanAnim = { state: 'sweeping',
+                    startTime: now, endTime: now + sweepTime,
+                    sweepSpeed: speed, dissolveTime };
+    },
+
+    /**
+     * Set scanline sync amount manually [0=off, 1=full sync]. Cancels any animation.
+     * Call setScanlineSync(0) to return to full IDLE (sync off, animation stopped).
+     */
+    setScanlineSync(v) {
+      _scanAnim = null;
+      uniforms.uScanSyncAmt.value = Math.max(0, Math.min(1, v));
+    },
+
+    /**
+     * Set scanline phase manually (0→cycleH≈34). Cancels animation but preserves
+     * current uScanSyncAmt — use for scrubbing. Call setScanlineSync(0) to turn sync off.
+     */
+    setScanlinePhase(v) {
+      _scanAnim = null;
+      uniforms.uScanPhase.value = v;
     },
 
     /** Pause / resume time advancement. Rain freezes mid-frame when true. */
