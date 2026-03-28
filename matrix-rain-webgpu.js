@@ -743,6 +743,22 @@ function drawStar(ctx, cx, cy, outerR, innerR, points, rotation) {
 /**
  * Build a canvas texture with Xi Jinping braille ASCII art in red on transparent bg.
  */
+function buildGlowTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 256;
+  const ctx  = canvas.getContext('2d');
+  const grad = ctx.createRadialGradient(128, 128, 0, 128, 128, 128);
+  grad.addColorStop(0,    'rgba(255, 100, 60, 0.7)');
+  grad.addColorStop(0.35, 'rgba(255, 30, 10, 0.35)');
+  grad.addColorStop(0.7,  'rgba(200, 0, 0, 0.1)');
+  grad.addColorStop(1,    'rgba(150, 0, 0, 0)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 256, 256);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.needsUpdate = true;
+  return tex;
+}
+
 function buildBrailleTexture(artStr) {
   const canvas = document.createElement('canvas');
   canvas.width  = 768;
@@ -1493,20 +1509,26 @@ export function initMatrixRain(element, opts = {}) {
       }
       _ccpOrbitAngle += _ccpOrbitSpeed * dt;
       for (let i = 0; i < _ccpPanels.length; i++) {
-        const p  = _ccpPanels[i];
-        const az = _CCP_POSES[i].az + _ccpOrbitAngle;
-        const r  = _CCP_POSES[i].r;
-        p.mesh.position.set(
-          Math.sin(az) * r,
-          p.yBase + Math.sin(t * 0.4 + p.phase) * 0.4,
-          -Math.cos(az) * r
-        );
+        const p   = _ccpPanels[i];
+        const az  = _CCP_POSES[i].az + _ccpOrbitAngle;
+        const r   = _CCP_POSES[i].r + p.zJitter;
+        const px  = Math.sin(az) * r;
+        const py  = p.yBase + Math.sin(t * p.floatSpeed + p.phase) * 0.4;
+        const pz  = -Math.cos(az) * r;
+        p.mesh.position.set(px, py, pz);
         p.mesh.quaternion.copy(camera.quaternion);
         const flash = 0.5 + 0.5 * Math.sin(t * _ccpFlashHz * Math.PI * 2 + p.phase);
         p.mesh.material.opacity = _ccpPeakOpacity * flash * _ccpFadeT;
+
+        // Glow halo: slightly further from camera than the portrait, slower pulse
+        const gr = r + 0.3;
+        p.glowMesh.position.set(Math.sin(az) * gr, py, -Math.cos(az) * gr);
+        p.glowMesh.quaternion.copy(camera.quaternion);
+        const glowFlash = 0.5 + 0.5 * Math.sin(t * _ccpFlashHz * 0.65 * Math.PI * 2 + p.phase);
+        p.glowMesh.material.opacity = _ccpPeakOpacity * 0.85 * glowFlash * _ccpFadeT;
       }
       for (const m of _ccpExtraMeshes) {
-        m.mesh.quaternion.copy(camera.quaternion);
+        // Extras (flag, Tiananmen) have fixed world orientation set at init — no billboard
         m.mesh.material.opacity = m.opacityFn(t, _ccpFadeT);
       }
     }
@@ -1808,12 +1830,12 @@ export function initMatrixRain(element, opts = {}) {
     if (_ccpPanels.length > 0) return;  // already initialised
     const count = Math.min(_ccpPanelCount, _CCP_POSES.length);
     for (let i = 0; i < count; i++) {
-      const artStr   = CCP_ART[i % CCP_ART.length];
+      const artStr    = CCP_ART[i % CCP_ART.length];
       const canvasTex = buildBrailleTexture(artStr);
-      const panelW   = 16 * _ccpScale;
-      const panelH   = panelW * (512 / 768);
-      const geom     = new THREE.PlaneGeometry(panelW, panelH);
-      const mat      = new THREE.MeshBasicMaterial({
+      const panelW    = 16 * _ccpScale;
+      const panelH    = panelW * (512 / 768);
+      const geom      = new THREE.PlaneGeometry(panelW, panelH);
+      const mat       = new THREE.MeshBasicMaterial({
         map:         canvasTex,
         transparent: true,
         opacity:     0,
@@ -1823,7 +1845,31 @@ export function initMatrixRain(element, opts = {}) {
       });
       const mesh2 = new THREE.Mesh(geom, mat);
       scene.add(mesh2);
-      _ccpPanels.push({ mesh: mesh2, canvasTex, phase: _CCP_POSES[i].phase, yBase: _CCP_POSES[i].y });
+
+      // Glow halo behind each Xi portrait
+      const glowTex  = buildGlowTexture();
+      const glowGeom = new THREE.PlaneGeometry(panelW * 1.8, panelH * 1.8);
+      const glowMat  = new THREE.MeshBasicMaterial({
+        map:         glowTex,
+        transparent: true,
+        opacity:     0,
+        depthWrite:  false,
+        side:        THREE.DoubleSide,
+        blending:    THREE.AdditiveBlending,
+      });
+      const glowMesh = new THREE.Mesh(glowGeom, glowMat);
+      scene.add(glowMesh);
+
+      // Per-panel variation: float speed and radial offset
+      const floatSpeed = 0.25 + Math.random() * 0.35;
+      const zJitter    = (Math.random() - 0.5) * 4;
+
+      _ccpPanels.push({
+        mesh: mesh2, canvasTex,
+        glowMesh, glowTex,
+        phase: _CCP_POSES[i].phase, yBase: _CCP_POSES[i].y,
+        floatSpeed, zJitter,
+      });
     }
   }
 
@@ -1833,6 +1879,10 @@ export function initMatrixRain(element, opts = {}) {
       p.mesh.geometry.dispose();
       p.mesh.material.dispose();
       p.canvasTex.dispose();
+      scene.remove(p.glowMesh);
+      p.glowMesh.geometry.dispose();
+      p.glowMesh.material.dispose();
+      p.glowTex.dispose();
     }
     _ccpPanels = [];
   }
@@ -1857,6 +1907,7 @@ export function initMatrixRain(element, opts = {}) {
     const flagMesh = new THREE.Mesh(flagGeom, flagMat);
     const flagAz   = 0.52;
     flagMesh.position.set(Math.sin(flagAz) * 15, 4.0, -Math.cos(flagAz) * 15);
+    flagMesh.lookAt(0, 4.0, 0);
     scene.add(flagMesh);
     _ccpExtraMeshes.push({
       mesh:      flagMesh,
@@ -1879,6 +1930,7 @@ export function initMatrixRain(element, opts = {}) {
     });
     const tMesh = new THREE.Mesh(tGeom, tMat);
     tMesh.position.set(Math.sin(Math.PI) * 20, -3.0, -Math.cos(Math.PI) * 20);
+    tMesh.lookAt(0, -3.0, 0);
     scene.add(tMesh);
     _ccpExtraMeshes.push({
       mesh:      tMesh,
@@ -2665,6 +2717,11 @@ export function initMatrixRain(element, opts = {}) {
         _initCCPPanels();
         _initCCPExtras();
         _ccpFadeDir = 1;
+        // Reset camera to (0, 0, 9) and enable auto-orbit
+        camera.position.set(0, 0, 9);
+        camera.lookAt(0, 0, 0);
+        camCtrl._orbitRadius = 9;
+        camCtrl.setMode('orbit');
         // Save current rain state
         _ccpSaved = {
           colorR:        uniforms.uColor.value.x,

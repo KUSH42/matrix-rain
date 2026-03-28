@@ -2175,6 +2175,10 @@
         document.getElementById('ccp-audio').checked = true;
         _anthemAudio.currentTime = 0;
         _anthemAudio.play().catch(() => {});
+        // Sync camera controls UI: enable orbit, disable flythrough
+        document.getElementById('ctl-orbit').checked = true;
+        const ftEl = document.getElementById('ctl-flythrough');
+        if (ftEl) ftEl.checked = false;
       } else {
         ccpPanelEl.style.display = 'none';
         _stopHUD();
