@@ -2074,73 +2074,13 @@
   }
 
   // ── National anthem audio ──────────────────────────────────────────────
-  class SafeMelodyPlayer {
-    constructor() { this.ctx = null; this.loopId = null; }
-
-    init() {
-      if (this.ctx) return this.ctx;
-      try {
-        this.ctx = new (window.AudioContext || window.webkitAudioContext)();
-      } catch (e) { console.warn('[ccp-audio] no AudioContext', e); }
-      return this.ctx;
-    }
-
-    playNote(freq, dur, startTime) {
-      if (!this.ctx || freq <= 0) return;
-      const osc  = this.ctx.createOscillator();
-      const gain = this.ctx.createGain();
-      osc.connect(gain);
-      gain.connect(this.ctx.destination);
-      osc.type            = 'square';
-      osc.frequency.value = freq;
-      gain.gain.setValueAtTime(0, startTime);
-      gain.gain.linearRampToValueAtTime(0.12, startTime + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.001, startTime + dur - 0.02);
-      osc.start(startTime);
-      osc.stop(startTime + dur);
-    }
-
-    playMelody(notes) {
-      const ctx = this.init();
-      if (!ctx) return 0;
-      if (ctx.state === 'suspended') ctx.resume();
-      let t = ctx.currentTime + 0.05;
-      for (const [freq, dur] of notes) {
-        this.playNote(freq, dur, t);
-        t += dur;
-      }
-      return t - ctx.currentTime;
-    }
-
-    stop() {
-      clearTimeout(this.loopId);
-      this.loopId = null;
-      if (this.ctx) { this.ctx.close(); this.ctx = null; }
-    }
-
-    startLoop(notes) {
-      const schedule = () => {
-        const dur = this.playMelody(notes);
-        this.loopId = setTimeout(schedule, (dur + 2.0) * 1000);
-      };
-      schedule();
-    }
-  }
-
-  // March of the Volunteers — opening phrase, C major, 120 BPM
-  const CCP_ANTHEM_NOTES = [
-    [262,0.50],[262,0.25],[330,0.25],[392,0.50],[392,0.25],[440,0.25],
-    [494,0.50],[523,0.50],[523,0.25],[494,0.25],[440,0.50],[440,0.25],
-    [392,0.75],[330,0.25],[330,0.25],[294,0.25],[262,0.50],[0,0.50],
-    [262,0.50],[294,0.25],[330,0.25],[392,0.50],[440,0.25],[494,0.25],
-    [523,0.50],[659,0.50],[659,0.25],[587,0.25],[523,0.50],[494,0.50],
-    [440,1.00],[0,0.50],
-  ];
-
-  const _melodyPlayer = new SafeMelodyPlayer();
+  const _anthemAudio = new Audio('data/ccp-anthem.mp3');
+  _anthemAudio.loop = true;
+  _anthemAudio.volume = 0.8;
 
   function _stopAllCCPAudio() {
-    _melodyPlayer.stop();
+    _anthemAudio.pause();
+    _anthemAudio.currentTime = 0;
     document.getElementById('ccp-audio').checked = false;
   }
 
@@ -2172,9 +2112,9 @@
 
   document.getElementById('ccp-audio').addEventListener('change', e => {
     if (e.target.checked && _ccpEnabled) {
-      _melodyPlayer.startLoop(CCP_ANTHEM_NOTES);
+      _anthemAudio.play().catch(() => {});
     } else {
-      _melodyPlayer.stop();
+      _anthemAudio.pause();
     }
   });
 
@@ -2232,6 +2172,9 @@
         _startHUD();
         _startSweep();
         document.getElementById('ccp-tint').style.display = 'block';
+        document.getElementById('ccp-audio').checked = true;
+        _anthemAudio.currentTime = 0;
+        _anthemAudio.play().catch(() => {});
       } else {
         ccpPanelEl.style.display = 'none';
         _stopHUD();
