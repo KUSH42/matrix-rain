@@ -187,18 +187,16 @@ export function buildHoloPass(inputTexNode, uInterlaceResY) {
     const b      = texture(inputTexNode, uvB).b;
     const col    = vec3(r, g, b).toVar();
 
-    // Scrolling scanlines — luma-modulated (B2)
+    // Scrolling scanlines
     const scan  = sin(screenUV.y.mul(640).add(time.mul(0.5))).mul(0.5).add(0.5);
-    const luma  = clamp(dot(col, vec3(0.2126, 0.7152, 0.0722)), float(0.0), float(1.0));
-    const effectiveScanOp = uScanlineOpacity.mul(float(0.3).add(float(0.7).mul(luma)));
-    col.mulAssign(float(1).sub(effectiveScanOp.mul(float(1).sub(scan))));
+    col.mulAssign(float(1).sub(uScanlineOpacity.mul(float(1).sub(scan))));
 
     // Vignette
     col.mulAssign(float(1).sub(edgeSq.mul(uVignetteStrength)));
 
     // Interlace flicker (B3)
     If(uInterlaceAmt.greaterThan(float(0.001)), () => {
-      const frameOdd = mod(floor(time.mul(60.0)), float(2.0));
+      const frameOdd = step(float(0.5), fract(time.mul(30.0)));
       const lineOdd  = mod(floor(screenUV.y.mul(uInterlaceResY)), float(2.0));
       const dimFactor = float(1.0).sub(uInterlaceAmt.mul(float(0.3)));
       const isDimmed  = abs(lineOdd.sub(frameOdd)).lessThan(float(0.5));
@@ -323,7 +321,7 @@ export function buildDustPass(inputNode) {
 
         const dist       = length(screenUV.sub(vec2(mx, my)));
         const mote       = exp(dist.mul(dist).negate().div(radius.mul(radius).mul(float(2.0))));
-        const brightness = float(0.45).add(float(0.55).mul(sin(time.mul(float(1.1)).add(phase))));
+        const brightness = max(float(0.0), float(0.45).add(float(0.55).mul(sin(time.mul(float(1.1)).add(phase)))));
 
         dustAcc.addAssign(vec3(0.55, 1.0, 0.65).mul(mote).mul(brightness));
       });
