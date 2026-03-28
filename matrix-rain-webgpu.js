@@ -227,7 +227,7 @@ function buildGeometry({
   const colABuf    = new Float32Array(total * 4);  // wx, wz, speed, seed
   const colBBuf    = new Float32Array(total * 4);  // yOff, scale, alpha, trail
   const rawSpeedBuf = new Float32Array(nCols);     // raw [0,1] for speed — kept for in-place range updates
-  const rawTrailBuf = new Float32Array(nCols);     // raw [0,1] for trail
+  const biasedTrailBuf = new Float32Array(nCols);  // squad-biased [0.05,0.95] for trail
   const clusterBiasBuf      = new Float32Array(total);  // per-instance cluster bias [-1, 1]
   const clusterBurstSeedBuf = new Float32Array(total);  // per-instance cluster burst phase [0, 1]
   const squadPhaseBuf       = new Float32Array(total);  // per-instance squad cycle-phase seed [0, 1]
@@ -248,8 +248,10 @@ function buildGeometry({
   // Per-cluster burst seed — offsets the 4 s cluster burst window so clusters desync.
   const clusterBurstSeeds = Array.from({ length: nClusters }, () => Math.random());
   // Squad structure: subdivides each cluster into squads of ~squadSize columns.
-  // Upper bound uses nCols (worst case: all columns land in one cluster) + 2 safety.
-  const maxSquadsPerCluster = Math.ceil(nCols / squadSize) + 2;
+  // With round-robin assignment each cluster gets ceil(nCols/nClusters) columns, so the
+  // per-cluster squad count is ceil(ceil(nCols/nClusters) / squadSize) + 1 safety margin.
+  const maxColsPerCluster   = Math.ceil(nCols / nClusters);
+  const maxSquadsPerCluster = Math.ceil(maxColsPerCluster / squadSize) + 1;
   const squadPhases      = Array.from({ length: nClusters }, () =>
     Array.from({ length: maxSquadsPerCluster }, () => Math.random())
   );
@@ -260,7 +262,9 @@ function buildGeometry({
   const clusterColCount = new Int32Array(nClusters);
 
   for (let c = 0; c < nCols; c++) {
-    const clusterIdx   = Math.floor(Math.random() * nClusters);
+    // Round-robin cluster assignment: guarantees balanced populations so squad sizes
+    // are consistent (each cluster gets exactly ceil(nCols/nClusters) columns).
+    const clusterIdx   = c % nClusters;
     const clustered    = clusterThetas[clusterIdx] + _gaussRand() * sigma;
     const colBias       = clusterBiases[clusterIdx];
     const colBurstSeed  = clusterBurstSeeds[clusterIdx];
@@ -299,10 +303,19 @@ function buildGeometry({
         wz = Math.sin(theta) * r;
     }
 
-    // Normalise angular position to [0, 1] for spawn wave gate
-    const colTheta = topology === 'shell' || topology === 'ring'
-      ? ((Math.atan2(wz, wx) + Math.PI * 2) % (Math.PI * 2)) / (Math.PI * 2)
-      : ((theta % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2) / (Math.PI * 2);
+    // Normalise angular/lateral position to [0, 1] for spawn wave gate.
+    // Shell/ring: use atan2 of actual world position (wx, wz) → genuine azimuth.
+    // Curtain/rectangle: use fractional X position — columns are arranged left-to-right
+    // so the spawn wave sweeps laterally, matching visual layout. The cluster `theta`
+    // angle is meaningless here since wx is derived from thetaNorm, not theta directly.
+    let colTheta;
+    if (topology === 'shell' || topology === 'ring') {
+      colTheta = ((Math.atan2(wz, wx) + Math.PI * 2) % (Math.PI * 2)) / (Math.PI * 2);
+    } else if (topology === 'curtain') {
+      colTheta = (wx / outer + 1) / 2;   // wx ∈ [−outer, outer] → [0, 1]
+    } else { // rectangle
+      colTheta = (wx / rectW + 1) / 2;   // wx ∈ [−rectW, rectW] → [0, 1]
+    }
 
     // Normalise r for scale gradient — non-shell topologies use a representative radius
     if (topology === 'ring')    r = (inner + outer) / 2;
@@ -312,16 +325,18 @@ function buildGeometry({
     const yOff  = (Math.random() - 0.5) * WORLD_H;
     const sr    = Math.random();
     rawSpeedBuf[c] = sr;
-    const speed = Math.min(sMax, Math.max(sMin,
-      sMin + sr * sr * (sMax - sMin) * (1.0 + colBias * clusterBiasAmt)
-    ));
+    // Base speed without cluster bias — bias is applied at shader-time via uClusterBiasAmt
+    // so setClusterBias() takes effect instantly without a geometry rebuild.
+    const speed = sMin + sr * sr * (sMax - sMin);
     const seed  = Math.random();
     const t     = (r - inner) / (outer - inner);           // 0 = inner (close), 1 = outer (far)
     const scale = (1.45 - t * 0.95) + (Math.random() - 0.5) * 0.2;
     const alpha = 0.18 + Math.random() * 0.72;
     const tr       = Math.random();
-    const biasedTr = Math.max(0, Math.min(1, tr + colTrailBias * 0.5 * trailCohesion));
-    rawTrailBuf[c] = biasedTr;   // store biasedTr so setTrailRange preserves relative cohesion
+    // Clamp to [0.05, 0.95] so no squad produces columns with near-zero trail.
+    // Coefficient 0.45 (not 0.5) keeps the full bias swing within this safe range.
+    const biasedTr = Math.max(0.05, Math.min(0.95, tr + colTrailBias * 0.45 * trailCohesion));
+    biasedTrailBuf[c] = biasedTr; // store biased value so setTrailRange preserves squad cohesion
     const trail    = tMin + biasedTr * (tMax - tMin);
 
     for (let row = 0; row < N_ROWS; row++) {
@@ -350,6 +365,8 @@ function buildGeometry({
   //   ring:      evenly-spaced angles on the ring radius ((inner+outer)/2)
   //   curtain:   evenly-spaced wx across [-outer, outer] on the curtain plane (wz=0)
   //   rectangle: evenly-spaced wx across [-rectW, rectW] on the front edge (wz=0)
+  // Cluster attributes are reassigned to the nearest cluster by angular position so that
+  // reserve columns participate in the correct cluster's burst timing during message reveals.
   const reserveStart    = nCols - spawnReserves;
   const reserveOrigYOff = new Float32Array(spawnReserves);
   const rRing = (inner + outer) / 2;
@@ -375,12 +392,42 @@ function buildGeometry({
         rwx = Math.cos(angle) * inner;
         rwz = Math.sin(angle) * inner;
     }
+
+    // Find the cluster center angularly closest to this reserve column's position.
+    let nearestCluster = 0, nearestDist = Infinity;
+    for (let ci = 0; ci < nClusters; ci++) {
+      // Signed angular difference wrapped to [-π, π]
+      const diff = Math.abs(((angle - clusterThetas[ci]) % (Math.PI * 2) + Math.PI * 3) % (Math.PI * 2) - Math.PI);
+      if (diff < nearestDist) { nearestDist = diff; nearestCluster = ci; }
+    }
+    const reserveClusterBias = clusterBiases[nearestCluster];
+    const reserveBurstSeed   = clusterBurstSeeds[nearestCluster];
+    // Pick the squad whose index reflects this reserve's position within the cluster's
+    // population — mirrors how main columns are assigned round-robin inside each cluster.
+    const reserveSquadIdx   = Math.floor(clusterColCount[nearestCluster] / squadSize);
+    const reserveSquadPhase = squadPhases[nearestCluster][Math.min(reserveSquadIdx, maxSquadsPerCluster - 1)];
+
+    // Spawn theta for the reserve's actual repositioned position (not original round-robin slot).
+    let reserveColTheta;
+    if (topology === 'shell' || topology === 'ring') {
+      reserveColTheta = ((Math.atan2(rwz, rwx) + Math.PI * 2) % (Math.PI * 2)) / (Math.PI * 2);
+    } else if (topology === 'curtain') {
+      reserveColTheta = (rwx / outer + 1) / 2;
+    } else { // rectangle
+      reserveColTheta = (rwx / rectW + 1) / 2;
+    }
+
     const base  = c * N_ROWS;
     reserveOrigYOff[i] = colBBuf[base * 4];   // save original aYOff (yOff is component 0)
     for (let r = 0; r < N_ROWS; r++) {
       const i4 = (base + r) * 4;
       colABuf[i4]     = rwx;
       colABuf[i4 + 1] = rwz;
+      const idx = base + r;
+      clusterBiasBuf[idx]      = reserveClusterBias;
+      clusterBurstSeedBuf[idx] = reserveBurstSeed;
+      squadPhaseBuf[idx]       = reserveSquadPhase;
+      spawnThetaBuf[idx]       = reserveColTheta;
     }
   }
 
@@ -404,8 +451,8 @@ function buildGeometry({
   geom.setAttribute('aSpawnTheta',       new THREE.InstancedBufferAttribute(spawnThetaBuf,       1));
   geom.setAttribute('aLockState',        new THREE.InstancedBufferAttribute(lockStateBuf,        4));
   geom.instanceCount = total;
-  geom._rawSpeed = rawSpeedBuf;
-  geom._rawTrail = rawTrailBuf;
+  geom._rawSpeed    = rawSpeedBuf;
+  geom._biasedTrail = biasedTrailBuf;
   geom._reservePool = {
     reserveStart,
     free:     Array.from({ length: spawnReserves }, (_, i) => reserveStart + i),
@@ -2001,7 +2048,7 @@ export function initMatrixRain(element, opts = {}) {
       const g   = mesh.geometry;
       const arr = g.getAttribute('aColB').array;
       for (let c = 0; c < _geomParams.nCols; c++) {
-        const tr    = g._rawTrail[c];
+        const tr    = g._biasedTrail[c];
         const trail = tMin + tr * (tMax - tMin);
         for (let row = 0; row < N_ROWS; row++) arr[(c * N_ROWS + row) * 4 + 3] = trail;
       }
@@ -2043,7 +2090,6 @@ export function initMatrixRain(element, opts = {}) {
     setClusterBias(v) {
       _geomParams.clusterBiasAmt = Math.max(0, Math.min(1, v));
       uniforms.uClusterBiasAmt.value = _geomParams.clusterBiasAmt;
-      rebuildGeom();
     },
     setSectorCenter(deg)  { uniforms.uSectorCenter.value   = deg * Math.PI / 180; },
     setSectorWidth(deg)   { uniforms.uSectorWidth.value    = Math.max(1, deg) * Math.PI / 180; },
@@ -2076,6 +2122,11 @@ export function initMatrixRain(element, opts = {}) {
     setColorBlend(v)      { uniforms.uHueRange.value       = Math.max(0, Math.min(1, v)); },
     setHueRange(v)        { this.setColorBlend(v); }, // backwards compat
     setBurstProb(v)       { uniforms.uBurstProb.value      = Math.max(0, Math.min(1, v)); },
+    // NOTE (future): current "contagion" is cluster-simultaneous burst (all columns in a
+    // cluster's window fire with probability uContagionStrength). True neighbor-propagation
+    // contagion — where a burst spreads column-by-column based on angular proximity — would
+    // require storing per-column burst state in a GPU texture or compute buffer and
+    // propagating it each frame. Planned as a future feature.
     setContagion(v)       { uniforms.uContagionStrength.value = Math.max(0, Math.min(1, v)); },
     setEntrainment(amt, speed = 0.25, crests = 3) {
       uniforms.uEntrainAmt.value    = Math.max(0, Math.min(0.8, amt));

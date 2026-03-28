@@ -3,6 +3,8 @@
 This file persists across agent runs. Read at session start for recent context.
 Append notable events at session end. Prune entries older than 30 days.
 
+- [Future: real contagion](future_real_contagion.md) — true neighbor-propagation burst needs ping-pong storage texture; current "cluster sync" is simultaneous cluster firing
+
 - 2026-03-27: **SPEC-webgl-fallback** implemented. Three.js WebGPURenderer auto-falls
   back to WebGL2 — the only required fix is the TextureNode sampler patch (appended to
   module preamble of `matrix-rain-webgpu.js`). Added `handle.backend` property (null →

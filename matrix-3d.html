@@ -824,7 +824,7 @@
         </span>
       </label>
 
-      <label id="lbl-cluster-spread" title="Rebuilds geometry">Cluster spread ⟳
+      <label id="lbl-cluster-spread" title="Rebuilds geometry">Cluster sigma ⟳
         <span style="display:flex;align-items:center;gap:4px;">
           <input id="ctl-cluster-spread"     type="range"  min="0.003" max="0.5" step="0.001" value="0.017">
           <input id="ctl-cluster-spread-num" type="number" min="0.003" max="0.5" step="0.001" value="0.017">
@@ -845,14 +845,14 @@
         </span>
       </label>
 
-      <label id="lbl-cluster-bias" title="Rebuilds geometry">Cluster bias ⟳
+      <label id="lbl-cluster-bias">Cluster bias
         <span style="display:flex;align-items:center;gap:4px;">
           <input id="ctl-cluster-bias"     type="range"  min="0" max="1" step="0.01" value="0.25">
           <input id="ctl-cluster-bias-num" type="number" min="0" max="1" step="0.01" value="0.25">
         </span>
       </label>
 
-      <label>Contagion
+      <label>Cluster sync
         <span style="display:flex;align-items:center;gap:4px;">
           <input id="ctl-contagion"     type="range"  min="0" max="1" step="0.01" value="0">
           <input id="ctl-contagion-num" type="number" min="0" max="1" step="0.01" value="0">
@@ -1472,9 +1472,7 @@
   linkSlider('ctl-cluster-uniform', 'ctl-cluster-uniform-num', () => {
     debounceRebuild(() => rain.setClusterUniform(parseFloat(document.getElementById('ctl-cluster-uniform').value)));
   });
-  linkSlider('ctl-cluster-bias', 'ctl-cluster-bias-num', () => {
-    debounceRebuild(() => rain.setClusterBias(parseFloat(document.getElementById('ctl-cluster-bias').value)));
-  });
+  linkSlider('ctl-cluster-bias', 'ctl-cluster-bias-num', v => rain.setClusterBias(v));
   bind('ctl-sector-strength', on => rain.setSectorStrength(on ? 1 : 0));
   linkSlider('ctl-sector-center', 'ctl-sector-center-num', () => {
     rain.setSectorCenter(parseFloat(document.getElementById('ctl-sector-center').value));

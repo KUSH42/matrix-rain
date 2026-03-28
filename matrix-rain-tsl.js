@@ -330,7 +330,8 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
       const burstBucket = floor(uTime.div(burstCycle));
       const burstH      = h2(vec2(aColIdxAttr.mul(0.41), burstBucket.mul(0.19)));
       const burstIndiv  = step(float(1).sub(uBurstProb), burstH);
-      // Cluster contagion: all columns in a cluster fire when its periodic window is open
+      // Cluster sync burst: all columns in a cluster fire when its periodic window is open.
+      // This is probabilistic cluster-simultaneous firing, not true spatial contagion.
       const clusterBurstPhase = fract(uTime.div(burstCycle).add(aClusterBurstSeedAttr));
       const clusterIsBursting = step(clusterBurstPhase, float(0.08));
       const colContagionRand  = h2(vec2(aColIdxAttr.mul(0.53), float(0.13)));
@@ -360,10 +361,14 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
       const wavePhase  = thetaWave.mul(uWaveCrests).add(uTime.mul(uWaveSpeed));
       const waveOffset = sin(wavePhase).mul(uWaveAmt.mul(4.0));
 
+      // Cluster speed bias — applied here so setClusterBias() takes effect without a rebuild.
+      // uClusterBiasAmt ∈ [0, 1]; aClusterBias ∈ [−1, 1] → speed multiplier ∈ [0.75, 1.25] at bias=0.25.
+      const effectiveSpeed = aSpeed.mul(float(1.0).add(aClusterBiasAttr.mul(uClusterBiasAmt)));
+
       // Squad phase coherence: blend between squad-shared phase (0) and individual random (1)
       const phaseSeed = mix(aSquadPhaseAttr, aSeed, uSquadCoherence);
       const cyclePos  = mod(
-        uTime.mul(aSpeed).mul(speedMul).add(phaseSeed.mul(cycleH)),
+        uTime.mul(effectiveSpeed).mul(speedMul).add(phaseSeed.mul(cycleH)),
         cycleH
       );
       const cyclePhase = cyclePos.div(cycleH);
@@ -520,12 +525,17 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
 
     // (Old cascade wave machinery removed — replaced by per-column lock state)
 
-    const burstOffset = select(
-      vBurst.greaterThan(0.5), floor(uTime.mul(uBurstGlyphRate)), float(0)
+    // During burst, each cell independently cycles at uBurstGlyphRate Hz by replacing
+    // holdSec with 1/uBurstGlyphRate. This preserves per-cell phase staggering (via
+    // cellPhase) so cells don't all flash simultaneously — they cycle independently.
+    // The old approach (additive global floor(t*rate)) was a synchronized whole-column
+    // strobe because the same counter value applied to every cell at the same instant.
+    const isBursting       = vBurst.greaterThan(0.5);
+    const burstHoldSec     = float(1.0).div(uBurstGlyphRate);
+    const effectiveHoldSec = select(isBursting, burstHoldSec, holdSec);
+    const changeTick       = floor(
+      cellPhase.mul(effectiveHoldSec).add(uTime).div(effectiveHoldSec)
     );
-    const changeTick  = floor(
-      cellPhase.mul(holdSec).add(uTime).div(holdSec)
-    ).add(burstOffset);
     // Weighted vs uniform glyph selection — uWeightedGlyphs blends LUT → uniform.
     // A per-cell coin-flip hash selects LUT or uniform for each cell independently.
     const baseHash  = h2(cellId.mul(0.47).add(0.5));
