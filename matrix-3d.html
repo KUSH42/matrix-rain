@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <title>Matrix Rain — WebGPU + TSL</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     html, body {
@@ -98,7 +98,62 @@
       -webkit-appearance: none;
     }
 
-    #no-webgpu {
+    /* ── Mobile ─────────────────────────────────────────────────────── */
+  @media (max-width: 600px) {
+    #controls {
+      top: auto;
+      bottom: 0;
+      right: 0;
+      left: 0;
+      max-height: 60vh;
+      min-width: unset;
+      border-top: 1px solid #00ff70;
+      border-left: none;
+      border-right: none;
+      border-bottom: none;
+      font-size: 13px;
+      line-height: 2.0;
+      padding: 12px 16px;
+      padding-bottom: max(12px, env(safe-area-inset-bottom));
+    }
+    #controls summary {
+      font-size: 12px;
+      padding: 4px 0;
+      min-height: 36px;
+      display: flex;
+      align-items: center;
+    }
+    #controls label {
+      min-height: 36px;
+    }
+    #controls input[type="range"] {
+      width: 130px;
+      height: 22px;
+    }
+    #controls input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
+    }
+    #controls input[type="color"] {
+      width: 44px;
+      height: 28px;
+    }
+    #controls select {
+      font-size: 12px;
+      max-width: 120px;
+      padding: 4px 6px;
+      min-height: 28px;
+    }
+    #controls input[type="number"] {
+      font-size: 12px;
+      width: 54px;
+      padding: 2px 4px;
+      min-height: 28px;
+    }
+    #hint { display: none; }
+  }
+
+  #no-webgpu {
       position: fixed;
       inset: 0;
       background: #000;
@@ -1568,6 +1623,24 @@
   // Animation controls
   bind('ctl-frozen',         on  => rain.setFrozen(on));
   bind('ctl-reduced-motion', on  => rain.setReducedMotion(on));
+
+  // Auto-sync reduced-motion checkbox to OS preference (runs once + on change)
+  const _motionMQ = window.matchMedia('(prefers-reduced-motion: reduce)');
+  function _applyMotionPref(mq) {
+    const el = document.getElementById('ctl-reduced-motion');
+    if (mq.matches !== el.checked) {
+      el.checked = mq.matches;
+      rain.setReducedMotion(mq.matches);
+    }
+  }
+  _applyMotionPref(_motionMQ);
+  _motionMQ.addEventListener('change', _applyMotionPref);
+
+  // On mobile: tap the rain background to collapse the controls panel
+  host.addEventListener('pointerdown', (e) => {
+    const panel = document.getElementById('controls');
+    if (panel.open && !panel.contains(e.target)) panel.removeAttribute('open');
+  });
   // Animation sliders — sync range↔number only (values read on button click)
   linkSlider('ctl-glitch-int', 'ctl-glitch-int-num', () => {});
   linkSlider('ctl-glitch-dur', 'ctl-glitch-dur-num', () => {});
