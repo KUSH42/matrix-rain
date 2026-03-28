@@ -203,9 +203,9 @@ function buildGeometry({
   clusterSpread = 0.017,      // σ as fraction of full circle; 0.017 ≈ 6°
   radialBias    = 0.0,        // −1 = inner-concentrated, 0 = uniform, +1 = outer-concentrated
   clusterUniform = 0.0,       // 0 = clustered, 1 = fully uniform angular scatter
-  clusterBiasAmt = 0.25,      // per-cluster speed/brightness bias magnitude 0–1
+  clusterBiasAmt = 0.40,      // per-cluster speed/brightness bias magnitude 0–1
   squadSize      = 5,         // columns per squad; squads are formed within clusters
-  trailCohesion  = 0.5,       // 0 = no trail cohesion, 1 = full squad trail bias
+  trailCohesion  = 0.7,       // 0 = no trail cohesion, 1 = full squad trail bias
   spawnReserves  = 48,        // pre-allocated reserve columns for message reveal
 } = {}) {
   // Guard against inverted ranges
@@ -911,9 +911,9 @@ export function initMatrixRain(element, opts = {}) {
     clusterSpread: 0.017,
     radialBias:   0.0,
     clusterUniform: 0.0,
-    clusterBiasAmt: 0.25,
+    clusterBiasAmt: 0.40,
     squadSize:      5,
-    trailCohesion:  0.5,
+    trailCohesion:  0.7,
     spawnReserves:  48,
   };
 

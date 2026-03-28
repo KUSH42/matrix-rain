@@ -319,7 +319,7 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
         h2(vec2(aColIdxAttr.mul(0.67), aRowIdxAttr.mul(0.31))).sub(0.5).mul(0.24)
       );
       const zoneBrightBias  = mix(uZoneBrightInner, uZoneBrightOuter, t_zone);
-      const clusterAlphaMul = float(1.0).add(aClusterBiasAttr.mul(uClusterBiasAmt).mul(0.4));
+      const clusterAlphaMul = float(1.0).add(aClusterBiasAttr.mul(uClusterBiasAmt));
       vAlpha.assign(aAlpha.mul(alphaJitter).mul(zoneBrightBias).mul(clusterAlphaMul));
 
       // Static world-Y of this cell
@@ -377,7 +377,7 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
       const waveOffset = sin(wavePhase).mul(uWaveAmt.mul(4.0));
 
       // Cluster speed bias — applied here so setClusterBias() takes effect without a rebuild.
-      // uClusterBiasAmt ∈ [0, 1]; aClusterBias ∈ [−1, 1] → speed multiplier ∈ [0.75, 1.25] at bias=0.25.
+      // uClusterBiasAmt ∈ [0, 1]; aClusterBias ∈ [−1, 1] → speed multiplier ∈ [0.6, 1.4] at bias=0.40.
       const effectiveSpeed = aSpeed.mul(float(1.0).add(aClusterBiasAttr.mul(uClusterBiasAmt)));
 
       // Squad phase coherence: blend between squad-shared phase (0) and individual random (1)
