@@ -923,7 +923,11 @@ export function initMatrixRain(element, opts = {}) {
   const resolvedGridH = atlasPath ? ATLAS_GRID_H  : _desc.gridH;
 
   // ── Renderer ─────────────────────────────────────────────────────────
-  const renderer = new THREE.WebGPURenderer({ antialias: false, alpha: true });
+  // Request maxVertexBuffers=16 (default is 8). The instanced rain geometry has
+  // 12 custom vertex attributes; Three.js r183's node builder contaminates all
+  // subsequently compiled MeshBasicNodeMaterial pipelines with those attributes,
+  // causing pipeline creation to fail at the default limit of 8.
+  const renderer = new THREE.WebGPURenderer({ antialias: false, alpha: true, requiredLimits: { maxVertexBuffers: 16 } });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setSize(element.clientWidth || 1, element.clientHeight || 1);
 
