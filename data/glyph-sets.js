@@ -528,6 +528,39 @@ export const GLYPH_SETS = {
   },
 
   /**
+   * hebrew — 22 base Hebrew letters (alef–tav), 5 final forms, '$', and '✡'.
+   * 29 glyphs in an 8×8 grid (35 unused slots).
+   * Font: any Unicode font covering Hebrew + Misc Symbols blocks
+   *       (e.g. Noto Sans Hebrew or similar).
+   * Generate atlas: tools/gen-atlas-cli.js --set hebrew
+   */
+  hebrew: {
+    gridW: 8, gridH: 8,
+    weights: [
+      // 22 base letters — moderate weights; visually complex consonants upweighted
+      1.0, 1.0, 1.2, 1.2, 1.0, 1.0, 1.0, 1.2,  // א ב ג ד ה ו ז ח
+      1.0, 1.5, 1.2, 1.5, 1.5, 1.5, 1.0, 1.2,  // ט י כ ל מ נ ס ע
+      1.2, 1.5, 1.2, 1.5, 1.5, 1.0,             // פ צ ק ר ש ת
+      // 5 final forms
+      1.0, 1.0, 1.0, 1.0, 1.0,
+      // $ and ✡
+      0.7, 0.9,
+      // 35 unused trailing slots
+      ...Array.from({ length: 35 }, () => 0.0),
+    ],
+    glyphs: [
+      // 22 base Hebrew letters (alef → tav, Unicode U+05D0–U+05EA)
+      ...'אבגדהוזחטיכלמנסעפצקרשת'.split('').map(c => ({ char: c, mirror: false })),
+      // 5 final forms
+      ...'ךםןףץ'.split('').map(c => ({ char: c, mirror: false })),
+      // Thematic symbols
+      { char: '$',  mirror: false },
+      { char: '✡', mirror: false },  // U+2721 Star of David
+      // 35 unused trailing slots omitted
+    ],
+  },
+
+  /**
    * gsanscode — all 95 printable ASCII chars (U+0020–U+007E). 10×10 grid (5 unused).
    * Drop-in visual swap for 'ascii'. Font: data/fonts/Google_Sans_Code/static/GoogleSansCode-Regular.ttf
    * weights.length = 100; unused → 0.0.

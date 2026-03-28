@@ -84,6 +84,7 @@ const CHAR_SETS = {
   iosevka:    { path: '/data/iosevka_msdf.png',    glyphCount: 95,            gridW: 10, gridH: 10 },
   datatype:   { path: '/data/datatype_msdf.png',   glyphCount: 36,            gridW: 8,  gridH: 8  },
   gsanscode:  { path: '/data/gsanscode_msdf.png',  glyphCount: 95,            gridW: 10, gridH: 10 },
+  hebrew:     { path: '/data/hebrew_msdf.png',     glyphCount: 29,            gridW: 8,  gridH: 8  },
 };
 
 // ── Glyph weight tables ────────────────────────────────────────────────────
@@ -116,6 +117,7 @@ const GLYPH_WEIGHTS = {
   iosevka:    null,
   datatype:   null,
   gsanscode:  null,
+  hebrew:     null,
 };
 
 /**
