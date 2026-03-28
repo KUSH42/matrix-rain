@@ -1535,17 +1535,16 @@ export function initMatrixRain(element, opts = {}) {
         const px  = Math.sin(az) * r;
         const py  = p.yBase + Math.sin(t * p.floatSpeed + p.phase) * 0.4;
         const pz  = -Math.cos(az) * r;
-        p.mesh.position.set(px, py, pz);
-        p.mesh.quaternion.copy(camera.quaternion);
+        // Sprites auto-billboard — no quaternion copy needed
+        p.sprite.position.set(px, py, pz);
         const flash = 0.5 + 0.5 * Math.sin(t * _ccpFlashHz * Math.PI * 2 + p.phase);
-        p.mesh.material.opacity = _ccpPeakOpacity * flash * _ccpFadeT;
+        p.sprite.material.opacity = _ccpPeakOpacity * flash * _ccpFadeT;
 
-        // Glow halo: slightly further from camera than the portrait, slower pulse
+        // Glow halo: slightly further from origin than portrait, slower pulse
         const gr = r + 0.3;
-        p.glowMesh.position.set(Math.sin(az) * gr, py, -Math.cos(az) * gr);
-        p.glowMesh.quaternion.copy(camera.quaternion);
+        p.glowSprite.position.set(Math.sin(az) * gr, py, -Math.cos(az) * gr);
         const glowFlash = 0.5 + 0.5 * Math.sin(t * _ccpFlashHz * 0.65 * Math.PI * 2 + p.phase);
-        p.glowMesh.material.opacity = _ccpPeakOpacity * 0.85 * glowFlash * _ccpFadeT;
+        p.glowSprite.material.opacity = _ccpPeakOpacity * 0.85 * glowFlash * _ccpFadeT;
       }
       for (const m of _ccpExtraMeshes) {
         // Extras (flag, Tiananmen) have fixed world orientation set at init — no billboard
@@ -1846,47 +1845,49 @@ export function initMatrixRain(element, opts = {}) {
   }
 
   // ── CCP panel helpers ─────────────────────────────────────────────────
+  // THREE.Sprite is used instead of Mesh+PlaneGeometry to stay within WebGPU's
+  // maxVertexBuffers=8 limit. MeshBasicNodeMaterial compiles a pipeline with ~12
+  // vertex buffer slots (instanceMatrix, tangent, color, extra UV sets even for
+  // non-instanced meshes). SpriteMaterial compiles to a 2-slot shader (position+uv).
+  // Sprites auto-billboard, so no quaternion.copy is needed in tick().
   function _initCCPPanels() {
-    if (_ccpPanels.length > 0) return;  // already initialised
+    if (_ccpPanels.length > 0) return;
     const count = Math.min(_ccpPanelCount, _CCP_POSES.length);
     for (let i = 0; i < count; i++) {
       const artStr    = CCP_ART[i % CCP_ART.length];
       const canvasTex = buildBrailleTexture(artStr);
       const panelW    = 16 * _ccpScale;
       const panelH    = panelW * (512 / 768);
-      const geom      = new THREE.PlaneGeometry(panelW, panelH);
-      const mat       = new THREE.MeshBasicMaterial({
-        map:         canvasTex,
-        transparent: true,
-        opacity:     0,
-        depthWrite:  false,
-        side:        THREE.DoubleSide,
-        blending:    THREE.AdditiveBlending,
-      });
-      const mesh2 = new THREE.Mesh(geom, mat);
-      scene.add(mesh2);
 
-      // Glow halo behind each Xi portrait
-      const glowTex  = buildGlowTexture();
-      const glowGeom = new THREE.PlaneGeometry(panelW * 1.8, panelH * 1.8);
-      const glowMat  = new THREE.MeshBasicMaterial({
-        map:         glowTex,
+      const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+        map:        canvasTex,
         transparent: true,
         opacity:     0,
         depthWrite:  false,
-        side:        THREE.DoubleSide,
         blending:    THREE.AdditiveBlending,
-      });
-      const glowMesh = new THREE.Mesh(glowGeom, glowMat);
-      scene.add(glowMesh);
+      }));
+      sprite.scale.set(panelW, panelH, 1);
+      scene.add(sprite);
+
+      // Glow halo — 1.8× larger, radial gradient, slightly further from origin
+      const glowTex = buildGlowTexture();
+      const glowSprite = new THREE.Sprite(new THREE.SpriteMaterial({
+        map:        glowTex,
+        transparent: true,
+        opacity:     0,
+        depthWrite:  false,
+        blending:    THREE.AdditiveBlending,
+      }));
+      glowSprite.scale.set(panelW * 1.8, panelH * 1.8, 1);
+      scene.add(glowSprite);
 
       // Per-panel variation: float speed and radial offset
       const floatSpeed = 0.25 + Math.random() * 0.35;
       const zJitter    = (Math.random() - 0.5) * 4;
 
       _ccpPanels.push({
-        mesh: mesh2, canvasTex,
-        glowMesh, glowTex,
+        sprite, canvasTex,
+        glowSprite, glowTex,
         phase: _CCP_POSES[i].phase, yBase: _CCP_POSES[i].y,
         floatSpeed, zJitter,
       });
@@ -1895,13 +1896,11 @@ export function initMatrixRain(element, opts = {}) {
 
   function _destroyCCPPanels() {
     for (const p of _ccpPanels) {
-      scene.remove(p.mesh);
-      p.mesh.geometry.dispose();
-      p.mesh.material.dispose();
+      scene.remove(p.sprite);
+      p.sprite.material.dispose();
       p.canvasTex.dispose();
-      scene.remove(p.glowMesh);
-      p.glowMesh.geometry.dispose();
-      p.glowMesh.material.dispose();
+      scene.remove(p.glowSprite);
+      p.glowSprite.material.dispose();
       p.glowTex.dispose();
     }
     _ccpPanels = [];
