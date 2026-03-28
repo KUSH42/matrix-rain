@@ -86,7 +86,7 @@ export function makeUniforms(glyphCount = 56, gridW = 8, gridH = 8, lutTexture =
     uWaveSpeed:      uniform(0.15),  // wave crest angular speed in rad/s (hardcoded was 0.15)
     uWaveAmt:        uniform(1.0),   // wave height amplitude scale — 0 = off, 1 = ±4 world units
     uWaveCrests:     uniform(3.0),   // number of wave crests around the shell (integer 1–12)
-    uEntrainAmt:     uniform(0.0),   // speed-entrainment wave amplitude — 0 = off, range 0–0.8
+    uEntrainAmt:     uniform(0.15),  // speed-entrainment wave amplitude — 0 = off, range 0–0.8
     uEntrainSpeed:   uniform(0.25),  // entrainment wave angular speed rad/s
     uEntrainCrests:  uniform(3.0),   // entrainment crests around shell (integer 1–12)
     uWeightedGlyphs: uniform(1.0),  // LUT weight blend — 0 = uniform sampling, 1 = full LUT
@@ -116,9 +116,9 @@ export function makeUniforms(glyphCount = 56, gridW = 8, gridH = 8, lutTexture =
     uBurstGlyphRate: uniform(12.0),  // glyph-change rate during burst   1–30 Hz
     uHueRange:       uniform(0.5),   // per-column colour blend spread 0–1 (0=all uColor, 1=full mix)
     uBurstProb:      uniform(0.005), // fraction of columns that burst per 4 s cycle
-    uContagionStrength: uniform(0.0), // fraction of cluster members joining a cluster burst 0–1
-    uClusterBiasAmt: uniform(0.25),  // per-cluster brightness bias magnitude 0–1
-    uSquadCoherence: uniform(1.0),   // 0 = full squad phase lock, 1 = individual random (default)
+    uContagionStrength: uniform(0.35), // fraction of cluster members joining a cluster burst 0–1
+    uClusterBiasAmt: uniform(0.40),  // per-cluster brightness bias magnitude 0–1
+    uSquadCoherence: uniform(0.3),   // 0 = full squad phase lock, 1 = individual random
     uScanSyncAmt:    uniform(0.0),   // blend toward synchronised cyclePos [0=off, 1=full sync]
     uScanPhase:      uniform(0.0),   // shared cyclePos value driven by JS [0 → cycleH]
     uAtlasMTSDF:     uniform(1.0),   // 1 = MTSDF atlas (new); 0 = legacy single-channel (matrixcode)
@@ -328,9 +328,14 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
         .add(yJitter);
 
       // Speed entrainment wave — computed before speedMul to avoid a forward reference.
-      // thetaEntrain mirrors the later thetaWave expression; TSL node deduplication
-      // means no extra GPU cost (same DAG node, emitted once in the compiled shader).
-      const thetaEntrain  = atan(aWZ, aWX);   // −π..π, same angular value as thetaWave
+      // Use aSpawnTheta ([0,1], baked per-column) rather than atan(aWZ,aWX) so that the
+      // wave sweeps correctly across all topologies:
+      //   shell/ring      → genuine azimuth/2π  (rotating band around sphere/ring)
+      //   curtain         → X fraction [0,1]    (left-to-right sweep)
+      //   rectangle       → X fraction [0,1]    (left-to-right sweep)
+      // atan(wz,wx) was degenerate for curtain (wz=0 → collapses to ±π/2) and
+      // rectangle (wz random → spatially incoherent).
+      const thetaEntrain  = aSpawnThetaAttr.mul(Math.PI * 2).sub(Math.PI);  // [0,1] → [−π,π]
       const entrainWave   = sin(
         thetaEntrain.mul(uEntrainCrests).add(uTime.mul(uEntrainSpeed))
       ).mul(uEntrainAmt);
@@ -366,8 +371,8 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
       // ── Head sweep ──────────────────────────────────────────────────
       const cycleH    = uWorldH.add(uNRows.mul(cellStep));
       // Traveling wave: 3 crests sweep around the shell at ~42 s/revolution.
-      // aWX = aColAAttr.x, aWZ = aColAAttr.y — angular position on XZ shell.
-      const thetaWave  = atan(aWZ, aWX);                           // −π..π
+      // Use aSpawnTheta ([0,1]) for topology-correct azimuth — same fix as entrainWave.
+      const thetaWave  = aSpawnThetaAttr.mul(Math.PI * 2).sub(Math.PI);  // [0,1] → [−π,π]
       const wavePhase  = thetaWave.mul(uWaveCrests).add(uTime.mul(uWaveSpeed));
       const waveOffset = sin(wavePhase).mul(uWaveAmt.mul(4.0));
 
