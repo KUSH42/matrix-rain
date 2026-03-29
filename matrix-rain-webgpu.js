@@ -248,8 +248,10 @@ function buildGeometry({
   // Guard against inverted ranges
   const sMin = Math.min(speedMin, speedMax);
   const sMax = Math.max(speedMin, speedMax);
-  const tMin = Math.min(trailMin, trailMax);
-  const tMax = Math.max(trailMin, trailMax);
+  // Trail values feed float(0.6931).div(vTrail) in the fragment shader; zero
+  // produces Inf/NaN, so enforce a positive floor here and in setTrailRange.
+  const tMin = Math.max(0.001, Math.min(trailMin, trailMax));
+  const tMax = Math.max(tMin,  Math.max(trailMin, trailMax));
   const inner = shellInner;
   const outer = Math.max(shellOuter, inner + 0.1);
 
@@ -2522,6 +2524,10 @@ export function initMatrixRain(element, opts = {}) {
   let _mossadSloganTimer = null;
 
   function _startMossadSlogans(msgOpts = {}) {
+    // Cancel any in-flight cycle before starting a new one; prevents parallel timers
+    // if setMossadMode(true) is called while a cycle is already running.
+    clearTimeout(_mossadSloganTimer);
+    _mossadSloganTimer = null;
     const rv = msgOpts.revealDuration ?? 1.2;
     const hd = msgOpts.holdDuration   ?? 3.0;
     const fd = msgOpts.fadeDuration   ?? 0.8;
@@ -2546,6 +2552,10 @@ export function initMatrixRain(element, opts = {}) {
   // ── CCP slogan cycling ────────────────────────────────────────────────
   function _startSlogans(msgOpts = {}) {
     if (!_ccpSloganActive) return;
+    // Cancel any in-flight cycle before starting a new one; prevents parallel timers
+    // if setCCPMode(true) is called while a cycle is already running.
+    clearTimeout(_ccpSloganTimer);
+    _ccpSloganTimer = null;
     const rv = msgOpts.revealDuration ?? 1.2;
     const hd = msgOpts.holdDuration   ?? 3.0;
     const fd = msgOpts.fadeDuration   ?? 0.8;
@@ -2676,8 +2686,8 @@ export function initMatrixRain(element, opts = {}) {
     setTrailRange(min, max) {
       _geomParams.trailMin = min;
       _geomParams.trailMax = max;
-      const tMin = Math.min(min, max);
-      const tMax = Math.max(min, max);
+      const tMin = Math.max(0.001, Math.min(min, max));  // floor > 0 — shader divides by vTrail
+      const tMax = Math.max(tMin,  Math.max(min, max));
       const g   = mesh.geometry;
       const arr = g.getAttribute('aColB').array;
       for (let c = 0; c < _geomParams.nCols; c++) {
@@ -3368,6 +3378,7 @@ export function initMatrixRain(element, opts = {}) {
       const tmpCanvas = document.createElement('canvas');
       tmpCanvas.width = w; tmpCanvas.height = 16;
       const tCtx = tmpCanvas.getContext('2d');
+      if (!tCtx) { console.warn('matrix-rain: showMessage — 2D canvas context unavailable'); return; }
       tCtx.font  = font;
 
       _msgSlots = [];

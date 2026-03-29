@@ -151,6 +151,12 @@ All items go in `specs/` before implementation.
   - **Change 5 — Spawn Wave**: `aSpawnTheta` attribute (normalised angular position [0,1]); `uSpawnWaveFront` uniform (default 2.0 = all active); `spawnGatePasses` gate in density `If()` (isLocked/isSpawnActive bypass); `_spawnWaveAnim` state; tick animation with easing; `spawnWave({duration,easing,startAngle})`, `despawnWave({duration,easing})`, `setSpawnWaveFront(v)` handle methods
   - **Files**: `matrix-rain-tsl.js`, `matrix-rain-webgpu.js`
 
+- [x] **Code review fixes (round 2)** — 5 more bugs addressed
+  - `matrix-rain-webgpu.js`: clamped trail floor to 0.001 in `buildGeometry` + `setTrailRange` (div-by-zero in shader when `setTrailRange(0,x)` called)
+  - `matrix-rain-webgpu.js`: `_startSlogans()` + `_startMossadSlogans()` now clear existing timer before scheduling new one (parallel timer leak on re-activation)
+  - `matrix-rain-webgpu.js`: null guard on `getContext('2d')` result in `showMessage()` (crash when 2D context unavailable)
+  - `matrix-rain-passes-tsl.js`: extracted `LUMA_REC709` constant; de-duplicated from two sites; updated passes header exports comment to list all 9 builders
+  - `CLAUDE.md`: corrected 3 stale uniform defaults (`uContagionStrength` 0.0→0.35, `uEntrainAmt` 0.0→0.15, `uSquadCoherence` 1.0→0.3)
 - [x] **Code review fixes** — 8 bugs/issues addressed; unit test suite added
   - `matrix-rain-tsl.js`: fixed duplicate `const lockAge` declaration (SyntaxError); hoisted `_fract()` to module scope (GC pressure reduction)
   - `matrix-rain-webgpu.js`: fixed `setCharSet` async race condition (load-seq guard); fixed `triggerGlitch` timer leak on destroy (`_glitchTimerId` stored + cancelled in `_cleanup()`); fixed `triggerSpeedRamp` RAF chain outliving destroy (`++_rampGeneration` in `_cleanup()`); fixed `handle?.applyPreset` → `handle.applyPreset` (misleading optional chain); removed empty `_playHatikvah()` dead-code stub

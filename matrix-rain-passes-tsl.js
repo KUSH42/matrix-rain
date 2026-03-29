@@ -8,9 +8,12 @@
  *   buildHeatPass(inputTexNode)
  *   buildPhosphorPass(inputTexNode, prevTexNode, decayUniform)
  *   buildSoftenPass(inputTexNode)
- *   buildStreakPass(inputTexNode)
- *   buildHoloPass(inputTexNode)
+ *   buildStreakPass(inputNode, uAspect?)
+ *   buildHoloPass(inputTexNode, uInterlaceResY?)
  *   buildGodRaysPass(inputTexNode)
+ *   buildFogPass(inputTexNode)
+ *   buildDustPass(inputNode)
+ *   buildRadialChromaPass(inputTexNode)
  *
  * NOTE: buildMsgOverlayPass has been removed. Message text is now rendered by a
  * dedicated instanced mesh (buildMsgColumnMaterial in matrix-rain-tsl.js) added
@@ -29,6 +32,9 @@ import {
 } from 'three/tsl';
 import * as THREE from 'three/webgpu';
 
+// Rec. 709 luminance weights — shared by heat and fog passes.
+const LUMA_REC709 = vec3(0.2126, 0.7152, 0.0722);
+
 // ── Heat distortion ───────────────────────────────────────────────────────
 // UV warp driven by pixel brightness — heat shimmer around bright glyph heads.
 // Inserted after bloom. Requires inputTexNode to be a sampleable TextureNode
@@ -45,7 +51,7 @@ export function buildHeatPass(inputTexNode) {
 
   const outputNode = Fn(() => {
     const original = texture(inputTexNode, screenUV);
-    const bright   = dot(original.rgb, vec3(0.2126, 0.7152, 0.0722));
+    const bright   = dot(original.rgb, LUMA_REC709);
     const warpU    = sin(screenUV.y.mul(uHeatFreq).add(time.mul(uHeatSpeed)))
       .mul(bright).mul(uHeatAmt);
     const warpV    = sin(screenUV.x.mul(uHeatFreq.mul(1.3)).add(time.mul(uHeatSpeed.mul(0.7))))
@@ -275,7 +281,7 @@ export function buildFogPass(inputTexNode) {
 
   const outputNode = Fn(() => {
     const col      = texture(inputTexNode, screenUV).toVar('fog');
-    const luma     = clamp(dot(col.rgb, vec3(0.2126, 0.7152, 0.0722)), float(0.0), float(1.0));
+    const luma     = clamp(dot(col.rgb, LUMA_REC709), float(0.0), float(1.0));
     // Fog strength = uFogAmt * (1 - luma): dark pixels get full fog, bright pixels get none.
     const fogBlend = clamp(uFogAmt.mul(float(1.0).sub(luma)), float(0.0), float(1.0));
     col.rgb.assign(mix(col.rgb, uFogColor, fogBlend));

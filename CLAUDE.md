@@ -257,14 +257,14 @@ Tears down the instance registered on `element`.
 | Streak `uStreakAmt` | `0.055` | |
 | God rays `uExposure` | `0.45` | |
 | `uMsgBoost` | `2.0` | Brightness multiplier in message region (was 3.0 before message-reveal rework) |
-| `uContagionStrength` | `0.0` | Cluster burst contagion 0–1; 0 = off |
+| `uContagionStrength` | `0.35` | Cluster burst contagion 0–1; 0 = off |
 | `uClusterHueRange` | `18.0` | Max hue rotation per cluster in degrees; 0 = monochrome |
 | `uClusterBrightRange` | `0.35` | Brightness bias magnitude; 0 = uniform brightness |
 | `uClusterSpeedRange` | `0.30` | Speed bias magnitude; 0 = uniform speed |
-| `uEntrainAmt` | `0.0` | Speed entrainment wave amplitude 0–0.8; 0 = off |
+| `uEntrainAmt` | `0.15` | Speed entrainment wave amplitude 0–0.8; 0 = off |
 | `uEntrainSpeed` | `0.25` | Entrainment wave angular speed rad/s |
 | `uEntrainCrests` | `3.0` | Entrainment crests around shell 1–12 |
-| `uSquadCoherence` | `1.0` | 0 = full squad phase lock, 1 = individual random |
+| `uSquadCoherence` | `0.3` | 0 = full squad phase lock, 1 = individual random |
 | `uSpawnWaveFront` | `2.0` | Spawn wave gate; 2.0 = all active, < 0 = all suppressed |
 | `uMsgCascadeMode` | `0.0` | 0=wave, 1=radial, 2=column |
 | `uMsgSettleSharpness` | `4.0` | Per-cell crystallisation speed |
