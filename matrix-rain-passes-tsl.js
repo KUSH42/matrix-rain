@@ -223,7 +223,7 @@ export function buildHoloPass(inputTexNode, uInterlaceResY) {
 export function buildGodRaysPass(inputTexNode) {
   const uLightPos = uniform(new THREE.Vector2(0.5, 0.75));
   const uDensity  = uniform(0.93);
-  const uDecay    = uniform(0.33);
+  const uDecay    = uniform(0.96);
   const uWeight   = uniform(0.35);
   const uExposure = uniform(0.45);
   const uClampMax = uniform(1.0);

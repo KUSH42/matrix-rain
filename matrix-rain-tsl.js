@@ -100,6 +100,7 @@ export function makeUniforms(glyphCount = 56, gridW = 8, gridH = 8, lutTexture =
     uMsgXMin:            uniform(0.0),                   // screen UV left bound of message text
     uMsgXMax:            uniform(1.0),                   // screen UV right bound of message text
     uMsgBandSuppress:    uniform(0.0),                   // user toggle: 1 = enable band suppression
+    uMsgSettleSharpness: uniform(4.0),                   // scramble-to-settle speed (1/s); settle in 1/value seconds
     uGlyphWeightLUT:    texture(lutTexture),             // 256×1 inverse-CDF glyph weight LUT
     uBrightness:     uniform(1.0),   // output brightness multiplier — range [0.2, 2.0]
     uBreathAmt:      uniform(1.0),   // speed-oscillation amplitude scale — 0 = off, 1 = ±15%
@@ -141,8 +142,10 @@ export function makeUniforms(glyphCount = 56, gridW = 8, gridH = 8, lutTexture =
     uClusterBrightRange: uniform(0.35),  // per-cluster brightness bias magnitude    0–1
     uClusterSpeedRange:  uniform(0.30),  // per-cluster speed bias magnitude         0–1
     uSquadCoherence: uniform(0.3),   // 0 = full squad phase lock, 1 = individual random
+    uDeepTrailDark:  uniform(0.18),  // deep trail floor brightness factor  0–1
     uScanSyncAmt:    uniform(0.0),   // blend toward synchronised cyclePos [0=off, 1=full sync]
     uScanPhase:      uniform(0.0),   // shared cyclePos value driven by JS [0 → cycleH]
+    uScanWorldY:     uniform(999.0), // world Y of scan front; far off-screen by default
     uAtlasMTSDF:     uniform(1.0),   // 1 = MTSDF atlas (new); 0 = legacy single-channel (matrixcode)
     uColumnOffset:   uniform(new THREE.Vector2(0, 0)), // XZ world offset applied to all columns (camera follow)
     // End-of-life effects
@@ -158,6 +161,16 @@ export function makeUniforms(glyphCount = 56, gridW = 8, gridH = 8, lutTexture =
     uHueDriftRate:     uniform(0.0),   // per-column hue drift rate Hz              0–0.5
     uHueDriftAmt:      uniform(0.0),   // per-column hue drift max degrees          0–45
     uHeadOvershootAmt: uniform(0.0),   // head overshoot max displacement (cells)   0–3
+    // Category C column behaviour effects
+    uGravityStrength: uniform(0.0),    // gravity well pull amplitude (world units); 0 = off, max ~1.5
+    uGravityRate:     uniform(0.2),    // oscillation frequency Hz; range [0.1, 0.5]
+    uPerspectiveWorldX:   uniform(0.0),   // world X of vanishing point (raw, no offset); default = 0
+    uPerspectiveStrength: uniform(0.0),   // skew strength 0–1; 0 = off
+    uMorseRate: uniform(2.0),   // base cycle rate Hz; range [0.5, 4.0]
+    uMorseAmt:  uniform(0.0),   // modulation depth 0–1; 0 = off (no flicker)
+    uSpiralAmt:   uniform(0.0),         // orbital amplitude 0–1; 0 = off
+    uSpiralRate:  uniform(0.1),         // angular velocity rad/s; range [0, 0.5]
+    uSpiralPitch: uniform(Math.PI),     // angular phase spread per unit of aSpawnTheta [0–2π]
   };
 }
 
@@ -188,7 +201,8 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     uColor2, uHueRange, uBurstProb,
     uContagionStrength,
     uClusterHueRange, uClusterBrightRange, uClusterSpeedRange, uSquadCoherence,
-    uScanSyncAmt, uScanPhase,
+    uDeepTrailDark,
+    uScanSyncAmt, uScanPhase, uScanWorldY,
     uAtlasMTSDF,
     uColumnOffset,
     uEolFlash, uEolFreezeStart, uEolFadeStart,
@@ -197,6 +211,11 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     uGlyphSpinAmt, uGlyphSpinSpeed,
     uHueDriftRate, uHueDriftAmt,
     uHeadOvershootAmt,
+    uMsgSettleSharpness,
+    uGravityStrength, uGravityRate,
+    uPerspectiveWorldX, uPerspectiveStrength,
+    uMorseRate, uMorseAmt,
+    uSpiralAmt, uSpiralRate, uSpiralPitch,
   } = uniforms;
 
   // ── Per-instance buffer attributes ────────────────────────────────────
@@ -211,6 +230,7 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
   const aSquadPhaseAttr       = attribute('aSquadPhase',       'float'); // shared cyclePos phase seed within squad
   const aFrustumVisAttr       = attribute('aFrustumVis',       'float'); // 1 = visible in frustum, 0 = culled
   const aSpawnThetaAttr       = attribute('aSpawnTheta',       'float'); // normalised angular position [0, 1] for spawn wave
+  const aClusterCenterAttr    = attribute('aClusterCenter',    'vec2');  // raw world XZ of cluster centroid
 
   // ── Varyings shared between vertex and fragment stages ─────────────────
   const vUvRain    = varying(vec2(),   'vUvRain');
@@ -364,6 +384,26 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
       const zoneBrightBias  = mix(uZoneBrightInner, uZoneBrightOuter, t_zone);
       const clusterAlphaMul = float(1.0).add(aClusterBrightAttr.mul(uClusterBrightRange));
       vAlpha.assign(aAlpha.mul(alphaJitter).mul(zoneBrightBias).mul(clusterAlphaMul));
+
+      // ── Morse code flicker ───────────────────────────────────────────────
+      // Per-column pattern parameters derived from a single h2 hash:
+      //   morsePeriodMul ∈ {1,2,3,4}: four distinct period lengths
+      //   morseOnFrac    ∈ [0.15, 0.65]: fraction of period at full alpha
+      // Both are drawn from morsePatHash*4: integer part → period, fractional part → duty.
+      // This decorrelation technique is intentional — one hash seed yields two visually
+      // independent parameters with no array lookups required in the shader.
+      const morsePatHash   = h2(vec2(aColIdxAttr.mul(0.41).add(0.3), float(7.7)));
+      const morsePeriodMul = floor(morsePatHash.mul(4.0)).add(1.0);   // 1, 2, 3, or 4
+      const morseOnFrac    = fract(morsePatHash.mul(4.0)).mul(0.5).add(0.15);
+      const morseColPhase  = h2(vec2(aColIdxAttr.mul(0.17), float(0.33)));
+      const morseCycleT    = fract(
+        uTime.mul(uMorseRate).div(morsePeriodMul).add(morseColPhase)
+      );
+      const morseOn     = step(morseCycleT, morseOnFrac);
+      const morseFactor = morseOn.add(float(1.0).sub(morseOn).mul(float(1.0).sub(uMorseAmt)));
+      const morseFinal  = select(isLocked, float(1.0), morseFactor);
+      vAlpha.assign(vAlpha.mul(morseFinal));
+
       vClusterHue.assign(aClusterHueAttr);
 
       // Static world-Y of this cell
@@ -540,6 +580,45 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
         );
         colCenter.addAssign(right.mul(shimmerDisp));
 
+        // ── Cluster gravity well ──────────────────────────────────────────────
+        // aClusterCenter stores raw cluster centroid XZ (no uColumnOffset).
+        // Direction is computed in raw space, matching aColAAttr.x/y (also raw).
+        // The additive displacement is the same in offset-adjusted space because
+        // offset cancels: (centroid+offset) - (col+offset) = centroid - col.
+        const gravDirX    = aClusterCenterAttr.x.sub(aColAAttr.x);   // raw X delta
+        const gravDirZ    = aClusterCenterAttr.y.sub(aColAAttr.y);   // raw Z delta
+        const gravDist    = sqrt(gravDirX.mul(gravDirX).add(gravDirZ.mul(gravDirZ)));
+        const gravEpsilon = float(0.001);
+        const gravSafeLen = max(gravDist, gravEpsilon);
+        const gravUnitX   = gravDirX.div(gravSafeLen);
+        const gravUnitZ   = gravDirZ.div(gravSafeLen);
+        // Per-cluster phase desync: reuse aClusterBurstSeedAttr (per-cluster ∈ [0,1]) as a
+        // convenient per-cluster constant — no new attribute needed. If burst seed distribution
+        // changes, gravity phase distribution changes proportionally; this is acceptable.
+        const gravPhase = aClusterBurstSeedAttr.mul(6.2832);
+        const gravSin   = sin(uTime.mul(uGravityRate).mul(6.2832).add(gravPhase));
+        // Guard: isLocked columns are message reveal columns — displacing them moves visible
+        // message characters off their intended position. Zero out the displacement.
+        const gravDisp  = select(isLocked, float(0.0), gravSin.mul(uGravityStrength));
+        colCenter.addAssign(vec3(gravUnitX.mul(gravDisp), float(0), gravUnitZ.mul(gravDisp)));
+
+        // ── Spiral formation ─────────────────────────────────────────────────
+        // Rotate the column's raw world XZ position around the Y axis.
+        // aSpawnTheta ∈ [0,1] provides the per-column angular offset (spiral winding).
+        // Note: at uSpiralRate=0 the angle is a fixed per-column constant (aSpawnTheta*uSpiralPitch),
+        // so columns appear permanently rotated from their baked position. Use uSpiralAmt=0 to
+        // fully disable the effect.
+        const spiralA   = uTime.mul(uSpiralRate).add(aSpawnThetaAttr.mul(uSpiralPitch));
+        const cosSpiral = cos(spiralA);
+        const sinSpiral = sin(spiralA);
+        const spiralNewX = aColAAttr.x.mul(cosSpiral).sub(aColAAttr.y.mul(sinSpiral));
+        const spiralNewZ = aColAAttr.x.mul(sinSpiral).add(aColAAttr.y.mul(cosSpiral));
+        // Guard: isLocked columns are message reveal columns.
+        const spiralAmt = select(isLocked, float(0.0), uSpiralAmt);
+        const spiralDX  = spiralNewX.sub(aColAAttr.x).mul(spiralAmt);
+        const spiralDZ  = spiralNewZ.sub(aColAAttr.y).mul(spiralAmt);
+        colCenter.addAssign(vec3(spiralDX, float(0), spiralDZ));
+
         // Per-column Z-rotation ±5°
         const rotAngle = h2(vec2(aSeed, 42.0)).sub(0.5).mul(uZRotRange);
         const cosR     = cos(rotAngle);
@@ -571,6 +650,17 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
         If(camDist3D.greaterThanEqual(1.5), () => {
           vDepthDim.assign(smoothstep(1.5, 3.5, camDist3D));
           clipPos.assign(cameraProjectionMatrix.mul(viewPos4));
+
+          // ── Perspective convergence skew ─────────────────────────────────────
+          // Shift clip.x toward the vanishing point in perspective-correct clip space.
+          const perspDX   = clamp(aColAAttr.x.sub(uPerspectiveWorldX), float(-1.0), float(1.0));
+          const perspSkew = perspDX.mul(uPerspectiveStrength).mul(clipPos.w);
+          clipPos.assign(vec4(
+            clipPos.x.sub(perspSkew),
+            clipPos.y,
+            clipPos.z,
+            clipPos.w,
+          ));
         });
 
       }); // trail window cull
@@ -609,9 +699,13 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     const holdRand   = float(0.45).add(h2(cellId.mul(0.29)).mul(7.15));
     const isHead     = vDist.lessThan(1.0);
     const isNearHead = vDist.lessThan(4.0);
+    const isVeryDeep  = d.greaterThanEqual(halfDist);       // past the 50% brightness point
     const nonHeadHold = select(isNearHead,
       float(2.0).add(holdRand.mul(0.3)),       // near-head: ~0.5 Hz ± jitter
-      float(10.0).add(holdRand.mul(2.0))       // mid + deep trail: ~0.1 Hz ± jitter
+      select(isVeryDeep,
+        float(10000.0),                        // deep trail: effectively static / crystallised
+        float(10.0).add(holdRand.mul(2.0))     // mid trail: ~0.1 Hz ± jitter
+      )
     ).mul(uHoldMult);
     const holdSec    = select(isHead,
       float(0.067),                            // head: ~15 Hz — deliberately not scaled by uHoldMult
@@ -670,7 +764,13 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
       .and(vDist.greaterThanEqual(float(-0.5)))
       .and(vDist.lessThan(float(0.5)));
     const hasLockTarget = lockGlyph.greaterThanEqual(float(0.0));
-    glyphIdx.assign(select(isLockHead.and(hasLockTarget), lockGlyph, glyphIdx));
+    // Scramble-to-settle: locked head transitions probabilistically from mutGlyph → lockGlyph
+    // over 1/uMsgSettleSharpness seconds. Per-lock coin (stable across frames) drives the gate.
+    const lockAge      = uTime.sub(vLockState.z);
+    const settleT      = clamp(lockAge.mul(uMsgSettleSharpness), float(0.0), float(1.0));
+    const settleCoin   = fract(sin(vLockState.z.mul(31.7).add(vColCenterX.mul(47.3))).mul(43758.5453));
+    const useLockGlyph = settleCoin.lessThan(settleT).and(hasLockTarget);
+    glyphIdx.assign(select(isLockHead, select(useLockGlyph, lockGlyph, mutGlyph), glyphIdx));
 
     // Suppress non-locked fragments inside the message reveal band.
     // Gated by uMsgBandSuppress (user toggle) and uMsgRevealActive (set when first glyph locks).
@@ -713,7 +813,7 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     const headFrac      = float(1).sub(smoothstep(0.0, 0.8, vDist));
     const normDist      = d.div(halfDist);                   // 0 = head, 1 = 50 % fade point
     const deepTrailFrac = smoothstep(0.5, 1.0, normDist);   // ramps in at 50–100 % of halfDist
-    const deepTrailCol  = tintedColor.mul(0.18);             // ≈ #002D0A relative to uColor
+    const deepTrailCol  = tintedColor.mul(uDeepTrailDark);   // floor brightness — settable via setDeepTrailDark()
     const trailCol      = mix(tintedColor.mul(1.6), deepTrailCol, deepTrailFrac);
     const col2 = mix(
       trailCol,
@@ -756,7 +856,7 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
 
     // ── Lock-head brightness settle ────────────────────────────────────
     // Brief flare on lock, then cool down to normal trail-head brightness over 1 s.
-    const lockAge    = uTime.sub(vLockState.z);  // seconds since lock fired
+    // lockAge already declared above (scramble-to-settle section) — reuse it here.
     const lockSettle = smoothstep(0.0, 1.0, lockAge); // 0 → 1 over 1 s
     // Flare briefly on lock (1.5× boost), then settle permanently at uMsgBoost.
     const lockBoost  = mix(uMsgBoost.mul(1.5), uMsgBoost, lockSettle);
@@ -914,12 +1014,21 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
 
     // ── Final alpha ────────────────────────────────────────────────────
     const rawBright = trail.mul(mask).mul(vAlpha).mul(vDepthDim).toVar('rawBright');
-    // Locked head cell: force full brightness, then fade via uMsgRevealProgress (1→0 on despawn)
-    rawBright.assign(select(isLockHead, uMsgRevealProgress, rawBright));
+    // Locked head cell: force full brightness shaped by MSDF mask, then fade via uMsgRevealProgress
+    rawBright.assign(select(isLockHead, uMsgRevealProgress.mul(mask), rawBright));
     // Trail cells of locked columns: fade in over 0.6 s so they don't pop in abruptly
     const trailFadeIn = smoothstep(0.0, 0.6, lockAge);
     const isLockTrail = lockActive.and(isLockHead.not());
     rawBright.assign(select(isLockTrail, rawBright.mul(trailFadeIn), rawBright));
+
+    // ── Scanline glow — CRT-style horizontal scan flash ───────────────────
+    // Cells near the current scan front (uScanWorldY) briefly light up.
+    // uScanSyncAmt gates the effect: 1 during sweep, fades to 0 during dissolve.
+    const scanDist  = abs(vCellWorldY.sub(uScanWorldY));
+    const scanPulse = smoothstep(float(1.5), float(0.0), scanDist).mul(uScanSyncAmt);
+    rawBright.addAssign(scanPulse.mul(float(1.0)));
+    col2.addAssign(uColor.mul(scanPulse.mul(float(2.5))));
+
     const contrast  = pow(rawBright, 1.3);
     const alpha     = contrast.mul(uGlobalAlpha).mul(vBootFade).mul(vDeathFade);
     If(alpha.lessThan(0.015), () => { Discard(); });

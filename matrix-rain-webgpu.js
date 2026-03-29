@@ -175,6 +175,10 @@ function _gaussRand() {
   return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
 }
 
+// Fractional part — lifted to module scope so _h2js doesn't allocate a new
+// closure on every call (called in O(nCols) loops during message reveal).
+function _fract(x) { return x - Math.floor(x); }
+
 // ── MSDF atlas ────────────────────────────────────────────────────────────
 function loadMSDF(path) {
   const tex = new THREE.TextureLoader().load(path);
@@ -398,6 +402,39 @@ function buildGeometry({
     }
   }
 
+  // ── aClusterCenter centroid computation ── must precede reserve pool loop ──────────────────
+  // Regular columns only (c < reserveStart); the reserve loop below fills reserve entries.
+  // clusterCenterBuf/X/Z must be declared here so they are in scope inside the reserve loop.
+  const reserveStart    = nCols - spawnReserves;
+  const clusterSumX     = new Float32Array(nClusters);
+  const clusterSumZ     = new Float32Array(nClusters);
+  const clusterCount2   = new Int32Array(nClusters);
+  for (let c = 0; c < reserveStart; c++) {
+    const ci   = c % nClusters;
+    const base = c * N_ROWS * 4;
+    clusterSumX[ci]  += colABuf[base];
+    clusterSumZ[ci]  += colABuf[base + 1];
+    clusterCount2[ci]++;
+  }
+  const clusterCenterX = new Float32Array(nClusters);
+  const clusterCenterZ = new Float32Array(nClusters);
+  for (let ci = 0; ci < nClusters; ci++) {
+    const cnt = Math.max(1, clusterCount2[ci]);
+    clusterCenterX[ci] = clusterSumX[ci] / cnt;
+    clusterCenterZ[ci] = clusterSumZ[ci] / cnt;
+  }
+  const clusterCenterBuf = new Float32Array(total * 2);
+  for (let c = 0; c < reserveStart; c++) {
+    const ci = c % nClusters;
+    const cx = clusterCenterX[ci];
+    const cz = clusterCenterZ[ci];
+    for (let row = 0; row < N_ROWS; row++) {
+      const i2 = (c * N_ROWS + row) * 2;
+      clusterCenterBuf[i2]     = cx;
+      clusterCenterBuf[i2 + 1] = cz;
+    }
+  }
+
   // ── Reserve pool — last spawnReserves columns repositioned for predictable screen coverage ──
   // Placement depends on topology so that reserves project across the full screen-X range.
   //   shell:     evenly-spaced angles on the inner shell (r = shellInner)
@@ -406,7 +443,6 @@ function buildGeometry({
   //   rectangle: evenly-spaced wx across [-rectW, rectW] on the front edge (wz=0)
   // Cluster attributes are reassigned to the nearest cluster by angular position so that
   // reserve columns participate in the correct cluster's burst timing during message reveals.
-  const reserveStart    = nCols - spawnReserves;
   const reserveOrigYOff = new Float32Array(spawnReserves);
   const rRing = (inner + outer) / 2;
   for (let i = 0; i < spawnReserves; i++) {
@@ -473,6 +509,12 @@ function buildGeometry({
       squadPhaseBuf[idx]       = reserveSquadPhase;
       spawnThetaBuf[idx]       = reserveColTheta;
     }
+    // aClusterCenter for reserve columns: use nearest cluster centroid
+    for (let r = 0; r < N_ROWS; r++) {
+      const i2 = (c * N_ROWS + r) * 2;
+      clusterCenterBuf[i2]     = clusterCenterX[nearestCluster];
+      clusterCenterBuf[i2 + 1] = clusterCenterZ[nearestCluster];
+    }
   }
 
   // aHeadOvershoot: per-column phase for overshoot pulse [0, 1], replicated per row
@@ -502,6 +544,7 @@ function buildGeometry({
   geom.setAttribute('aClusterBright',    new THREE.InstancedBufferAttribute(clusterBrightBuf,    1));
   geom.setAttribute('aClusterSpeed',     new THREE.InstancedBufferAttribute(clusterSpeedBuf,     1));
   geom.setAttribute('aClusterBurstSeed', new THREE.InstancedBufferAttribute(clusterBurstSeedBuf, 1));
+  geom.setAttribute('aClusterCenter',    new THREE.InstancedBufferAttribute(clusterCenterBuf,    2));
   geom.setAttribute('aSquadPhase',       new THREE.InstancedBufferAttribute(squadPhaseBuf,       1));
   geom.setAttribute('aSpawnTheta',       new THREE.InstancedBufferAttribute(spawnThetaBuf,       1));
   geom.setAttribute('aHeadOvershoot',    new THREE.InstancedBufferAttribute(headOvershootBuf,    1));
@@ -911,6 +954,160 @@ function toHex(r, g, b) {
 }
 
 // ═════════════════════════════════════════════════════════════════════════
+// MOSSAD EASTER EGG — module-scope constants, helpers, and style guard
+// ═════════════════════════════════════════════════════════════════════════
+
+// Netanyahu braille copypasta — well-known public-domain counter-surveillance art.
+const MOSSAD_ART = [
+  // [0] Netanyahu portrait — full
+  `⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⣠⣴⣶⣿⣿⣿⣿⣿⣶⣦⣄⠀⠀⠀⠀⠀
+⠀⠀⠀⣠⣾⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣷⣄⠀⠀⠀
+⠀⠀⣴⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣦⠀⠀
+⠀⣸⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣇⠀
+⠀⣿⣿⣿⣿⣿⣿⣿⡿⠿⠛⠛⠿⢿⣿⣿⣿⣿⣿⣿⠀
+⠀⣿⣿⣿⣿⡿⠋⠀⠀⣠⣤⣤⣀⠀⠙⢿⣿⣿⣿⣿⠀
+⠀⣿⣿⣿⣿⠀⠀⠀⠸⣿⣿⣿⣿⠇⠀⠀⣿⣿⣿⣿⠀
+⠀⣿⣿⣿⣿⣆⠀⠀⠀⠙⠛⠛⠋⠀⠀⣰⣿⣿⣿⣿⠀
+⠀⠹⣿⣿⣿⣿⣿⣶⣤⣀⠀⠀⣀⣤⣾⣿⣿⣿⣿⠏⠀
+⠀⠀⠙⢿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡿⠋⠀⠀
+⠀⠀⠀⠀⠙⠻⢿⣿⣿⣿⣿⣿⣿⣿⡿⠟⠋⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠈⠉⠛⠻⠿⠛⠉⠁⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀`,
+
+  // [1] Netanyahu portrait — compact bust
+  `⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⣠⣾⣿⣿⣿⣿⣿⣿⣿⣷⣄⠀⠀⠀⠀⠀
+⠀⠀⣴⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣦⠀⠀⠀⠀
+⠀⣸⣿⣿⣿⣿⡿⠿⠛⠛⠿⢿⣿⣿⣿⣿⣇⠀⠀⠀
+⠀⣿⣿⣿⡿⠋⠀⣠⣤⣤⣀⠈⢿⣿⣿⣿⣿⠀⠀⠀
+⠀⣿⣿⣿⠀⠀⠸⣿⣿⣿⣿⠇⠀⢿⣿⣿⣿⠀⠀⠀
+⠀⣿⣿⣿⣆⠀⠀⠙⠛⠛⠋⠀⣰⣿⣿⣿⣿⠀⠀⠀
+⠀⠹⣿⣿⣿⣿⣶⣤⣀⣀⣤⣾⣿⣿⣿⣿⠏⠀⠀⠀
+⠀⠀⠙⢿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡿⠋⠀⠀⠀⠀
+⠀⠀⠀⠀⠙⠻⢿⣿⣿⣿⣿⡿⠟⠋⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠈⠉⠛⠉⠁⠀⠀⠀⠀⠀⠀⠀⠀`,
+
+  // [2] Netanyahu portrait — dense fill
+  `⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿
+⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿
+⣿⣿⣿⣿⣿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⣿⣿⣿⣿⣿
+⣿⣿⣿⡿⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⢿⣿⣿⣿⣿
+⣿⣿⣿⠃⠀⢀⣶⣶⣶⣶⣶⣶⣶⣶⡀⠀⠘⣿⣿⣿⣿
+⣿⣿⣿⠀⠀⣾⣿⣿⣿⣿⣿⣿⣿⣿⣷⠀⠀⣿⣿⣿⣿
+⣿⣿⣿⠀⠀⣿⣿⡟⠛⠛⠛⠛⢻⣿⣿⠀⠀⣿⣿⣿⣿
+⣿⣿⣿⠀⠀⣿⣿⡇⠀⣿⣿⠀⢸⣿⣿⠀⠀⣿⣿⣿⣿
+⣿⣿⣿⠀⠀⣿⣿⣇⠀⠛⠛⠀⣸⣿⣿⠀⠀⣿⣿⣿⣿
+⣿⣿⣿⠄⠀⠹⣿⣿⣿⣿⣿⣿⣿⣿⠏⠀⠠⣿⣿⣿⣿
+⣿⣿⣿⣿⠀⠀⠈⠙⠻⠿⠿⠟⠋⠁⠀⠀⣿⣿⣿⣿⣿
+⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿`,
+];
+
+const MOSSAD_SLOGANS = [
+  'BY DECEPTION THOU SHALT MAKE WAR',
+  'OPERATION WRATH OF GOD',
+  'WHO DARES TO TOUCH ME',
+  'IRON DOME',
+  'FROM THE NILE TO THE EUPHRATES',
+];
+
+// Panel position table: azimuth (rad), radius, y offset, flash phase (rad)
+const _MOSSAD_POSES = [
+  { az: 0.0,   r: 22, yOffset: +1.5, phase: 0.0   },
+  { az: 2.094, r: 24, yOffset: -1.0, phase: 2.094  },
+  { az: 4.189, r: 21, yOffset: +2.5, phase: 4.189  },
+  { az: 1.047, r: 23, yOffset: +0.5, phase: 1.047  },  // flag
+];
+
+/**
+ * Build a canvas texture with Netanyahu braille art in blue on transparent bg.
+ */
+function buildMossadPortraitTexture(artStr) {
+  const canvas = document.createElement('canvas');
+  canvas.width  = 768;
+  canvas.height = 512;
+  const ctx   = canvas.getContext('2d');
+  const lines = artStr.split('\n');
+  ctx.font         = '16px monospace';
+  ctx.fillStyle    = '#3060FF';
+  ctx.textBaseline = 'top';
+  let maxW = 0;
+  for (const l of lines) {
+    const w = ctx.measureText(l).width;
+    if (w > maxW) maxW = w;
+  }
+  const xOffset = (canvas.width - maxW) / 2;
+  const yStep   = canvas.height / (lines.length + 2);
+  for (let i = 0; i < lines.length; i++) {
+    ctx.fillText(lines[i], xOffset, yStep + i * yStep);
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.needsUpdate = true;
+  return tex;
+}
+
+/**
+ * Build a canvas texture of the Israeli flag.
+ */
+function buildIsraeliFlag() {
+  const canvas = document.createElement('canvas');
+  canvas.width  = 640;
+  canvas.height = 427;
+  const ctx = canvas.getContext('2d');
+  // White background
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillRect(0, 0, 640, 427);
+  // Top blue stripe
+  ctx.fillStyle = '#0038B8';
+  ctx.fillRect(0, 85, 640, 64);
+  // Bottom blue stripe
+  ctx.fillStyle = '#0038B8';
+  ctx.fillRect(0, 278, 640, 64);
+  // Star of David — two equilateral triangles, circumradius 72
+  const cx = 320, cy = 213, R = 72;
+  ctx.fillStyle = '#0038B8';
+  // Triangle 1: up-pointing (vertices at -90°, 30°, 150°)
+  ctx.beginPath();
+  for (let i = 0; i < 3; i++) {
+    const ang = -Math.PI / 2 + i * (2 * Math.PI / 3);
+    const x = cx + R * Math.cos(ang);
+    const y = cy + R * Math.sin(ang);
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.closePath();
+  ctx.fill();
+  // Triangle 2: down-pointing (vertices at 90°, 210°, 330°)
+  ctx.beginPath();
+  for (let i = 0; i < 3; i++) {
+    const ang = Math.PI / 2 + i * (2 * Math.PI / 3);
+    const x = cx + R * Math.cos(ang);
+    const y = cy + R * Math.sin(ang);
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.closePath();
+  ctx.fill();
+  // Inner hexagon in white to cut overlap and form star shape (circumradius 41.6)
+  const Rh = 41.6;
+  ctx.fillStyle = '#FFFFFF';
+  ctx.beginPath();
+  for (let i = 0; i < 6; i++) {
+    const ang = i * (Math.PI / 3);
+    const x = cx + Rh * Math.cos(ang);
+    const y = cy + Rh * Math.sin(ang);
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.closePath();
+  ctx.fill();
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.needsUpdate = true;
+  return tex;
+}
+
+/** Module-level scan bar CSS injection guard — survives re-initialisation. */
+let _mossadScanStyleInjected = false;
+
+// ═════════════════════════════════════════════════════════════════════════
 // PUBLIC API
 // ═════════════════════════════════════════════════════════════════════════
 
@@ -948,7 +1145,8 @@ export function initMatrixRain(element, opts = {}) {
     trailRange     = null,
   } = opts;
 
-  let _activeCharSet = charSet;  // mutable; updated by setCharSet()
+  let _activeCharSet    = charSet;  // mutable; updated by setCharSet()
+  let _charSetLoadSeq   = 0;        // incremented each setCharSet call; stale loads abort when seq mismatches
 
   const _geomParams = {
     speedMin:     speedRange?.[0] ?? 0.8,
@@ -1287,6 +1485,23 @@ export function initMatrixRain(element, opts = {}) {
   let _ccpSloganIdx    = 0;
   let _ccpExtraMeshes  = [];      // flag + Tiananmen panel meshes
 
+  // ── Mossad easter egg state ────────────────────────────────────────────
+  let _mossadActive          = false;
+  let _mossadFadeT           = 0;       // 0 = hidden, 1 = fully visible
+  let _mossadFadeDir         = 0;       // +1 fading in, -1 fading out, 0 stable
+  let _mossadPanels          = [];      // { mesh, canvasTex, az, r, phase, yBase, type }
+  let _mossadFlashHz         = 0.9;
+  let _mossadPeakOpacity     = 0.68;
+  let _mossadScale           = 1.0;
+  let _mossadPanelCount      = 3;       // portrait count 1–3 (flag always added separately)
+  let _mossadOrbitSpeed      = 0.0;
+  let _mossadOrbitAngle      = 0.0;
+  let _mossadRainOverride    = true;
+  let _mossadSaved           = null;    // { colorR/G/B, color2R/G/B, charSet, vignette, aberration }
+  let _mossadSloganIdx       = 0;
+  let _mossadAudioEnabled    = false;
+  let _mossadCounterInterval = null;
+
   // ── Animate ───────────────────────────────────────────────────────────
   const animRef = { id: 0 };
   let prevTs = 0;
@@ -1300,6 +1515,7 @@ export function initMatrixRain(element, opts = {}) {
   // Animation state
   let _frozen         = false;
   let _rampGeneration = 0;
+  let _glitchTimerId  = null;  // setTimeout ID from triggerGlitch; cancelled on destroy
   let _reducedMotion  = false;
   let _savedSpeedMul  = uniforms.uSpeedMul.value;
   let _spawnWaveAnim  = null;  // { startTime, endTime, startFront, endFront, easing } or null
@@ -1395,7 +1611,9 @@ export function initMatrixRain(element, opts = {}) {
       const tw = Math.max(0, Math.min(1, elapsed / duration));
 
       if (state === 'sweeping') {
-        uniforms.uScanPhase.value = elapsed * sweepSpeed;
+        uniforms.uScanPhase.value   = elapsed * sweepSpeed;
+        // Track scan front world Y (median column: aYOff≈0) for the scanline glow
+        uniforms.uScanWorldY.value  = uniforms.uWorldH.value * 0.5 - elapsed * sweepSpeed;
         if (tw >= 1.0) {
           _scanAnim = { state: 'dissolving',
                         startTime: t, endTime: t + dissolveTime,
@@ -1406,6 +1624,7 @@ export function initMatrixRain(element, opts = {}) {
         uniforms.uScanSyncAmt.value = 1 - tw * tw;
         if (tw >= 1.0) {
           uniforms.uScanSyncAmt.value = 0.0;
+          uniforms.uScanWorldY.value  = 999.0;  // park off-screen
           _scanAnim = null;
         }
       }
@@ -1478,11 +1697,40 @@ export function initMatrixRain(element, opts = {}) {
             }
           }
 
-          // ── Force head to worldY for assigned columns past fallback time ──
-          if (slot.colIdx >= 0 && t >= msgRevealFallbackT) {
-            const newYOff = _yOffForHead(colABuf, colBBuf, nRows, slot.colIdx, _msgWorldYs[slot.lineIdx], t);
-            for (let r = 0; r < nRows; r++) colBBuf[(slot.colIdx * nRows + r) * 4] = newYOff;
-            colBDirty = true;
+          // ── Force-lock assigned columns that haven't locked by fallback time ──
+          // Natural column heads that already passed through targetY locked above via the
+          // proximity check.  Any remaining slots are directly locked here so all
+          // characters appear during the hold phase.
+          // cp-wrap ensures the lock-head row index is in range (avoids invisible glyph bug).
+          if (slot.colIdx >= 0 && t >= msgRevealFallbackT && !slot.fallbackTriggered && lockData) {
+            slot.fallbackTriggered = true;
+            const tgtY      = _msgWorldYs[slot.lineIdx];
+            const base0     = slot.colIdx * nRows * 4;
+            const sc0       = colBBuf[base0 + 1];
+            const cs0       = uniforms.uCellH.value * sc0 * 1.85;
+            const headRange = nRows * cs0;
+            const cp0       = colBBuf[base0] + uniforms.uWorldH.value * 0.5 - tgtY;
+            if (cp0 < 0 || cp0 >= headRange) {
+              const cpW  = ((cp0 % headRange) + headRange) % headRange;
+              const yOff = tgtY - uniforms.uWorldH.value * 0.5 + cpW;
+              for (let r = 0; r < nRows; r++) colBBuf[(slot.colIdx * nRows + r) * 4] = yOff;
+              colBDirty = true;
+            }
+            uniforms.uMsgRevealActive.value = 1.0;
+            _writeLockRows(lockData, nRows, slot.colIdx, tgtY, slot.glyph, t, 0);
+            lockDirty = true;
+            slot.claimed = true;
+            _msgClaimedCount++;
+            _msgLockedCols.add(slot.colIdx);
+            _msgAssigned.delete(slot.colIdx);
+            // Clear other columns assigned to the same slot
+            for (const [oc, os] of [..._msgAssigned]) {
+              if (os === si) {
+                _writeLockRows(lockData, nRows, oc, -9999, -1, 0, 0);
+                _msgAssigned.delete(oc);
+                lockDirty = true;
+              }
+            }
           }
         }
 
@@ -1589,6 +1837,36 @@ export function initMatrixRain(element, opts = {}) {
 
         // Transition to holding when all slots claimed or timer expired
         if (_msgClaimedCount >= _msgSlots.length || t >= msgRevealEnd) {
+          // Force-lock any slots that slipped through (e.g. assigned after fallback tick,
+          // or fallback fired but slot was claimed concurrently).
+          if (_msgAssigned.size > 0 && lockData) {
+            let lkDirty = false, cbDirty = false;
+            for (const [colIdx, slotIdx] of [..._msgAssigned]) {
+              const slt = _msgSlots[slotIdx];
+              if (slt.claimed) { _msgAssigned.delete(colIdx); continue; }
+              const tgtY      = _msgWorldYs[slt.lineIdx];
+              const base0     = colIdx * nRows * 4;
+              const sc0       = colBBuf[base0 + 1];
+              const cs0       = uniforms.uCellH.value * sc0 * 1.85;
+              const headRange = nRows * cs0;
+              const cp0       = colBBuf[base0] + uniforms.uWorldH.value * 0.5 - tgtY;
+              if (cp0 < 0 || cp0 >= headRange) {
+                const cpW  = ((cp0 % headRange) + headRange) % headRange;
+                const yOff = tgtY - uniforms.uWorldH.value * 0.5 + cpW;
+                for (let r = 0; r < nRows; r++) colBBuf[(colIdx * nRows + r) * 4] = yOff;
+                cbDirty = true;
+              }
+              uniforms.uMsgRevealActive.value = 1.0;
+              _writeLockRows(lockData, nRows, colIdx, tgtY, slt.glyph, t, 0);
+              lkDirty = true;
+              slt.claimed = true;
+              _msgClaimedCount++;
+              _msgLockedCols.add(colIdx);
+              _msgAssigned.delete(colIdx);
+            }
+            if (lkDirty && lockAttr) lockAttr.needsUpdate = true;
+            if (cbDirty && colBAttr) colBAttr.needsUpdate = true;
+          }
           msgState  = 'holding';
           msgHoldEnd = t + msgHoldDuration;
         }
@@ -1615,9 +1893,7 @@ export function initMatrixRain(element, opts = {}) {
         }
 
       } else if (msgState === 'fading') {
-        const fadeDur = 1.0 / msgFadeSpeed;
-        const elapsed = t - msgFadeStart;
-        const fadeT   = Math.min(1.0, elapsed / fadeDur);
+        const fadeT = Math.min(1.0, (t - msgFadeStart) * msgFadeSpeed);
 
         // Fade locked-head glyphs to invisible via the shader uniform (1 → 0)
         uniforms.uMsgRevealProgress.value = 1.0 - fadeT;
@@ -1695,6 +1971,37 @@ export function initMatrixRain(element, opts = {}) {
       for (const m of _ccpExtraMeshes) {
         // Extras (flag, Tiananmen) have fixed world orientation set at init — no billboard
         m.mesh.material.opacity = m.opacityFn(t, _ccpFadeT);
+      }
+    }
+
+    // ── Mossad mode panel animation ───────────────────────────────────────
+    if (_mossadFadeDir !== 0 || _mossadPanels.length > 0) {
+      if (_mossadFadeDir !== 0) {
+        const speed = _mossadFadeDir > 0 ? (1 / 0.8) : (1 / 0.5);
+        _mossadFadeT = Math.max(0, Math.min(1, _mossadFadeT + _mossadFadeDir * dt * speed));
+        if (_mossadFadeT <= 0 && _mossadFadeDir < 0) {
+          _destroyMossadPanels();
+          _mossadFadeDir = 0;
+        }
+        if (_mossadFadeT >= 1) _mossadFadeDir = 0;
+      }
+      _mossadOrbitAngle += _mossadOrbitSpeed * dt;
+      for (let i = 0; i < _mossadPanels.length; i++) {
+        const p = _mossadPanels[i];
+        if (p.type === 'portrait') {
+          // Portraits orbit and billboard
+          const az = p.az + _mossadOrbitAngle;
+          const y  = p.yBase + Math.sin(t * 0.35 + p.phase) * 0.4;
+          p.mesh.position.set(Math.sin(az) * p.r, y, -Math.cos(az) * p.r);
+          const flash = 0.5 + 0.5 * Math.sin(t * _mossadFlashHz * Math.PI * 2 + p.phase);
+          p.mesh.material.opacity = _mossadPeakOpacity * flash * _mossadFadeT;
+        } else {
+          // Flag: fixed azimuth (no orbit), faces scene centre (no camera tracking)
+          const y = p.yBase + Math.sin(t * 0.35 + p.phase) * 0.4;
+          p.mesh.position.set(Math.sin(p.az) * p.r, y, -Math.cos(p.az) * p.r);
+          p.mesh.lookAt(0, y, 0);
+          p.mesh.material.opacity = _mossadPeakOpacity * _mossadFadeT;
+        }
       }
     }
   }
@@ -1795,7 +2102,7 @@ export function initMatrixRain(element, opts = {}) {
       }
 
       if (!externalLoop) ro.observe(element);
-      if (preset) handle?.applyPreset(preset);
+      if (preset) handle.applyPreset(preset);
       if (opts.bootSweep) {
         handle.triggerScanlineSweep(
           typeof opts.bootSweep === 'object' ? opts.bootSweep : {}
@@ -1833,12 +2140,11 @@ export function initMatrixRain(element, opts = {}) {
   // ── Message lock-state helpers ────────────────────────────────────────
   // JS-side replication of the GPU h2 hash (used for density culling check).
   function _h2js(vx, vy) {
-    function fract(x) { return x - Math.floor(x); }
-    let sx = fract(vx * 0.1031);
-    let sy = fract(vy * 0.1030);
+    let sx = _fract(vx * 0.1031);
+    let sy = _fract(vy * 0.1030);
     const d = sx * (sy + 33.33) + sy * (sx + 33.33);
     sx += d; sy += d;
-    return fract((sx + sy) * sx);
+    return _fract((sx + sy) * sx);
   }
 
   // Write lock data to all N_ROWS entries of column c in the aLockState buffer.
@@ -1967,12 +2273,26 @@ export function initMatrixRain(element, opts = {}) {
   // ── State object ──────────────────────────────────────────────────────
   // _cleanup captures closure vars for destroyMatrixRain
   function _cleanup() {
+    // Abort any in-flight speed ramp RAF chain and glitch timer before tearing down.
+    ++_rampGeneration;
+    if (_glitchTimerId !== null) { clearTimeout(_glitchTimerId); _glitchTimerId = null; }
     currentRainNodes?.dispose();
     crtHandle?.destroy?.();
     _clearAllLocks(true);
     clearTimeout(_ccpSloganTimer);
     _destroyCCPPanels();
     _destroyCCPExtras();
+    // Mossad cleanup
+    _destroyMossadPanels();
+    clearInterval(_mossadCounterInterval);
+    _mossadCounterInterval = null;
+    clearTimeout(_mossadSloganTimer);
+    _mossadSloganTimer = null;
+    // Remove Mossad DOM nodes if present
+    for (const id of ['mossad-hud', 'mossad-tint', 'mossad-scan-a', 'mossad-scan-b']) {
+      const el = document.getElementById(id);
+      if (el) el.remove();
+    }
   }
   const s = { renderer, ro, animRef, geom, material, atlasTex, dummyRT, uniforms, mesh, _cleanup };
   _state.set(element, s);
@@ -2125,20 +2445,124 @@ export function initMatrixRain(element, opts = {}) {
     _ccpExtraMeshes = [];
   }
 
+  // ── Mossad panel helpers ──────────────────────────────────────────────
+  // Uses THREE.Sprite (like CCP panels) to stay within WebGPU's vertex buffer limits.
+  function _initMossadPanels() {
+    if (_mossadPanels.length > 0) return;
+    const count = Math.min(_mossadPanelCount, 3);
+    for (let i = 0; i < count; i++) {
+      const pose      = _MOSSAD_POSES[i];
+      const artStr    = MOSSAD_ART[i % MOSSAD_ART.length];
+      const canvasTex = buildMossadPortraitTexture(artStr);
+      const panelW    = 16 * _mossadScale;
+      const panelH    = panelW * (512 / 768);
+      const sprite    = new THREE.Sprite(new THREE.SpriteMaterial({
+        map:         canvasTex,
+        transparent: true,
+        opacity:     0,
+        depthWrite:  false,
+        blending:    THREE.AdditiveBlending,
+      }));
+      sprite.scale.set(panelW, panelH, 1);
+      scene.add(sprite);
+      _mossadPanels.push({
+        mesh: sprite, canvasTex,
+        az:    pose.az,
+        r:     pose.r,
+        phase: pose.phase,
+        yBase: pose.yOffset,
+        type:  'portrait',
+      });
+    }
+    // Flag panel — always added, always uses _MOSSAD_POSES[3]
+    // Uses Mesh (not Sprite) so it stays fixed in world space without billboarding.
+    {
+      const pose      = _MOSSAD_POSES[3];
+      const canvasTex = buildIsraeliFlag();
+      const panelW    = 14 * _mossadScale;
+      const panelH    = panelW * (427 / 640);
+      const mesh      = new THREE.Mesh(
+        new THREE.PlaneGeometry(panelW, panelH),
+        new THREE.MeshBasicMaterial({
+          map:         canvasTex,
+          transparent: true,
+          opacity:     0,
+          depthWrite:  false,
+          side:        THREE.DoubleSide,
+          blending:    THREE.NormalBlending,
+        })
+      );
+      // Orient to face scene centre from its fixed azimuth
+      const px = Math.sin(pose.az) * pose.r;
+      const pz = -Math.cos(pose.az) * pose.r;
+      mesh.position.set(px, pose.yOffset, pz);
+      mesh.lookAt(0, pose.yOffset, 0);
+      scene.add(mesh);
+      _mossadPanels.push({
+        mesh, canvasTex,
+        az:    pose.az,
+        r:     pose.r,
+        phase: pose.phase,
+        yBase: pose.yOffset,
+        type:  'flag',
+      });
+    }
+  }
+
+  function _destroyMossadPanels() {
+    for (const p of _mossadPanels) {
+      scene.remove(p.mesh);
+      p.mesh.material.dispose();
+      p.canvasTex.dispose();
+    }
+    _mossadPanels = [];
+  }
+
+  // ── Mossad slogan cycling ─────────────────────────────────────────────
+  let _mossadSloganTimer = null;
+
+  function _startMossadSlogans(msgOpts = {}) {
+    const rv = msgOpts.revealDuration ?? 1.2;
+    const hd = msgOpts.holdDuration   ?? 3.0;
+    const fd = msgOpts.fadeDuration   ?? 0.8;
+    _mossadSloganIdx = 0;
+    function showNext() {
+      if (!_mossadActive) return;
+      handle.showMessage(MOSSAD_SLOGANS[_mossadSloganIdx % MOSSAD_SLOGANS.length], {
+        revealDuration: rv,
+        holdDuration:   hd,
+        fadeDuration:   fd,
+        boost:          msgOpts.boost       ?? 4.0,
+        tolMultMin:     msgOpts.tolMultMin  ?? undefined,
+        tolMultMax:     msgOpts.tolMultMax  ?? undefined,
+        tolMinScale:    msgOpts.tolMinScale ?? undefined,
+      });
+      _mossadSloganIdx++;
+      _mossadSloganTimer = setTimeout(showNext, (rv + hd + fd + 1.5) * 1000);
+    }
+    _mossadSloganTimer = setTimeout(showNext, 2500);
+  }
+
   // ── CCP slogan cycling ────────────────────────────────────────────────
-  function _startSlogans() {
+  function _startSlogans(msgOpts = {}) {
     if (!_ccpSloganActive) return;
+    const rv = msgOpts.revealDuration ?? 1.2;
+    const hd = msgOpts.holdDuration   ?? 3.0;
+    const fd = msgOpts.fadeDuration   ?? 0.8;
     _ccpSloganIdx = 0;
     function showNext() {
       if (!_ccpActive || !_ccpSloganActive) return;
       handle.showMessage(CCP_SLOGANS[_ccpSloganIdx % CCP_SLOGANS.length], {
-        revealDuration: 1.2,
-        holdDuration:   3.0,
-        fadeDuration:   0.8,
-        boost:          4.0,
+        revealDuration: rv,
+        holdDuration:   hd,
+        fadeDuration:   fd,
+        boost:          msgOpts.boost       ?? 4.0,
+        tolMultMin:     msgOpts.tolMultMin  ?? undefined,
+        tolMultMax:     msgOpts.tolMultMax  ?? undefined,
+        tolMinScale:    msgOpts.tolMinScale ?? undefined,
       });
       _ccpSloganIdx++;
-      _ccpSloganTimer = setTimeout(showNext, (1.2 + 3.0 + 0.8 + 1.5) * 1000);
+      _ccpSloganTimer = setTimeout(showNext, (rv + hd + fd + 1.5) * 1000);
     }
     _ccpSloganTimer = setTimeout(showNext, 2500);
   }
@@ -2326,6 +2750,7 @@ export function initMatrixRain(element, opts = {}) {
       uniforms.uBootEnabled.value = on ? 1.0 : 0.0;
       if (on) uniforms.uBootStart.value = uniforms.uTime.value;
     },
+    setDeepTrailDark(v)   { uniforms.uDeepTrailDark.value  = Math.max(0, Math.min(1, v)); },
     setStability(v)       { uniforms.uStability.value      = v; },
     setHoldMult(v)        { uniforms.uHoldMult.value       = v; },
     setBurstGlyphRate(v)  { uniforms.uBurstGlyphRate.value = v; },
@@ -2390,6 +2815,37 @@ export function initMatrixRain(element, opts = {}) {
     setHueDriftRate(v)    { uniforms.uHueDriftRate.value     = Math.max(0, Math.min(0.5, v)); },
     setHueDriftAmt(v)     { uniforms.uHueDriftAmt.value      = Math.max(0, Math.min(45, v)); },
     setHeadOvershootAmt(v){ uniforms.uHeadOvershootAmt.value = Math.max(0, Math.min(3, v)); },
+    // Category C column behaviour effects
+    setGravityStrength(v) { uniforms.uGravityStrength.value = Math.max(0, Math.min(1.5, v)); },
+    // Rate minimum is 0.1 Hz; use setGravityStrength(0) to turn the effect off (amplitude-gated).
+    setGravityRate(v)     { uniforms.uGravityRate.value = Math.max(0.1, Math.min(0.5, v)); },
+    setGravity(strength, rate) {
+      this.setGravityStrength(strength);
+      if (rate !== undefined) this.setGravityRate(rate);
+    },
+    // NOTE: uPerspectiveWorldX is computed from camera.position.x at call time.
+    // If column-follow mode (uColumnOffset) is later engaged, the visual rain center
+    // shifts but uPerspectiveWorldX stays fixed — recall setPerspective() to re-center.
+    setPerspective(strength, cx = 0.5, cy = 0.5) {
+      const depth      = 5.75;   // mean shell radius; approximate mid-range
+      const halfFovTan = Math.tan((camera.fov * Math.PI / 180) / 2);
+      const fullW      = 2 * halfFovTan * camera.aspect * depth;
+      uniforms.uPerspectiveWorldX.value   = (cx - 0.5) * fullW + camera.position.x;
+      uniforms.uPerspectiveStrength.value = Math.max(0, Math.min(1, strength));
+    },
+    setMorseAmt(v)  { uniforms.uMorseAmt.value  = Math.max(0, Math.min(1, v)); },
+    setMorseRate(v) { uniforms.uMorseRate.value = Math.max(0.5, Math.min(4.0, v)); },
+    /** @deprecated Use setMorseAmt(v) and setMorseRate(v) instead. */
+    setMorseFlicker(enabled, rate, amt) {
+      if (amt !== undefined)       uniforms.uMorseAmt.value  = enabled ? Math.max(0, Math.min(1, amt)) : 0;
+      else if (enabled === false)  uniforms.uMorseAmt.value  = 0;
+      if (rate !== undefined)      uniforms.uMorseRate.value = Math.max(0.5, Math.min(4.0, rate));
+    },
+    setSpiral(amt, rate, pitch) {
+      uniforms.uSpiralAmt.value = Math.max(0, Math.min(1, amt));
+      if (rate  !== undefined) uniforms.uSpiralRate.value  = Math.max(0, Math.min(0.5, rate));
+      if (pitch !== undefined) uniforms.uSpiralPitch.value = Math.max(0, Math.min(Math.PI * 2, pitch));
+    },
     setEntrainment(amt, speed = 0.25, crests = 3) {
       uniforms.uEntrainAmt.value    = Math.max(0, Math.min(0.8, amt));
       uniforms.uEntrainSpeed.value  = speed;
@@ -2493,9 +2949,10 @@ export function initMatrixRain(element, opts = {}) {
         ?? currentRainNodes?.passBuilders?._holoBuild
         ?? pp_rainNodes?.passBuilders?._holoBuild;
       if (!b?.uGlitchAmt) return () => {};
+      if (_glitchTimerId !== null) clearTimeout(_glitchTimerId);
       b.uGlitchAmt.value = intensity;
-      const timerId = setTimeout(() => { b.uGlitchAmt.value = 0.0; }, duration * 1000);
-      return () => { clearTimeout(timerId); b.uGlitchAmt.value = 0.0; };
+      _glitchTimerId = setTimeout(() => { _glitchTimerId = null; b.uGlitchAmt.value = 0.0; }, duration * 1000);
+      return () => { if (_glitchTimerId !== null) { clearTimeout(_glitchTimerId); _glitchTimerId = null; } b.uGlitchAmt.value = 0.0; };
     },
 
     /**
@@ -2547,19 +3004,31 @@ export function initMatrixRain(element, opts = {}) {
      * @param {string} name  Key from CHAR_SETS: 'matrixcode'|'matrix1999'|'latin'|'ascii'
      */
     setCharSet(name) {
-      _currentCharSet = name;  // track for CCP save/restore
+      _currentCharSet = name;  // track for CCP save/restore (set synchronously)
       const descriptor = CHAR_SETS[name];
       if (!descriptor) {
         console.warn(`matrix-rain: unknown charSet '${name}'. Valid keys: ${Object.keys(CHAR_SETS).join(', ')}`);
         return;
       }
+      // Increment sequence counter so any previously-in-flight load is ignored when
+      // it completes — prevents both out-of-order atlas swaps and double-dispose.
+      const seq = ++_charSetLoadSeq;
       new THREE.TextureLoader().load(descriptor.path, (newTex) => {
+        if (seq !== _charSetLoadSeq) { newTex.dispose(); return; }  // stale load
+
         newTex.flipY           = false;
         newTex.minFilter       = THREE.LinearFilter;
         newTex.magFilter       = THREE.LinearFilter;
         newTex.colorSpace      = THREE.LinearSRGBColorSpace;
         newTex.generateMipmaps = false;
         newTex.needsUpdate     = true;
+
+        // Apply LUT before building material so the new material sees the correct LUT.
+        uniforms.uGlyphCount.value = descriptor.glyphCount;
+        uniforms.uAtlasGridW.value = descriptor.gridW;
+        uniforms.uAtlasGridH.value = descriptor.gridH;
+        applyGlyphWeightLUT(name, descriptor.glyphCount, uniforms);
+        uniforms.uAtlasMTSDF.value = (name === 'matrixcode') ? 0.0 : 1.0;
 
         // Rebuild the glyph material with the new texture and update state
         const newMaterial = buildGlyphMaterial(uniforms, newTex);
@@ -2569,11 +3038,6 @@ export function initMatrixRain(element, opts = {}) {
         s.atlasTex  = newTex;
         s.material  = newMaterial;
 
-        uniforms.uGlyphCount.value = descriptor.glyphCount;
-        uniforms.uAtlasGridW.value = descriptor.gridW;
-        uniforms.uAtlasGridH.value = descriptor.gridH;
-        applyGlyphWeightLUT(name, descriptor.glyphCount, uniforms);
-        uniforms.uAtlasMTSDF.value = (name === 'matrixcode') ? 0.0 : 1.0;
         _activeCharSet = name;
       });
     },
@@ -2645,6 +3109,146 @@ export function initMatrixRain(element, opts = {}) {
         );
       }
       if (p.charSet         !== undefined) handle.setCharSet(p.charSet);
+    },
+
+    // ── Preset save / load (localStorage) ────────────────────────────────
+    /**
+     * Snapshot current settings to localStorage under `matrix-rain-preset-{name}`.
+     * @param {string} name  Arbitrary label (e.g. 'myPreset')
+     */
+    savePreset(name) {
+      if (!name) { console.warn('matrix-rain: savePreset() requires a name'); return; }
+      const u = uniforms;
+      const snap = {
+        // Color / opacity
+        color:            '#' + new THREE.Color(...u.uColor.value.toArray()).getHexString(),
+        opacity:          u.uGlobalAlpha.value,
+        brightness:       u.uBrightness.value,
+        deepTrailDark:    u.uDeepTrailDark.value,
+        // Glyph geometry
+        depth:            u.uDepth.value,
+        normalStrength:   u.uNormalStrength.value,
+        cellW:            u.uCellW.value,
+        cellH:            u.uCellH.value,
+        // Speed / density
+        speedMin:         _geomParams.speedMin,
+        speedMax:         _geomParams.speedMax,
+        trailMin:         _geomParams.trailMin,
+        trailMax:         _geomParams.trailMax,
+        density:          u.uDensity.value,
+        reverseChance:    u.uReverseChance?.value ?? 0,
+        breathAmt:        u.uBreathAmt.value,
+        waveAmt:          u.uWaveAmt.value,
+        waveSpeed:        u.uWaveSpeed.value,
+        drip:             u.uDripAmt.value,
+        edgeGlow:         u.uEdgeGlow.value,
+        zRotation:        u.uZRotRange.value * (180 / Math.PI),
+        // FX
+        filmGrain:        u.uGrainAmt.value,
+        depthTint:        u.uDepthTintAmt.value,
+        stability:        u.uStability.value,
+        holdMult:         u.uHoldMult.value,
+        burstGlyphRate:   u.uBurstGlyphRate.value,
+        weightedGlyphs:   u.uWeightedGlyphs.value,
+        hueRange:         u.uHueRange.value,
+        burstProb:        u.uBurstProb.value,
+        contagion:        u.uContagionStrength.value,
+        // Post-processing (rain mode only — no-ops in other modes)
+        bloomThreshold:   bloomThreshold,
+        bloomStrength:    _ppState.bloomStrength,
+        phosphorDecay:    phosphorDecay.value,
+        heat:             _ppState.heatAmt,
+        soften:           _ppState.softenStrength,
+        streaks:          _ppState.streakAmt,
+        holoAberration:   _ppState.aberration,
+        vignette:         _ppState.vignette,
+        scanlines:        _ppState.scanlines,
+        // Zone biasing
+        zoneSpeedInner:   u.uZoneSpeedInner.value,
+        zoneSpeedOuter:   u.uZoneSpeedOuter.value,
+        zoneBrightInner:  u.uZoneBrightInner.value,
+        zoneBrightOuter:  u.uZoneBrightOuter.value,
+        // Charset
+        charSet:          _activeCharSet,
+      };
+      try {
+        localStorage.setItem(`matrix-rain-preset-${name}`, JSON.stringify(snap));
+      } catch (e) {
+        console.warn('matrix-rain: savePreset() localStorage write failed:', e);
+      }
+    },
+
+    /**
+     * Restore a previously saved preset from localStorage.
+     * @param {string} name
+     */
+    loadPreset(name) {
+      let snap;
+      try {
+        const raw = localStorage.getItem(`matrix-rain-preset-${name}`);
+        if (!raw) { console.warn(`matrix-rain: no saved preset '${name}'`); return; }
+        snap = JSON.parse(raw);
+      } catch (e) {
+        console.warn('matrix-rain: loadPreset() failed:', e);
+        return;
+      }
+      if (snap.color           !== undefined) handle.setColor(snap.color);
+      if (snap.opacity         !== undefined) handle.setOpacity(snap.opacity);
+      if (snap.brightness      !== undefined) handle.setBrightness(snap.brightness);
+      if (snap.deepTrailDark   !== undefined) handle.setDeepTrailDark(snap.deepTrailDark);
+      if (snap.depth           !== undefined) handle.setDepth(snap.depth);
+      if (snap.normalStrength  !== undefined) handle.setNormalStrength(snap.normalStrength);
+      if (snap.cellW           !== undefined) handle.setCellSize(snap.cellW, snap.cellH ?? uniforms.uCellH.value);
+      if (snap.speedMin        !== undefined) handle.setSpeedRange(snap.speedMin, snap.speedMax ?? _geomParams.speedMax);
+      if (snap.trailMin        !== undefined) handle.setTrailRange(snap.trailMin, snap.trailMax ?? _geomParams.trailMax);
+      if (snap.density         !== undefined) handle.setDensity(snap.density);
+      if (snap.reverseChance   !== undefined) handle.setReverseChance(snap.reverseChance);
+      if (snap.breathAmt       !== undefined) handle.setBreathAmt(snap.breathAmt);
+      if (snap.waveAmt         !== undefined) handle.setWaveAmt(snap.waveAmt);
+      if (snap.waveSpeed       !== undefined) handle.setWaveSpeed(snap.waveSpeed);
+      if (snap.drip            !== undefined) handle.setDrip(snap.drip);
+      if (snap.edgeGlow        !== undefined) handle.setEdgeGlow(snap.edgeGlow);
+      if (snap.zRotation       !== undefined) handle.setZRotation(snap.zRotation);
+      if (snap.filmGrain       !== undefined) handle.setFilmGrain(snap.filmGrain);
+      if (snap.depthTint       !== undefined) handle.setDepthTint(snap.depthTint);
+      if (snap.stability       !== undefined) handle.setStability(snap.stability);
+      if (snap.holdMult        !== undefined) handle.setHoldMult(snap.holdMult);
+      if (snap.burstGlyphRate  !== undefined) handle.setBurstGlyphRate(snap.burstGlyphRate);
+      if (snap.weightedGlyphs  !== undefined) handle.setWeightedGlyphs(snap.weightedGlyphs);
+      if (snap.hueRange        !== undefined) handle.setColorBlend(snap.hueRange);
+      if (snap.burstProb       !== undefined) handle.setBurstProb(snap.burstProb);
+      if (snap.contagion       !== undefined) handle.setContagion(snap.contagion);
+      if (snap.bloomThreshold  !== undefined) handle.setBloomThreshold(snap.bloomThreshold);
+      if (snap.bloomStrength   !== undefined) handle.setBloomStrength(snap.bloomStrength);
+      if (snap.phosphorDecay   !== undefined) handle.setPhosphorDecay(snap.phosphorDecay);
+      if (snap.heat            !== undefined) handle.setHeat(snap.heat > 0, snap.heat);
+      if (snap.soften          !== undefined) handle.setSoften(snap.soften > 0, snap.soften);
+      if (snap.streaks         !== undefined) handle.setStreaks(snap.streaks > 0, snap.streaks);
+      if (snap.holoAberration  !== undefined) handle.setHoloAberration(snap.holoAberration);
+      if (snap.vignette        !== undefined) handle.setVignette(snap.vignette);
+      if (snap.scanlines       !== undefined) handle.setScanlines(snap.scanlines);
+      if (snap.zoneSpeedInner  !== undefined) handle.setZoneSpeed(snap.zoneSpeedInner, snap.zoneSpeedOuter ?? 1.0);
+      if (snap.zoneBrightInner !== undefined) handle.setZoneBrightness(snap.zoneBrightInner, snap.zoneBrightOuter ?? 1.0);
+      if (snap.charSet         !== undefined) handle.setCharSet(snap.charSet);
+    },
+
+    /** @returns {string[]} Names of all localStorage presets saved for this page */
+    listSavedPresets() {
+      const prefix = 'matrix-rain-preset-';
+      const names = [];
+      try {
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (k && k.startsWith(prefix)) names.push(k.slice(prefix.length));
+        }
+      } catch (e) { /* localStorage unavailable */ }
+      return names.sort();
+    },
+
+    /** @param {string} name  Remove a saved preset */
+    deleteSavedPreset(name) {
+      try { localStorage.removeItem(`matrix-rain-preset-${name}`); }
+      catch (e) { console.warn('matrix-rain: deleteSavedPreset() failed:', e); }
     },
 
     // ── Message reveal API ────────────────────────────────────────────────
@@ -2796,6 +3400,7 @@ export function initMatrixRain(element, opts = {}) {
             colIdx:  -1,
             lineIdx: li,
             worldY:  lineWorldY,
+            fallbackTriggered: false,
           });
           if (isSpace) _msgClaimedCount++;
           curPx += advances[i];
@@ -2921,6 +3526,7 @@ export function initMatrixRain(element, opts = {}) {
     },
 
     setMsgBandSuppress(on) { uniforms.uMsgBandSuppress.value = on ? 1.0 : 0.0; },
+    setMsgSettleSharpness(v) { uniforms.uMsgSettleSharpness.value = Math.max(0.5, Math.min(20, v)); },
 
     // ── externalLoop API ──────────────────────────────────────────────────
     /**
@@ -3071,7 +3677,7 @@ export function initMatrixRain(element, opts = {}) {
     // ── CCP easter egg handle methods ──────────────────────────────────────
 
     /** Activate (true) or deactivate (false) CCP mode. */
-    setCCPMode(on) {
+    setCCPMode(on, msgOpts = {}) {
       _ccpActive = on;
       if (on) {
         _initCCPPanels();
@@ -3104,7 +3710,7 @@ export function initMatrixRain(element, opts = {}) {
           handle.setHoloAberration(0.012);
           handle.triggerSpeedRamp(3.0, 1.2);
         }
-        _startSlogans();
+        _startSlogans(msgOpts);
       } else {
         _ccpFadeDir = -1;
         clearTimeout(_ccpSloganTimer);
@@ -3149,6 +3755,126 @@ export function initMatrixRain(element, opts = {}) {
     setCCPSlogans(on) {
       _ccpSloganActive = !!on;
       if (!on) { clearTimeout(_ccpSloganTimer); _ccpSloganTimer = null; }
+    },
+
+    // ── Mossad easter egg handle methods ───────────────────────────────────
+
+    /** Activate (true) or deactivate (false) Mossad mode. */
+    setMossadMode(on, msgOpts = {}) {
+      _mossadActive = on;
+      if (on) {
+        _initMossadPanels();
+        _mossadFadeDir = 1;
+        // Save current rain state and apply override
+        if (_mossadRainOverride && !_mossadSaved) {
+          _mossadSaved = {
+            colorR:     uniforms.uColor.value.x,
+            colorG:     uniforms.uColor.value.y,
+            colorB:     uniforms.uColor.value.z,
+            color2R:    uniforms.uColor2.value.x,
+            color2G:    uniforms.uColor2.value.y,
+            color2B:    uniforms.uColor2.value.z,
+            charSet:    _currentCharSet,
+            vignette:   _ppState.vignette,
+            aberration: _ppState.aberration,
+          };
+          handle.setColor('#0038B8');
+          handle.setColor2('#FFFFFF');
+          handle.setCharSet('hebrew');
+          handle.setVignette(0.75);
+          handle.setHoloAberration(0.008);
+        }
+        _startMossadSlogans(msgOpts);
+        // Inject scan bar style once
+        if (!_mossadScanStyleInjected) {
+          const style = document.createElement('style');
+          style.textContent = `
+            @keyframes mossadScan { from { top: 100% } to { top: -2px } }
+            #mossad-scan-a, #mossad-scan-b {
+              position: fixed; left: 0; right: 0; height: 2px;
+              background: rgba(126,179,255,0.15); pointer-events: none; z-index: 9991;
+              animation: mossadScan 3.5s linear infinite;
+            }
+            #mossad-scan-b { animation-delay: -1.75s; }
+          `;
+          document.head.appendChild(style);
+          _mossadScanStyleInjected = true;
+        }
+      } else {
+        _mossadFadeDir = -1;
+        clearTimeout(_mossadSloganTimer);
+        _mossadSloganTimer = null;
+        clearInterval(_mossadCounterInterval);
+        _mossadCounterInterval = null;
+        if (_mossadSaved) {
+          handle.setColor(toHex(_mossadSaved.colorR, _mossadSaved.colorG, _mossadSaved.colorB));
+          handle.setColor2(toHex(_mossadSaved.color2R, _mossadSaved.color2G, _mossadSaved.color2B));
+          handle.setCharSet(_mossadSaved.charSet);
+          handle.setVignette(_mossadSaved.vignette);
+          handle.setHoloAberration(_mossadSaved.aberration);
+          _mossadSaved = null;
+        }
+      }
+    },
+
+    /** Portrait flash frequency 0.1–4 Hz (default 0.9). */
+    setMossadFlashRate(hz) { _mossadFlashHz = Math.max(0.1, Math.min(4, hz)); },
+
+    /** Peak opacity 0–1 (default 0.68). */
+    setMossadOpacity(v) { _mossadPeakOpacity = Math.max(0, Math.min(1, v)); },
+
+    /** Panel size multiplier 0.5–3 (default 1.0). Recreates panels if active. */
+    setMossadScale(v) {
+      _mossadScale = Math.max(0.5, Math.min(3, v));
+      if (_mossadActive) { _destroyMossadPanels(); _initMossadPanels(); }
+    },
+
+    /** Portrait count 1–3 (default 3); flag always added separately. Recreates panels if active. */
+    setMossadPanelCount(n) {
+      _mossadPanelCount = Math.max(1, Math.min(3, Math.round(n)));
+      if (_mossadActive) { _destroyMossadPanels(); _initMossadPanels(); }
+    },
+
+    /** Azimuthal orbit speed rad/s (default 0). */
+    setMossadOrbitSpeed(v) { _mossadOrbitSpeed = v; },
+
+    /** Enable (true) or disable (false) Hava Nagila audio. Actual playback managed by the host page. */
+    setMossadAudioEnabled(on) { _mossadAudioEnabled = !!on; },
+
+    /**
+     * Toggle rain colour/charset override.
+     * If true and mode is active, applies immediately.
+     * If false and mode is active, restores saved rain state.
+     */
+    setMossadRainOverride(v) {
+      _mossadRainOverride = !!v;
+      if (_mossadActive) {
+        if (_mossadRainOverride && !_mossadSaved) {
+          _mossadSaved = {
+            colorR:     uniforms.uColor.value.x,
+            colorG:     uniforms.uColor.value.y,
+            colorB:     uniforms.uColor.value.z,
+            color2R:    uniforms.uColor2.value.x,
+            color2G:    uniforms.uColor2.value.y,
+            color2B:    uniforms.uColor2.value.z,
+            charSet:    _currentCharSet,
+            vignette:   _ppState.vignette,
+            aberration: _ppState.aberration,
+          };
+          handle.setColor('#0038B8');
+          handle.setColor2('#FFFFFF');
+          handle.setCharSet('hebrew');
+          handle.setVignette(0.75);
+          handle.setHoloAberration(0.008);
+        } else if (!_mossadRainOverride && _mossadSaved) {
+          handle.setColor(toHex(_mossadSaved.colorR, _mossadSaved.colorG, _mossadSaved.colorB));
+          handle.setColor2(toHex(_mossadSaved.color2R, _mossadSaved.color2G, _mossadSaved.color2B));
+          handle.setCharSet(_mossadSaved.charSet);
+          handle.setVignette(_mossadSaved.vignette);
+          handle.setHoloAberration(_mossadSaved.aberration);
+          _mossadSaved = null;
+        }
+      }
     },
   };
   return handle;

@@ -151,11 +151,21 @@ All items go in `specs/` before implementation.
   - **Change 5 — Spawn Wave**: `aSpawnTheta` attribute (normalised angular position [0,1]); `uSpawnWaveFront` uniform (default 2.0 = all active); `spawnGatePasses` gate in density `If()` (isLocked/isSpawnActive bypass); `_spawnWaveAnim` state; tick animation with easing; `spawnWave({duration,easing,startAngle})`, `despawnWave({duration,easing})`, `setSpawnWaveFront(v)` handle methods
   - **Files**: `matrix-rain-tsl.js`, `matrix-rain-webgpu.js`
 
-- [ ] Tests — `tests/` for any pure-JS logic extracted to a `matrix-rain-math.js`
+- [x] **Code review fixes** — 8 bugs/issues addressed; unit test suite added
+  - `matrix-rain-tsl.js`: fixed duplicate `const lockAge` declaration (SyntaxError); hoisted `_fract()` to module scope (GC pressure reduction)
+  - `matrix-rain-webgpu.js`: fixed `setCharSet` async race condition (load-seq guard); fixed `triggerGlitch` timer leak on destroy (`_glitchTimerId` stored + cancelled in `_cleanup()`); fixed `triggerSpeedRamp` RAF chain outliving destroy (`++_rampGeneration` in `_cleanup()`); fixed `handle?.applyPreset` → `handle.applyPreset` (misleading optional chain); removed empty `_playHatikvah()` dead-code stub
+  - `matrix-rain-passes-tsl.js`: fixed `buildGodRaysPass` `uDecay` default `0.33` → `0.96` (mismatch with `_ppState`)
+  - `tests/matrix-rain-tsl.test.js`: 59 tests covering module exports + `makeUniforms()` defaults
+  - `tests/matrix-rain-passes-tsl.test.js`: 45 tests covering all pass builders + uniform defaults (including `uDecay` regression guard)
 - [x] **SPEC-effects-category-a** — 5 per-glyph shader effects
   - `matrix-rain-tsl.js`: `hueRotateRGB` Rodrigues Fn at module scope; 8 new uniforms (`uShimmerAmt/Freq`, `uInversionChance`, `uGlyphSpinAmt/Speed`, `uHueDriftRate/Amt`, `uHeadOvershootAmt`); added to `buildGlyphMaterial` destructure; vertex Fn: head overshoot (Gaussian pulse on `headY`, gated by `isLocked`) + lateral shimmer (per-column sinusoidal `colCenter` displacement, gated by `isVertLockHead`); fragment Fn: glyph rotation (`spinFace` from `finalFace` rotation, replaces all downstream `finalFace` uses in sdfG/chroma/normals), mask→`.toVar()`, inversion (stable per-cell hash, gated by `isLockHead.not()`), tintedColor→`.toVar()`, hue drift (Rodrigues oscillation, gated by `isLockHead`)
   - `matrix-rain-webgpu.js`: `aHeadOvershoot` buffer baked in `buildGeometry()` (per-column random phase replicated per row); `geom.setAttribute('aHeadOvershoot', ...)` added; 8 handle methods: `setShimmerAmt/Freq`, `setInversionChance`, `setGlyphSpinAmt/Speed`, `setHueDriftRate/Amt`, `setHeadOvershootAmt`
   - `matrix-3d.html`: "Glyph FX B" sub-panel with 8 sliders + number inputs; `linkSlider` bindings added
+
+- [x] **SPEC-effects-category-c** — 4 column behaviour effects
+  - `matrix-rain-tsl.js`: 9 new uniforms in `makeUniforms()`; `aClusterCenterAttr` attribute; gravity well XZ displacement (after shimmer, before Z-rotation, `isLocked` guard); spiral formation XZ orbit (after gravity, `isLocked` guard); perspective convergence clip-space X skew (inside `camDist3D>=1.5` block); Morse code flicker `vAlpha` modulation (after initial `vAlpha.assign`, `isLocked` guard)
+  - `matrix-rain-webgpu.js`: two-pass cluster centroid computation in `buildGeometry()`; `clusterCenterBuf` (Float32Array total×2) filled for regular + reserve columns; `geom.setAttribute('aClusterCenter', ...)` with itemSize 2; 8 handle methods: `setGravityStrength/Rate`, `setGravity`, `setPerspective`, `setMorseAmt`, `setMorseRate`, `setMorseFlicker` (deprecated), `setSpiral`
+  - `matrix-3d.html`: 9 slider pairs for gravity strength/rate, perspective strength/cx, Morse amt/rate, spiral amt/rate/pitch; JS wiring with `linkSlider` and multi-input `updatePerspective`/`updateSpiral` helpers
 
 - [x] **SPEC-effects-category-b** — 6 post-processing effects
   - `matrix-rain-passes-tsl.js`: added `mod` to imports; `buildHoloPass` gains `uInterlaceResY` parameter + `uInterlaceAmt` uniform, B2 scanline luma modulation (effectiveScanOp = opacity × (0.3 + 0.7×luma)), B3 interlace flicker block after vignette; new `buildFogPass` (B5, fog→dark regions); new `buildDustPass` (B6, 32-mote procedural particles, guarded by `If(uDustAmt > 0.001)`); new `buildRadialChromaPass` (B1, R/B shifted outward/inward from centre)
