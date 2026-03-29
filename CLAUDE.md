@@ -163,6 +163,10 @@ Returns a control handle with methods below.
 | `setZoneSpeed(inner, outer)` | Radial speed multiplier inner/outer shell (default 1.0, 1.0) |
 | `setZoneBrightness(inner, outer)` | Radial brightness multiplier inner/outer shell (default 1.0, 1.0) |
 | `applyPreset(name)` | Apply named preset: `'default'`\|`'matrix1999'`\|`'ghost'`\|`'overdrive'` |
+| `savePreset(name)` | Snapshot current settings to localStorage as `matrix-rain-preset-{name}` |
+| `loadPreset(name)` | Restore a previously saved preset from localStorage |
+| `listSavedPresets()` | Returns `string[]` of saved preset names in localStorage |
+| `deleteSavedPreset(name)` | Remove a saved preset from localStorage |
 | `get crt` | CRT handle after `renderer.init()` resolves in `'crt'` mode; `null` otherwise |
 | `backend` | `null` until init resolves, then `'webgpu'` or `'webgl2'`; listen for `'matrixrain:ready'` on the host element |
 | `setDrip(v)` | Y-stretch amplitude at column head 0–0.8 (0 = off) |
@@ -171,6 +175,7 @@ Returns a control handle with methods below.
 | `setFilmGrain(v)` | Film-grain noise strength 0–0.25 (0 = off) |
 | `setDepthTint(v)` | Atmospheric depth-tint blend 0–1 (0 = off) |
 | `setStartupCascade(on)` | Boot stagger enable; false = instant on |
+| `setDeepTrailDark(v)` | Deep trail floor brightness factor 0–1 (default 0.18) |
 | `setStability(v)` | Fraction of cells locked to base glyph 0–1 |
 | `setHoldMult(v)` | Hold-cycle duration multiplier 0.1–5 |
 | `setBurstGlyphRate(v)` | Glyph-change rate during burst 1–30 Hz |
@@ -212,6 +217,14 @@ Returns a control handle with methods below.
 | `setAtmosphericFog(amt, color?)` | Fog amount 0–1 and optional hex colour (default dark green) |
 | `setDust(v)` | Dust mote intensity 0–1 (0 = off) |
 | `setBloomBreath(enabled, rate?, amplitude?)` | Sinusoidal bloom threshold oscillation; rate in Hz (default 0.25), amplitude (default 0.08) |
+| `setGravityStrength(v)` | Cluster gravity well pull amplitude 0–1.5 wu (0 = off) |
+| `setGravityRate(v)` | Gravity oscillation frequency 0.1–0.5 Hz; use `setGravityStrength(0)` to turn off |
+| `setGravity(strength, rate?)` | Convenience wrapper for setGravityStrength + setGravityRate |
+| `setPerspective(strength, cx?, cy?)` | Clip-space convergence skew 0–1; cx is screen UV [0,1] of vanishing point (default 0.5). Recall after `uColumnOffset` changes. |
+| `setMorseAmt(v)` | Morse flicker modulation depth 0–1 (0 = off) |
+| `setMorseRate(v)` | Morse base cycle rate 0.5–4.0 Hz |
+| `setMorseFlicker(enabled, rate?, amt?)` | **Deprecated.** Use `setMorseAmt`/`setMorseRate` instead. |
+| `setSpiral(amt, rate?, pitch?)` | Orbital spiral: amt 0–1, rate 0–0.5 rad/s, pitch 0–2π rad. Use amt=0 to disable. |
 
 **Note**: `setHeat`, `setSoften`, `setStreaks`, `setHoloAberration`, `setGodRays`, `setBurstBloom`, `setPhosphorDecay`, `setBloomThreshold`, `setBloomStrength`, `setRadialChroma`, `setAtmosphericFog`, `setDust`, `setInterlace`, `setBloomBreath` are no-ops (silent) in `'crt'` and `'none'` modes.
 
@@ -239,6 +252,7 @@ Tears down the instance registered on `element`.
 | `uNRows` | `120` | Rows per column |
 | Bloom threshold | `0.20` | Stored in `bloomThreshold` var; burst dips to `threshold×0.5` every 4 s |
 | `phosphorDecay` | `0.88` | |
+| `uDeepTrailDark` | `0.18` | Deep trail floor brightness factor; multiply by `tintedColor` |
 | Heat `uHeatAmt` | `0.004` | |
 | Streak `uStreakAmt` | `0.055` | |
 | God rays `uExposure` | `0.45` | |
@@ -272,6 +286,15 @@ Tears down the instance registered on `element`.
 | `uFogColor` | `(0.0, 0.06, 0.02)` | Fog colour (dark Matrix green) |
 | `uDustAmt` | `0.0` | Dust mote intensity |
 | `uInterlaceAmt` | `0.0` | Interlace flicker amount |
+| `uGravityStrength` | `0.0` | Gravity well pull amplitude 0–1.5 wu |
+| `uGravityRate` | `0.2` | Gravity oscillation frequency Hz |
+| `uPerspectiveWorldX` | `0.0` | World X of convergence vanishing point |
+| `uPerspectiveStrength` | `0.0` | Perspective skew strength 0–1 |
+| `uMorseRate` | `2.0` | Morse base cycle rate Hz |
+| `uMorseAmt` | `0.0` | Morse flicker modulation depth 0–1 |
+| `uSpiralAmt` | `0.0` | Spiral orbital amplitude 0–1 |
+| `uSpiralRate` | `0.1` | Spiral angular velocity rad/s |
+| `uSpiralPitch` | `π` | Spiral phase spread per unit of aSpawnTheta |
 
 ---
 

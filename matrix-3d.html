@@ -270,6 +270,22 @@
       </select>
     </label>
 
+    <label>Save preset
+      <span style="display:flex;align-items:center;gap:4px;">
+        <input id="ctl-preset-save-name" type="text" placeholder="name" style="width:90px;font:inherit;background:#111;color:#0f0;border:1px solid #333;padding:2px 4px;">
+        <button id="ctl-preset-save-btn" style="font:inherit;background:#111;color:#0f0;border:1px solid #333;padding:2px 6px;cursor:pointer;">Save</button>
+      </span>
+    </label>
+    <label>Load / delete saved
+      <span style="display:flex;align-items:center;gap:4px;">
+        <select id="ctl-preset-load" style="font:inherit;background:#111;color:#0f0;border:1px solid #333;padding:2px 4px;min-width:90px;">
+          <option value="">— none —</option>
+        </select>
+        <button id="ctl-preset-load-btn"   style="font:inherit;background:#111;color:#0f0;border:1px solid #333;padding:2px 6px;cursor:pointer;">Load</button>
+        <button id="ctl-preset-delete-btn" style="font:inherit;background:#111;color:#800;border:1px solid #333;padding:2px 6px;cursor:pointer;">Del</button>
+      </span>
+    </label>
+
     <label>Color 1
       <input id="ctl-color" type="color" value="#00ff70">
     </label>
@@ -531,6 +547,12 @@
           <input id="ctl-msg-boost-num" type="number" min="1" max="6"  step="0.1" value="2">
         </span>
       </label>
+      <label>Settle speed
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-msg-settle"     type="range"  min="0.5" max="20" step="0.5" value="4">
+          <input id="ctl-msg-settle-num" type="number" min="0.5" max="20" step="0.5" value="4">
+        </span>
+      </label>
       <label>Spawn %
         <span style="display:flex;align-items:center;gap:4px;">
           <input id="ctl-msg-spawn"     type="range"  min="0" max="1" step="0.05" value="0.85">
@@ -759,6 +781,12 @@
           <input id="ctl-stability-num" type="number" min="0"   max="1"  step="0.02"  value="0.30">
         </span>
       </label>
+      <label>Deep trail dark
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="ctl-deep-trail-dark"     type="range"  min="0"   max="0.6"  step="0.01"  value="0.18">
+          <input id="ctl-deep-trail-dark-num" type="number" min="0"   max="0.6"  step="0.01"  value="0.18">
+        </span>
+      </label>
       <label>Hold mult
         <span style="display:flex;align-items:center;gap:4px;">
           <input id="ctl-hold-mult"     type="range"  min="0.1" max="5"  step="0.1"   value="1.0">
@@ -871,6 +899,64 @@
         <span style="display:flex;align-items:center;gap:4px;">
           <input id="sl-head-overshoot"     type="range"  min="0" max="3" step="0.05" value="0">
           <input id="sl-head-overshoot-num" type="number" min="0" max="3" step="0.05" value="0">
+        </span>
+      </label>
+
+      <label>Gravity strength
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="sl-gravity-strength"     type="range"  min="0"   max="1.5"  step="0.01" value="0">
+          <input id="sl-gravity-strength-num" type="number" min="0"   max="1.5"  step="0.01" value="0" style="width:54px">
+        </span>
+      </label>
+      <label>Gravity rate (Hz)
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="sl-gravity-rate"     type="range"  min="0.1" max="0.5"  step="0.01" value="0.2">
+          <input id="sl-gravity-rate-num" type="number" min="0.1" max="0.5"  step="0.01" value="0.2" style="width:54px">
+        </span>
+      </label>
+
+      <label>Perspective strength
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="sl-persp-strength"     type="range"  min="0"   max="1"    step="0.01" value="0">
+          <input id="sl-persp-strength-num" type="number" min="0"   max="1"    step="0.01" value="0" style="width:54px">
+        </span>
+      </label>
+      <label>Perspective center X (0–1)
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="sl-persp-cx"     type="range"  min="0"   max="1"    step="0.01" value="0.5">
+          <input id="sl-persp-cx-num" type="number" min="0"   max="1"    step="0.01" value="0.5" style="width:54px">
+        </span>
+      </label>
+
+      <label>Morse flicker amount
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="sl-morse-amt"     type="range"  min="0"   max="1"    step="0.01" value="0">
+          <input id="sl-morse-amt-num" type="number" min="0"   max="1"    step="0.01" value="0" style="width:54px">
+        </span>
+      </label>
+      <label>Morse rate (Hz)
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="sl-morse-rate"     type="range"  min="0.5" max="4"    step="0.1"  value="2">
+          <input id="sl-morse-rate-num" type="number" min="0.5" max="4"    step="0.1"  value="2" style="width:54px">
+        </span>
+      </label>
+
+      <label>Spiral amount
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="sl-spiral-amt"     type="range"  min="0"   max="1"      step="0.01" value="0">
+          <input id="sl-spiral-amt-num" type="number" min="0"   max="1"      step="0.01" value="0" style="width:54px">
+        </span>
+      </label>
+      <label>Spiral rate (rad/s)
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="sl-spiral-rate"     type="range"  min="0"   max="0.5"    step="0.01" value="0.1">
+          <input id="sl-spiral-rate-num" type="number" min="0"   max="0.5"    step="0.01" value="0.1" style="width:54px">
+        </span>
+      </label>
+      <label>Spiral pitch (rad)
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="sl-spiral-pitch"     type="range"  min="0"   max="6.283"  step="0.01" value="3.14">
+          <input id="sl-spiral-pitch-num" type="number" min="0"   max="6.283"  step="0.01" value="3.14" style="width:54px">
         </span>
       </label>
     </div>
@@ -1361,6 +1447,53 @@
       </button>
     </div>
 
+    <!-- Mossad Mode easter egg sub-panel (hidden until bibinetanyahu sequence typed) -->
+    <div id="mossad-panel" style="display:none;border-top:1px solid #0038B844;margin-top:6px;padding-top:6px;flex-direction:column;gap:4px;">
+      <label style="color:#7EB3FF;font-size:10px;letter-spacing:0.1em;text-transform:uppercase;">&#x2721; MOSSAD MODE &#x2721;</label>
+
+      <label style="color:#7EB3FF;">Flash rate
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="mossad-flash-rate" type="range" min="0.1" max="4" step="0.1" value="0.9" style="accent-color:#0038B8;">
+          <input id="mossad-flash-rate-num" type="number" min="0.1" max="4" step="0.1" value="0.9" style="background:#001830;color:#7EB3FF;border:1px solid #0038B855;font-family:'Courier New',monospace;font-size:10px;padding:1px 3px;width:46px;">
+        </span>
+      </label>
+      <label style="color:#7EB3FF;">Peak opacity
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="mossad-opacity" type="range" min="0" max="1" step="0.01" value="0.68" style="accent-color:#0038B8;">
+          <input id="mossad-opacity-num" type="number" min="0" max="1" step="0.01" value="0.68" style="background:#001830;color:#7EB3FF;border:1px solid #0038B855;font-family:'Courier New',monospace;font-size:10px;padding:1px 3px;width:46px;">
+        </span>
+      </label>
+      <label style="color:#7EB3FF;">Scale
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="mossad-scale" type="range" min="0.5" max="3" step="0.1" value="1" style="accent-color:#0038B8;">
+          <input id="mossad-scale-num" type="number" min="0.5" max="3" step="0.1" value="1" style="background:#001830;color:#7EB3FF;border:1px solid #0038B855;font-family:'Courier New',monospace;font-size:10px;padding:1px 3px;width:46px;">
+        </span>
+      </label>
+      <label style="color:#7EB3FF;">Panel count
+        <select id="mossad-panel-count" style="background:#001830;color:#7EB3FF;border:1px solid #0038B855;font-family:'Courier New',monospace;font-size:10px;padding:1px 4px;">
+          <option value="1">1</option>
+          <option value="2">2</option>
+          <option value="3" selected>3</option>
+        </select>
+      </label>
+      <label style="color:#7EB3FF;">Orbit speed
+        <span style="display:flex;align-items:center;gap:4px;">
+          <input id="mossad-orbit-speed" type="range" min="0" max="0.5" step="0.01" value="0" style="accent-color:#0038B8;">
+          <input id="mossad-orbit-speed-num" type="number" min="0" max="0.5" step="0.01" value="0" style="background:#001830;color:#7EB3FF;border:1px solid #0038B855;font-family:'Courier New',monospace;font-size:10px;padding:1px 3px;width:46px;">
+        </span>
+      </label>
+
+      <label style="color:#7EB3FF;"><input id="mossad-rain-override" type="checkbox" checked style="accent-color:#0038B8;"> Rain override</label>
+      <label style="color:#7EB3FF;"><input id="mossad-audio" type="checkbox" style="accent-color:#0038B8;"> Hava Nagila &#x1F508;</label>
+
+      <button id="mossad-disable"
+              style="margin-top:4px;background:#001830;color:#7EB3FF;border:1px solid #0038B8;
+                     font-family:'Courier New',monospace;font-size:10px;cursor:pointer;
+                     padding:2px 0;letter-spacing:0.1em;">
+        [DEACTIVATE]
+      </button>
+    </div>
+
   </div>
 </details>
 
@@ -1612,6 +1745,7 @@
   });
   bind('ctl-msg-band-suppress', on => rain.setMsgBandSuppress(on));
   // Message sliders — sync range↔number, no live callback (values read on button click)
+  linkSlider('ctl-msg-settle',   'ctl-msg-settle-num',   v => rain.setMsgSettleSharpness(v));
   linkSlider('ctl-msg-boost',    'ctl-msg-boost-num',    () => {});
   linkSlider('ctl-msg-spawn',    'ctl-msg-spawn-num',    () => {});
   linkSlider('ctl-msg-tolmult-min', 'ctl-msg-tolmult-min-num', () => {});
@@ -1817,7 +1951,8 @@
   linkSlider('ctl-grain',      'ctl-grain-num',      v => rain.setFilmGrain(v));
   linkSlider('ctl-depth-tint', 'ctl-depth-tint-num', v => rain.setDepthTint(v));
   bind('ctl-boot', on => rain.setStartupCascade(on));
-  linkSlider('ctl-stability',  'ctl-stability-num',  v => rain.setStability(v));
+  linkSlider('ctl-stability',      'ctl-stability-num',      v => rain.setStability(v));
+  linkSlider('ctl-deep-trail-dark','ctl-deep-trail-dark-num',v => rain.setDeepTrailDark(v));
   linkSlider('ctl-hold-mult',  'ctl-hold-mult-num',  v => rain.setHoldMult(v));
   linkSlider('ctl-burst-rate', 'ctl-burst-rate-num', v => rain.setBurstGlyphRate(v));
   linkSlider('ctl-pom-steps',  'ctl-pom-steps-num',  v => rain.setPomSteps(v));
@@ -1835,6 +1970,29 @@
   linkSlider('sl-hue-drift-rate',   'sl-hue-drift-rate-num',   v => rain.setHueDriftRate(v));
   linkSlider('sl-hue-drift-amt',    'sl-hue-drift-amt-num',    v => rain.setHueDriftAmt(v));
   linkSlider('sl-head-overshoot',   'sl-head-overshoot-num',   v => rain.setHeadOvershootAmt(v));
+  // Category C column behaviour effects
+  linkSlider('sl-gravity-strength', 'sl-gravity-strength-num', v => rain.setGravityStrength(v));
+  linkSlider('sl-gravity-rate',     'sl-gravity-rate-num',     v => rain.setGravityRate(v));
+  function updatePerspective() {
+    rain.setPerspective(
+      parseFloat(document.getElementById('sl-persp-strength').value),
+      parseFloat(document.getElementById('sl-persp-cx').value),
+    );
+  }
+  linkSlider('sl-persp-strength', 'sl-persp-strength-num', () => updatePerspective());
+  linkSlider('sl-persp-cx',       'sl-persp-cx-num',       () => updatePerspective());
+  linkSlider('sl-morse-amt',  'sl-morse-amt-num',  v => rain.setMorseAmt(v));
+  linkSlider('sl-morse-rate', 'sl-morse-rate-num', v => rain.setMorseRate(v));
+  function updateSpiral() {
+    rain.setSpiral(
+      parseFloat(document.getElementById('sl-spiral-amt').value),
+      parseFloat(document.getElementById('sl-spiral-rate').value),
+      parseFloat(document.getElementById('sl-spiral-pitch').value),
+    );
+  }
+  linkSlider('sl-spiral-amt',   'sl-spiral-amt-num',   () => updateSpiral());
+  linkSlider('sl-spiral-rate',  'sl-spiral-rate-num',  () => updateSpiral());
+  linkSlider('sl-spiral-pitch', 'sl-spiral-pitch-num', () => updateSpiral());
   linkSlider('ctl-contagion',       'ctl-contagion-num',       v => rain.setContagion(v));
   linkSlider('ctl-squad-coherence', 'ctl-squad-coherence-num', v => rain.setSquadCoherence(v));
   linkSlider('ctl-squad-size', 'ctl-squad-size-num', () => {
@@ -2283,6 +2441,44 @@
     }
   });
 
+  // ── Saved preset save/load/delete ────────────────────────────────────
+  function _refreshSavedPresetSelect() {
+    const sel = document.getElementById('ctl-preset-load');
+    const current = sel.value;
+    sel.innerHTML = '<option value="">— none —</option>';
+    for (const name of rain.listSavedPresets()) {
+      const opt = document.createElement('option');
+      opt.value = name;
+      opt.textContent = name;
+      sel.appendChild(opt);
+    }
+    sel.value = current;
+  }
+
+  document.getElementById('ctl-preset-save-btn').addEventListener('click', () => {
+    const name = document.getElementById('ctl-preset-save-name').value.trim();
+    if (!name) return;
+    rain.savePreset(name);
+    _refreshSavedPresetSelect();
+    document.getElementById('ctl-preset-load').value = name;
+  });
+
+  document.getElementById('ctl-preset-load-btn').addEventListener('click', () => {
+    const name = document.getElementById('ctl-preset-load').value;
+    if (!name) return;
+    rain.loadPreset(name);
+  });
+
+  document.getElementById('ctl-preset-delete-btn').addEventListener('click', () => {
+    const name = document.getElementById('ctl-preset-load').value;
+    if (!name) return;
+    rain.deleteSavedPreset(name);
+    _refreshSavedPresetSelect();
+  });
+
+  // Populate on load
+  _refreshSavedPresetSelect();
+
   // ══════════════════════════════════════════════════════════════════════
   // CCP EASTER EGG — demo-side JS
   // ══════════════════════════════════════════════════════════════════════
@@ -2360,6 +2556,17 @@
     document.getElementById('ccp-audio').checked = false;
   }
 
+  // ── Hava Nagila audio ─────────────────────────────────────────────────
+  const _havaNagilaAudio = new Audio('data/hava-nagila.mp3');
+  _havaNagilaAudio.loop   = true;
+  _havaNagilaAudio.volume = 0.8;
+
+  function _stopMossadAudio() {
+    _havaNagilaAudio.pause();
+    _havaNagilaAudio.currentTime = 0;
+    document.getElementById('mossad-audio').checked = false;
+  }
+
   // ── CCP panel control wiring ───────────────────────────────────────────
   function _linkSliderCCP(rangeId, numId, fn) {
     const range = document.getElementById(rangeId);
@@ -2429,19 +2636,191 @@
     }, 2000);
   });
 
-  // ── Keylogger ──────────────────────────────────────────────────────────
+  // ══════════════════════════════════════════════════════════════════════
+  // MOSSAD EASTER EGG — demo-side JS
+  // ══════════════════════════════════════════════════════════════════════
+
+  let _mossadEnabled         = false;
+  let _mossadCounterVal      = 0;
+  let _mossadCounterInterval = null;
+  let _mossadMoveListener    = null;
+
+  function _linkSliderMossad(rangeId, numId, fn) {
+    const range = document.getElementById(rangeId);
+    const num   = document.getElementById(numId);
+    if (!range || !num) return;
+    range.addEventListener('input', e => { num.value = e.target.value; fn(parseFloat(e.target.value)); });
+    num.addEventListener('input',   e => { range.value = e.target.value; fn(parseFloat(e.target.value)); });
+  }
+
+  _linkSliderMossad('mossad-flash-rate',  'mossad-flash-rate-num',  v => rain.setMossadFlashRate(v));
+  _linkSliderMossad('mossad-opacity',     'mossad-opacity-num',     v => rain.setMossadOpacity(v));
+  _linkSliderMossad('mossad-scale',       'mossad-scale-num',       v => rain.setMossadScale(v));
+  _linkSliderMossad('mossad-orbit-speed', 'mossad-orbit-speed-num', v => rain.setMossadOrbitSpeed(v));
+
+  document.getElementById('mossad-panel-count').addEventListener('change', e =>
+    rain.setMossadPanelCount(parseInt(e.target.value, 10)));
+
+  document.getElementById('mossad-rain-override').addEventListener('change', e =>
+    rain.setMossadRainOverride(e.target.checked));
+
+  document.getElementById('mossad-audio').addEventListener('change', e => {
+    if (e.target.checked) {
+      _havaNagilaAudio.currentTime = 0;
+      _havaNagilaAudio.play().catch(() => {});
+    } else {
+      _stopMossadAudio();
+    }
+  });
+
+  document.getElementById('mossad-disable').addEventListener('click', () => {
+    _mossadEnabled = false;
+    rain.setMossadMode(false);
+    document.getElementById('mossad-panel').style.display = 'none';
+    _stopMossadHUD();
+    const hint      = document.getElementById('hint');
+    const prev      = hint.textContent;
+    const prevColor = hint.style.color;
+    hint.textContent   = '[ MOSSAD MODE DEACTIVATED ]';
+    hint.style.color   = '#3060FF';
+    hint.style.opacity = '0.9';
+    setTimeout(() => {
+      hint.textContent   = prev;
+      hint.style.color   = prevColor;
+      hint.style.opacity = '0.35';
+    }, 2000);
+  });
+
+  function _getMsgOpts() {
+    return {
+      boost:          parseFloat(document.getElementById('ctl-msg-boost').value),
+      spawnChance:    parseFloat(document.getElementById('ctl-msg-spawn').value),
+      tolMultMin:     parseFloat(document.getElementById('ctl-msg-tolmult-min').value),
+      tolMultMax:     parseFloat(document.getElementById('ctl-msg-tolmult-max').value),
+      tolMinScale:    parseFloat(document.getElementById('ctl-msg-tolscale').value),
+      revealDuration: parseFloat(document.getElementById('ctl-msg-reveal').value),
+      holdDuration:   parseFloat(document.getElementById('ctl-msg-hold').value),
+      fadeDuration:   parseFloat(document.getElementById('ctl-msg-fade').value),
+    };
+  }
+
+  function _startMossadHUD() {
+    // Inject HUD if not already present
+    if (!document.getElementById('mossad-hud')) {
+      const hud = document.createElement('div');
+      hud.id = 'mossad-hud';
+      hud.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9999;' +
+        'background:rgba(0,30,100,0.55);color:#7EB3FF;' +
+        'font:11px monospace;padding:4px 12px;display:flex;gap:24px;align-items:center;' +
+        'border-bottom:1px solid #0038B855;pointer-events:none;';
+      hud.innerHTML =
+        '<span id="mossad-callsign">&#x25C8; UNIT 8200 \u2014 OPERATION WRATH OF GOD &#x25C8;</span>' +
+        '<span id="mossad-rec" style="animation:mossadRec 1.2s ease-in-out infinite;">&#x2b24; INTERCEPT</span>' +
+        '<span id="mossad-counter">SIGNALS: <span id="mossad-count">0</span></span>' +
+        '<span id="mossad-coords">POS: <span id="mossad-xy">0,0</span></span>';
+      document.body.insertBefore(hud, document.body.firstChild);
+
+      // Inject rec pulse animation once
+      if (!document.getElementById('mossad-rec-style')) {
+        const s = document.createElement('style');
+        s.id = 'mossad-rec-style';
+        s.textContent = '@keyframes mossadRec { 0%,100%{opacity:1} 50%{opacity:0.3} }';
+        document.head.appendChild(s);
+      }
+    }
+    // Inject tint
+    if (!document.getElementById('mossad-tint')) {
+      const tint = document.createElement('div');
+      tint.id = 'mossad-tint';
+      tint.style.cssText = 'position:fixed;inset:0;z-index:9990;' +
+        'background:rgba(0,56,184,0.03);pointer-events:none;';
+      document.body.appendChild(tint);
+    }
+    // Inject scan bars
+    if (!document.getElementById('mossad-scan-a')) {
+      const sa = document.createElement('div');
+      sa.id = 'mossad-scan-a';
+      document.body.appendChild(sa);
+      const sb = document.createElement('div');
+      sb.id = 'mossad-scan-b';
+      document.body.appendChild(sb);
+    }
+    // Start intercept counter
+    _mossadCounterVal = 0;
+    const countEl = document.getElementById('mossad-count');
+    if (countEl) countEl.textContent = '0';
+    _mossadCounterInterval = setInterval(() => {
+      _mossadCounterVal += Math.ceil(Math.random() * 3);
+      const el = document.getElementById('mossad-count');
+      if (el) el.textContent = _mossadCounterVal;
+    }, 800);
+    // Track mouse coordinates
+    _mossadMoveListener = e => {
+      const el = document.getElementById('mossad-xy');
+      if (el) el.textContent = e.clientX + ',' + e.clientY;
+    };
+    document.addEventListener('mousemove', _mossadMoveListener);
+  }
+
+  function _stopMossadHUD() {
+    clearInterval(_mossadCounterInterval);
+    _mossadCounterInterval = null;
+    if (_mossadMoveListener) {
+      document.removeEventListener('mousemove', _mossadMoveListener);
+      _mossadMoveListener = null;
+    }
+    for (const id of ['mossad-hud', 'mossad-tint', 'mossad-scan-a', 'mossad-scan-b']) {
+      const el = document.getElementById(id);
+      if (el) el.remove();
+    }
+  }
+
+  // ── Keyloggers (CCP + Mossad share same listener) ─────────────────────
   let _kbuf   = '';
   let _kTimer = null;
+  let _mbuf   = '';
+  let _mTimer = null;
 
   document.addEventListener('keydown', e => {
     if (e.ctrlKey || e.altKey || e.metaKey || e.key.length !== 1) return;
-    _kbuf = (_kbuf + e.key.toLowerCase()).slice(-9);
+    const ch = e.key.toLowerCase();
+    _kbuf = (_kbuf + ch).slice(-9);
+    _mbuf = (_mbuf + ch).slice(-13);
     clearTimeout(_kTimer);
+    clearTimeout(_mTimer);
     _kTimer = setTimeout(() => { _kbuf = ''; }, 3000);
+    _mTimer = setTimeout(() => { _mbuf = ''; }, 3000);
+
+    // Mossad trigger
+    if (_mbuf === 'bibinetanyahu') {
+      _mbuf = '';
+      _mossadEnabled = !_mossadEnabled;
+      rain.setMossadMode(_mossadEnabled, _mossadEnabled ? _getMsgOpts() : {});
+      const mossadPanelEl = document.getElementById('mossad-panel');
+      if (_mossadEnabled) {
+        mossadPanelEl.style.display = 'flex';
+        _startMossadHUD();
+      } else {
+        mossadPanelEl.style.display = 'none';
+        _stopMossadHUD();
+        _stopMossadAudio();
+      }
+      const hint      = document.getElementById('hint');
+      const prev      = hint.textContent;
+      const prevColor = hint.style.color;
+      hint.textContent   = _mossadEnabled ? '[ MOSSAD MODE ACTIVATED ]' : '[ MOSSAD MODE DEACTIVATED ]';
+      hint.style.color   = '#3060FF';
+      hint.style.opacity = '0.9';
+      setTimeout(() => {
+        hint.textContent   = prev;
+        hint.style.color   = prevColor;
+        hint.style.opacity = '0.35';
+      }, 2000);
+    }
     if (_kbuf === 'xijinping') {
       _kbuf = '';
       _ccpEnabled = !_ccpEnabled;
-      rain.setCCPMode(_ccpEnabled);
+      rain.setCCPMode(_ccpEnabled, _ccpEnabled ? _getMsgOpts() : {});
       const ccpPanelEl = document.getElementById('ccp-panel');
       if (_ccpEnabled) {
         ccpPanelEl.style.display = 'flex';
