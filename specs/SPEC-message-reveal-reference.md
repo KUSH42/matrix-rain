@@ -16,7 +16,8 @@ The system works entirely within the existing 600-column instanced mesh — no s
 ## 2. Public API
 
 ```js
-// Show a message — starts immediately if idle, replaces the active one otherwise.
+// Show a message — starts immediately if idle, replaces the active one instantly otherwise.
+// Auto-expands the reserve pool to max(48, totalChars × 3) before starting (no-op if idle).
 handle.showMessage(text, {
   yFrac          = 0.5,    // vertical centre 0–1 of the whole block in screen UV
   lineSpacing    = 0.12,   // UV gap between line centres for multi-line
@@ -24,16 +25,23 @@ handle.showMessage(text, {
   holdDuration   = 4.0,    // seconds message is held frozen
   fadeDuration   = 1.0,    // seconds for opacity fade-out
   boost          = 2.0,    // brightness multiplier applied to locked-head glyphs
-  trackCamera    = false,  // follow camera.y drift during hold
+  trackCamera    = false,  // follow camera.y drift during hold (X/Z drift not tracked)
+  tolMultMin     = 4,      // head hitbox multiplier at reveal start (advanced)
+  tolMultMax     = 18,     // head hitbox multiplier at reveal end  (advanced)
+  tolMinScale    = 1.3,    // minimum aScale floor for tolerance    (advanced)
 });
 
-// Cancel an active message, jump to fading.
+// Cancel an active message, jump to fading. Works from 'revealing' or 'holding'.
 handle.clearMessage({
-  fadeDuration = 0.5,
+  fadeDuration = 0.8,
 });
 
 // Rebuild geometry with a different reserve-pool size (no-op while message active).
 handle.setMessageReserves(n);  // integer, capped to nCols/4
+
+// Additional message-system controls:
+handle.setMsgBandSuppress(on);         // boolean — enable/disable the Y-band suppression
+handle.setMsgSettleSharpness(v);       // 0.5–20 — scramble→settle speed (1/s); default 4
 ```
 
 `text` may be a single `string` or `string[]` (one element per line).
@@ -43,10 +51,17 @@ handle.setMessageReserves(n);  // integer, capped to nCols/4
 ## 3. State Machine
 
 ```
-idle ──showMessage()──► revealing ──all claimed or timer expired──► holding ──t >= holdEnd──► fading ──fadeT >= 1──► idle
-                                                                                    ↑                       │
-                                                                             clearMessage()─────────────────┘
+                      clearMessage()
+                     ╔══════════════╗
+                     ↓              ║
+idle ──showMessage()──► revealing ──╬──all claimed or timer expired──► holding ──t >= holdEnd──► fading ──fadeT >= 1──► idle
+                                    ║                                      │                       ↑
+                                    ╚══════════════════════════════════════╝                       │
+                                                    clearMessage() ────────────────────────────────╯
 ```
+
+> `clearMessage()` transitions immediately to `fading` from either `revealing` or `holding`.
+> Calling it while already `fading` or `idle` is a no-op.
 
 | State | Uniforms active |
 |---|---|
@@ -114,7 +129,7 @@ For each unclaimed slot in order:
    cyclePos = (t * speed * speedMul + seed * cycleH) mod cycleH
    headY = aYOff - worldH/2 + cyclePos
    ```
-   Tolerance scales linearly from `tolMultMin = 4` (at reveal start) to `tolMultMax = 18` (at reveal end) × `cellH * aScale * 1.85`. When `|headY - targetWorldY| < tol` the column is locked:
+   Tolerance scales linearly from `tolMultMin = 4` (at reveal start) to `tolMultMax = 18` (at reveal end) × `cellH * max(aScale, tolMinScale) * 1.85`, where `tolMinScale = 1.3` enforces a minimum effective scale. When `|headY - targetWorldY| < tol` the column is locked:
    - Wrap `cyclePos` to `[0, nRows * cellStep)` to ensure the lock-head row index is always valid.
    - Write `lockTime = t` to `aLockState` → scramble-settle animation starts.
    - Mark slot `claimed = true`, add to `_msgLockedCols`, delete from `_msgAssigned`.
@@ -141,12 +156,13 @@ For each unclaimed slot in order:
 
 ```glsl
 lockGlyph  = vLockState.y
-lockActive = vLockState.z > 0.0
+lockTime   = vLockState.z                 // uTime at lock moment; 0 = pending (not yet locked)
+lockActive = lockTime > 0.0
 isLockHead = lockActive && vDist >= -0.5 && vDist < 0.5  // within ±0.5 rows of head
 
-lockAge   = uTime - vLockState.z          // seconds since lock
-settleT   = clamp(lockAge * uMsgSettleSharpness, 0, 1)   // 0 → 1 over 1/sharpness seconds
-settleCoin = fract(sin(lockTime * 31.7 + colCenterX * 47.3) * 43758.5)  // stable per-lock
+lockAge    = uTime - lockTime             // seconds since lock
+settleT    = clamp(lockAge * uMsgSettleSharpness, 0, 1)   // 0 → 1 over 1/sharpness seconds
+settleCoin = fract(sin(lockTime * 31.7 + vColCenterX * 47.3) * 43758.5453)  // stable per-lock
 useLockGlyph = (settleCoin < settleT) && (lockGlyph >= 0)
 
 glyphIdx = isLockHead ? (useLockGlyph ? lockGlyph : mutGlyph) : glyphIdx
@@ -160,7 +176,7 @@ Discards non-locked fragments inside the message Y-band × X-extent, gated by `u
 
 ```glsl
 if (uMsgBandSuppress > 0 && uMsgRevealActive > 0 && !lockActive) {
-  inY = |cellWorldY - uMsgRevealY| < uMsgRevealBand   // 0.35 world units half-height
+  inY = |cellWorldY - uMsgRevealY| < uMsgRevealBand   // set dynamically — see §8
   inX = screenUV.x > uMsgXMin && screenUV.x < uMsgXMax
   if (inY && inX) discard;
 }
@@ -211,7 +227,7 @@ geom._reservePool = {
 | `uMsgRevealProgress` | `0.0` | Global opacity for lock-head glyphs `0 → 1 → 0` |
 | `uMsgBoost` | `2.0` | Brightness multiplier on claimed glyph cells |
 | `uMsgRevealY` | `0.0` | World Y centre of the message band |
-| `uMsgRevealBand` | `0.35` | Half-height of the suppression band (world units) |
+| `uMsgRevealBand` | `0.35`* | Half-height of the suppression band (world units). *Overwritten by `showMessage()` to `\|botY−topY\|/2 + 2×cellH` — the `0.35` default is never active during a reveal. |
 | `uMsgRevealActive` | `0.0` | `1` once first glyph locks; gates band suppression |
 | `uMsgXMin` / `uMsgXMax` | `0 / 1` | Screen UV X-bounds of the message text (band suppression X-gate) |
 | `uMsgBandSuppress` | `0.0` | User-facing toggle; `1` = enable band suppression |
@@ -227,18 +243,7 @@ Because the message reveal state machine runs in JS (no GPU) and the `aLockState
 
 ```js
 // tests/message-reveal.test.js
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-
-// ── Minimal mock for Three.js geometry attribute ──────────────────────────
-function makeAttr(nCols, nRows) {
-  const arr = new Float32Array(nCols * nRows * 4).fill(0);
-  let dirty = false;
-  return {
-    array: arr,
-    get needsUpdate() { return dirty; },
-    set needsUpdate(v) { dirty = v; },
-  };
-}
+import { describe, it, expect } from 'vitest';
 
 function makeColABuf(nCols, nRows, overrides = {}) {
   // aColA: [wx, wz, speed, seed] per cell (same for every row in column)
@@ -354,13 +359,13 @@ describe('_headYjs (JS-side head position approximation)', () => {
     }
   });
 
-  it('advances monotonically with t for a positive speed column', () => {
+  it('advances with t before wrap (cyclePos increases monotonically until cycleH)', () => {
     const nCols = 1, nRows = 10;
     const colA = makeColABuf(nCols, nRows, { 0: { speed: 2.0, seed: 0.0 } });
     const colB = makeColBBuf(nCols, nRows);
     const y0 = headYjs(colA, colB, nRows, 0, 0);
     const y1 = headYjs(colA, colB, nRows, 0, 0.5);
-    // Within one cycle (no wrap), y1 > y0 (column falls downward = decreasing Y in world space — actually increases cp → increases headY until wrap)
+    // cyclePos = t * speed * speedMul; at t=0.5 cyclePos = 1.0 — well within one cycle, no wrap
     expect(y1).toBeGreaterThan(y0);
   });
 
@@ -474,9 +479,9 @@ describe('scramble-settle (JS approximation)', () => {
   });
 
   it('different columns produce different coins (no aliasing)', () => {
+    function fract(x) { return x - Math.floor(x); }
     const coins = new Set();
     for (let i = 0; i < 20; i++) {
-      function fract(x) { return x - Math.floor(x); }
       const c = fract(Math.sin(1.0 * 31.7 + i * 47.3) * 43758.5453);
       coins.add(c.toFixed(6));
     }
@@ -544,8 +549,8 @@ test('clearMessage transitions to fading immediately', async ({ page }) => {
 
 ## 10. Known Constraints
 
-- **One active message at a time.** `showMessage()` while a message is active immediately begins clearing the prior message (force-fade).
-- **Reserve pool depletion.** If more characters than reserve slots exist (default 48), extra slots fall back to nearest non-reserve columns, which may already be moving fast. Increase `spawnReserves` via `setMessageReserves()` before calling `showMessage()`.
-- **Camera movement.** Without `trackCamera: true`, moving the camera during hold causes the message to drift off-screen. Enable track only when camera will move vertically.
+- **One active message at a time.** `showMessage()` while a message is active calls `_clearAllLocks(true)` — the prior message is instantly removed (no fade) and the new one starts.
+- **Reserve pool auto-expansion.** `showMessage()` automatically grows the reserve pool to `max(48, totalChars × 3)` before starting, so manual `setMessageReserves()` calls are rarely needed. However, the auto-expansion triggers a geometry rebuild (one GC frame stall) — call `setMessageReserves(n)` at startup to pre-size if deterministic framing is required.
+- **Camera movement.** `trackCamera` only compensates for `camera.y` (vertical) drift — horizontal camera movement (X/Z orbit) still causes the projected message to drift. Enable only when vertical camera movement is expected.
 - **Reversed columns excluded.** Columns whose hash seed falls in the `reverseChance` fraction are never recruited (they fall upward, so the head never reaches the target Y).
 - **POM disabled on lock-head cells.** Prevents flicker artefacts on glyphs with concave counters.
