@@ -178,6 +178,10 @@ All items go in `specs/` before implementation.
   - `matrix-rain-webgpu.js`: imports 3 new builders; `uInterlaceResY` scope-level uniform; `_bloomBreathEnabled/Rate/Amp` closure vars; `_effectiveBloomThreshold(t)` helper; pipeline extended: godRays → rttPreFog → fog → dust → rttPreRadialChroma → radialChroma → rttPreFxaa; `dispose()` updated; `passBuilders` + `buildPP()` expose `_fogBuild/_dustBuild/_radialChromaBuild`; `_ppState` + `_restorePP` cover all new fields; ResizeObserver + `onResize()` update `uInterlaceResY`; `tick()` bloom writes use `_effectiveBloomThreshold`; 5 new handle methods
   - `matrix-3d.html`: Interlace, Radial Chroma, Fog Amount, Fog Colour, Dust, Bloom Breath (checkbox + rate + amplitude) controls in Post-Processing panel; JS wiring added
 
+- [x] **Code review fixes (round 3)** — 2 confirmed bugs fixed
+  - `matrix-rain-webgpu.js`: added `case 'hebrew':` to `charToGlyphIdx` — previously fell through to `default: return -1`, making all Hebrew glyphs unmappable in `showMessage()`; fix uses `indexOf` against `HEBREW_BASE`/`HEBREW_FINAL` strings (non-contiguous Unicode block requires table lookup, not arithmetic)
+  - `matrix-rain-webgpu.js`: removed `_flyRadius` dead-write from `CameraController` constructor and `setFlythrough()` — `_tickFly` never read this property; the documented `radius` parameter silently had no effect
+
 - [ ] `prefers-reduced-motion` — disable/reduce heat, god rays, burst bloom
 - [ ] README.md — public documentation before any npm/gh-pages publish
 - [ ] `package.json` npm publish — subpath exports already wired

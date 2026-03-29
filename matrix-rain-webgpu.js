@@ -589,6 +589,20 @@ function charToGlyphIdx(char, charSet) {
       if (code >= 65 && code <= 90) return code - 65;
       if (code >= 48 && code <= 57) return code - 48 + 26;
       return -1;
+    case 'hebrew': {
+      // Atlas layout: 22 base letters (alef–tav) at 0–21, 5 final forms at 22–26,
+      // '$' at 27, '✡' at 28.  Base letters are non-contiguous in Unicode so use
+      // indexOf rather than arithmetic.
+      const HEBREW_BASE  = 'אבגדהוזחטיכלמנסעפצקרשת'; // U+05D0 – U+05EA (22 letters)
+      const HEBREW_FINAL = 'ךםןףץ';                    // kaf/mem/nun/pe/tsadi sofit
+      const bi = HEBREW_BASE.indexOf(char);
+      if (bi >= 0) return bi;
+      const fi = HEBREW_FINAL.indexOf(char);
+      if (fi >= 0) return 22 + fi;
+      if (char === '$')  return 27;
+      if (char === '✡') return 28;
+      return -1;
+    }
     case 'matrixcode':
     case 'matrix1999':
     case 'japanese':
@@ -618,7 +632,7 @@ class CameraController {
     this._orbitElevDeg  = 0;
     this._flyPhase      = 0;   // raw seconds; drives heading oscillation
     this._flySpeed      = 0.008;
-    this._flyRadius     = 4.5;
+    // _flyRadius removed — _tickFly uses only _flySpeed/_flyPhase
     this._flyYaw        = 0;   // current integrated yaw (radians)
     this._flyPitch      = 0;   // current integrated pitch (radians)
     this._flyPos        = new THREE.Vector3();  // integrated world position
@@ -3597,12 +3611,10 @@ export function initMatrixRain(element, opts = {}) {
      * Enable/disable Lissajous flythrough. No-op when syncCamera is active.
      * @param {boolean} enabled
      * @param {number}  [speed=0.008]   phase advance per second
-     * @param {number}  [radius=4.5]    path radius in world units
      */
-    setFlythrough(enabled, speed, radius) {
+    setFlythrough(enabled, speed) {
       if (activeSyncCamera) return;
       if (speed  !== undefined) camCtrl._flySpeed  = Math.max(0.001, Math.min(0.2, speed));
-      if (radius !== undefined) camCtrl._flyRadius = Math.max(0.5,   Math.min(12,  radius));
       if (enabled) {
         // Start from current camera position with neutral heading
         camCtrl._flyPos.copy(camera.position);
