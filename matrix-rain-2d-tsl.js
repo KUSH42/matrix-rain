@@ -751,7 +751,9 @@ export async function init2DRain(element, opts = {}) {
     const scene  = new THREE.Scene();
     const geom   = new THREE.PlaneGeometry(2, 2);
     const mat    = new THREE.MeshBasicNodeMaterial();
-    mat.colorNode   = rainNode;
+    if (rainNode) {
+      mat.colorNode = rainNode;
+    }
     mat.depthWrite  = false;
     mat.toneMapped  = false;
     mat.transparent = true;
@@ -788,7 +790,7 @@ export async function init2DRain(element, opts = {}) {
       motionQuery.removeEventListener('change', onMotionChange);
       renderer.dispose();
       geom.dispose();
-      mat.dispose();
+      try { mat.dispose(); } catch (e) { /* ignore dispose errors */ }
       currentTex.dispose();
       currentLutTex.dispose();
       canvas.remove();
@@ -984,13 +986,15 @@ export async function init2DRain(element, opts = {}) {
   const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
   const scene  = new THREE.Scene();
   const geom   = new THREE.PlaneGeometry(2, 2);
-  const mat    = new THREE.MeshBasicNodeMaterial();
-  mat.colorNode   = rainNode;
-  mat.depthWrite  = false;
-  mat.toneMapped  = false;
-  mat.transparent = true;
-  mat.blending    = THREE.NormalBlending;
-  scene.add(new THREE.Mesh(geom, mat));
+    const mat    = new THREE.MeshBasicNodeMaterial();
+    if (rainNode) {
+      mat.colorNode = rainNode;
+    }
+    mat.depthWrite  = false;
+    mat.toneMapped  = false;
+    mat.transparent = true;
+    mat.blending    = THREE.NormalBlending;
+    scene.add(new THREE.Mesh(geom, mat));
 
   const WRAP_S  = 3600.0;
   const animRef = { id: 0 };
@@ -1025,7 +1029,7 @@ export async function init2DRain(element, opts = {}) {
     ro.disconnect();
     renderer.dispose();
     geom.dispose();
-    mat.dispose();
+    try { mat.dispose(); } catch (e) { /* ignore dispose errors */ }
     currentTex.dispose();
     canvas.remove();
     _instances.delete(element);
