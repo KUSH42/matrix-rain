@@ -225,6 +225,22 @@ Returns a control handle with methods below.
 | `setMorseRate(v)` | Morse base cycle rate 0.5–4.0 Hz |
 | `setMorseFlicker(enabled, rate?, amt?)` | **Deprecated.** Use `setMorseAmt`/`setMorseRate` instead. |
 | `setSpiral(amt, rate?, pitch?)` | Orbital spiral: amt 0–1, rate 0–0.5 rad/s, pitch 0–2π rad. Use amt=0 to disable. |
+| `setMsgTrailBoost(boost, decay?)` | A2: Locked-column trail brightness near head 0–3 (0=off, default); decay 1–20 (default 8) |
+| `setSettleSetBlend(v)` | A3: Scramble set narrowing 0=full atlas, 1=same atlas row as target glyph |
+| `setMsgFadeSpread(v)` | B1: Stagger window for per-column fade in seconds (0=simultaneous) |
+| `queueMessage(text, opts?)` | C2: Enqueue message; fires immediately if idle, otherwise appended to queue |
+| `clearQueue()` | C2: Clear pending message queue (does not cancel active message) |
+| `showVerticalMessage(text, opts?)` | C3: Display word vertically along one column; opts: xFrac, yFrac, holdDuration, fadeDuration, onHold, onComplete |
+
+**New `showMessage` opts (Round 2)**:
+- `cascadeDir` (A1): `'left'|'right'|'center-out'|'rain'` — fallback eligibility order
+- `fadeSpread` (B1): stagger window in seconds (0=simultaneous)
+- `fadeDir` (B1): `'left'|'right'|'center-out'|'random'`
+- `exitGlitch` (B2): `true` to fire glitch at hold→fading
+- `exitGlitchIntensity` / `exitGlitchDuration` (B2): glitch strength/duration
+- `freezeTrailDuration` (B3): seconds to hold trail after fade completes
+- `onHold` (C1): callback at revealing→holding
+- `onComplete` (C1): callback after fade completes
 
 **Note**: `setHeat`, `setSoften`, `setStreaks`, `setHoloAberration`, `setGodRays`, `setBurstBloom`, `setPhosphorDecay`, `setBloomThreshold`, `setBloomStrength`, `setRadialChroma`, `setAtmosphericFog`, `setDust`, `setInterlace`, `setBloomBreath` are no-ops (silent) in `'crt'` and `'none'` modes.
 
@@ -295,6 +311,12 @@ Tears down the instance registered on `element`.
 | `uSpiralAmt` | `0.0` | Spiral orbital amplitude 0–1 |
 | `uSpiralRate` | `0.1` | Spiral angular velocity rad/s |
 | `uSpiralPitch` | `π` | Spiral phase spread per unit of aSpawnTheta |
+| `uMsgTrailBoost` | `0.0` | A2: Trail brightness multiplier for locked columns 0–3 (0=off) |
+| `uMsgTrailDecay` | `8.0` | A2: Trail boost decay rate away from head 1–20 |
+| `uSettleSetBlend` | `0.0` | A3: Scramble set narrowing 0=full atlas, 1=same row as target |
+| `uMsgFadeStart` | `0.0` | B1: Absolute uTime when per-column staggered fade began |
+| `uMsgFadeDuration` | `1.0` | B1: Staggered fade duration in seconds |
+| `uMsgFading` | `0.0` | B1: 1=per-column fade active, 0=use uMsgRevealProgress global |
 
 ---
 

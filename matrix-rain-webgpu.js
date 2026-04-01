@@ -551,6 +551,7 @@ function buildGeometry({
   geom.setAttribute('aSpawnTheta',       new THREE.InstancedBufferAttribute(spawnThetaBuf,       1));
   geom.setAttribute('aHeadOvershoot',    new THREE.InstancedBufferAttribute(headOvershootBuf,    1));
   geom.setAttribute('aLockState',        new THREE.InstancedBufferAttribute(lockStateBuf,        4));
+  geom.setAttribute('aFreezeUntil',      new THREE.InstancedBufferAttribute(new Float32Array(total), 1)); // B3: per-cell freeze-until timestamp
   geom.instanceCount = total;
   geom._rawSpeed    = rawSpeedBuf;
   geom._biasedTrail = biasedTrailBuf;
@@ -1480,6 +1481,19 @@ export function initMatrixRain(element, opts = {}) {
   let _msgLockedCols   = new Set(); // column indices currently locked
   let _msgSpawnCols    = new Map(); // colIdx → worldY: columns with spawnActive=1 (force-render)
   let _msgAssigned     = new Map(); // colIdx → slotIdx: columns assigned but not yet locked
+  // Round 2 improvements
+  let _msgAspect0         = 1;       // D1: canvas aspect at showMessage time; updated on resize during reveal
+  let _msgOnHold          = null;    // C1: callback fired at revealing→holding transition
+  let _msgOnComplete      = null;    // C1: callback fired after fading completes (at end of _clearAllLocks)
+  let _msgExitGlitch      = false;   // B2: fire glitch at hold→fading transition
+  let _msgExitGlitchIntensity = 0.8; // B2: glitch peak intensity
+  let _msgExitGlitchDuration  = 0.3; // B2: glitch duration in seconds
+  let _msgFadeSpread      = 0;       // B1: stagger window in seconds (0=all fade together)
+  let _msgFadeDir         = 'left';  // B1: 'left'|'right'|'center-out'|'random'
+  let _msgFadeDuration    = 1.0;     // B1: mirrors fadeDuration at showMessage time
+  let _msgFreezeTrailDuration = 0;   // B3: seconds to hold trail after fade completes (0=off)
+  let _msgQueue           = [];      // C2: queued messages [{text, opts}]
+  let _msgReserveScreenXs = null;    // D3: Float32Array of pre-projected reserve-column screen Xs
 
   // ── CCP easter egg state ───────────────────────────────────────────────
   let _ccpActive      = false;
@@ -1658,6 +1672,14 @@ export function initMatrixRain(element, opts = {}) {
       const colABuf  = colAAttr?.array;
       const colBBuf  = colBAttr?.array;
 
+      // D1: Resize resilience — recompute UV-to-world scale if canvas aspect changed.
+      const currentAspect = renderer.domElement.width / renderer.domElement.height;
+      if (Math.abs(currentAspect - _msgAspect0) > 1e-3) {
+        const wH = uniforms.uWorldH.value;
+        _msgUVToLocalX = wH * currentAspect;
+        _msgAspect0    = currentAspect;
+      }
+
       if (msgState === 'revealing') {
         let lockDirty = false;
         let colBDirty = false;
@@ -1665,13 +1687,35 @@ export function initMatrixRain(element, opts = {}) {
         // Reserve-column boundary — slots recruitment and spawn-below both stay below this
         const reserveStart = geomNow._reservePool?.reserveStart ?? nCols;
 
-        // Pre-compute VP matrix once for screen-space projection in this tick
-        camera.updateMatrixWorld();
-        _msgVpMat.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+        // D3: Populate reserve screen-X cache once per revealing tick (avoids per-slot re-projection).
+        if (_msgReserveScreenXs && colABuf) {
+          camera.updateMatrixWorld();
+          _msgVpMat.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+          const midWorldY = _msgWorldYs.length > 0
+            ? (_msgWorldYs[0] + _msgWorldYs[_msgWorldYs.length - 1]) / 2
+            : 0;
+          for (let c = 0; c < reserveStart; c++) {
+            const base = c * nRows * 4;
+            const wx   = colABuf[base + 0] + uniforms.uColumnOffset.value.x;
+            const wz   = colABuf[base + 1] + uniforms.uColumnOffset.value.y;
+            _msgTv.set(wx, midWorldY, wz, 1.0).applyMatrix4(_msgVpMat);
+            _msgReserveScreenXs[c] = _msgTv.w > 0 ? (_msgTv.x / _msgTv.w) * 0.5 + 0.5 : -999;
+          }
+        }
+
+        // _msgVpMat was already updated in the D3 cache block above (or by the previous branch).
+        // If _msgReserveScreenXs was null (e.g. legacy call path), rebuild VP matrix here.
+        if (!_msgReserveScreenXs) {
+          camera.updateMatrixWorld();
+          _msgVpMat.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+        }
 
         for (let si = 0; si < _msgSlots.length; si++) {
           const slot = _msgSlots[si];
           if (slot.claimed) continue;
+
+          // A1: Skip slot if it's not yet eligible for fallback/reserve based on cascadeDir delay.
+          if (t < msgRevealStart + (slot.revealDelay ?? 0)) continue;
 
           // ── Recruit a column for unassigned slots every tick ──────────
           // Try reserve pool first; fall back to nearest non-reserve column.
@@ -1714,11 +1758,9 @@ export function initMatrixRain(element, opts = {}) {
           }
 
           // ── Force-lock assigned columns that haven't locked by fallback time ──
-          // Natural column heads that already passed through targetY locked above via the
-          // proximity check.  Any remaining slots are directly locked here so all
-          // characters appear during the hold phase.
-          // cp-wrap ensures the lock-head row index is in range (avoids invisible glyph bug).
-          if (slot.colIdx >= 0 && t >= msgRevealFallbackT && !slot.fallbackTriggered && lockData) {
+          // A1: Also gate on per-slot revealDelay so cascade order is respected.
+          if (slot.colIdx >= 0 && t >= msgRevealFallbackT && !slot.fallbackTriggered && lockData
+              && t >= msgRevealStart + (slot.revealDelay ?? 0)) {
             slot.fallbackTriggered = true;
             const tgtY      = _msgWorldYs[slot.lineIdx];
             const base0     = slot.colIdx * nRows * 4;
@@ -1762,7 +1804,11 @@ export function initMatrixRain(element, opts = {}) {
             : 1;
           const tolMult  = msgTolMultMin + (msgTolMultMax - msgTolMultMin) * revealProgress;
           const tol      = uniforms.uCellH.value * Math.max(aScale, msgTolMinScale) * 1.85 * tolMult;
-          if (Math.abs(headY - _msgWorldYs[slot.lineIdx]) < tol) {
+          // D2: Velocity-aware tolerance — prevent fast columns from skipping over the window.
+          const colSpeed = colABuf[colIdx * nRows * 4 + 2];  // aColA.z = speed
+          const maxDisp  = colSpeed * uniforms.uSpeedMul.value * dt;
+          const dynTol   = Math.max(tol, maxDisp * 1.5);
+          if (Math.abs(headY - _msgWorldYs[slot.lineIdx]) < dynTol) {
             // _yOffForHead can produce cp ≥ nRows*cellStep (~53% chance),
             // placing the lock-head row index out of range → no bright glyph appears at lockY.
             // Wrap cp to [0, nRows*cellStep) so the lock-head row is always valid.
@@ -1885,6 +1931,8 @@ export function initMatrixRain(element, opts = {}) {
           }
           msgState  = 'holding';
           msgHoldEnd = t + msgHoldDuration;
+          // C1: onHold callback — fires once at revealing→holding
+          if (_msgOnHold) { const cb = _msgOnHold; _msgOnHold = null; cb(); }
         }
 
       } else if (msgState === 'holding') {
@@ -1904,15 +1952,48 @@ export function initMatrixRain(element, opts = {}) {
         if (t >= msgHoldEnd) {
           msgState = 'fading';
           msgFadeStart = t;
-          // Stop band suppression so non-locked columns show rain again as message fades
           uniforms.uMsgRevealActive.value = 0;
+
+          // B2: Exit glitch at hold→fading transition
+          if (_msgExitGlitch) _doGlitch(_msgExitGlitchIntensity, _msgExitGlitchDuration);
+
+          // B1: Write per-column fade offsets into aLockState.w for staggered fade.
+          if (_msgFadeSpread > 0 && lockData) {
+            const fadeable = _msgSlots.filter(s => s.claimed && s.colIdx >= 0);
+            const fxs   = fadeable.map(s => s.screenX);
+            const xMin_ = Math.min(...fxs);
+            const xMax_ = Math.max(...fxs);
+            for (const slot of fadeable) {
+              const xFrac = (slot.screenX - xMin_) / (xMax_ - xMin_ || 1);
+              let orderT = 0;
+              switch (_msgFadeDir) {
+                case 'left':       orderT = xFrac; break;
+                case 'right':      orderT = 1 - xFrac; break;
+                case 'center-out': orderT = Math.abs(xFrac - 0.5) * 2; break;
+                case 'random':     orderT = Math.random(); break;
+                default:           orderT = 0;
+              }
+              const offset = orderT * Math.min(_msgFadeSpread, _msgFadeDuration * 0.9);
+              const c = slot.colIdx;
+              for (let r = 0; r < nRows; r++) lockData[(c * nRows + r) * 4 + 3] = offset;
+            }
+            if (lockAttr) lockAttr.needsUpdate = true;
+          }
+          // B1: set fade uniforms
+          uniforms.uMsgFadeStart.value    = t;
+          uniforms.uMsgFadeDuration.value = _msgFadeDuration;
+          uniforms.uMsgFading.value       = 1.0;
         }
 
       } else if (msgState === 'fading') {
         const fadeT = Math.min(1.0, (t - msgFadeStart) * msgFadeSpeed);
 
-        // Fade locked-head glyphs to invisible via the shader uniform (1 → 0)
-        uniforms.uMsgRevealProgress.value = 1.0 - fadeT;
+        // B1: per-column fade is driven by uMsgFadeStart/uMsgFadeDuration in the shader.
+        // Keep uMsgRevealProgress=1.0 during staggered fade (shader ignores it when uMsgFading=1).
+        // For legacy (no stagger), still drive the global uniform so the original path works.
+        if (uniforms.uMsgFading.value < 0.5) {
+          uniforms.uMsgRevealProgress.value = 1.0 - fadeT;
+        }
 
         // Expire any lingering spawn-below columns
         let lockDirty = false;
@@ -2174,6 +2255,11 @@ export function initMatrixRain(element, opts = {}) {
     }
   }
 
+  // B3: Write freeze-until timestamp to all nRows entries of column c in an aFreezeUntil buffer.
+  function _writeFreezeUntilRows(buf, nRows, c, val) {
+    for (let r = 0; r < nRows; r++) buf[c * nRows + r] = val;
+  }
+
   // Compute the aYOff value that places column c's head at targetWorldY at time t.
   // Mirrors the JS-side head-Y approximation used throughout the message reveal system.
   function _yOffForHead(colABuf, colBBuf, nRows, c, targetWorldY, t) {
@@ -2236,6 +2322,19 @@ export function initMatrixRain(element, opts = {}) {
     const lockAttr = geomNow.getAttribute('aLockState');
     const lockData = lockAttr?.array;
     const nRows    = geomNow.instanceCount / _geomParams.nCols;
+
+    // B3: Write freeze expiry to locked columns BEFORE clearing lock data.
+    // aFreezeUntil is a separate attribute; fetch fresh to survive rebuildGeom().
+    if (_msgFreezeTrailDuration > 0) {
+      const freezeAttr     = geomNow.getAttribute('aFreezeUntil');
+      const freezeUntilBuf = freezeAttr?.array;
+      if (freezeUntilBuf && freezeAttr) {
+        const expiry = uniforms.uTime.value + _msgFreezeTrailDuration;
+        for (const c of _msgLockedCols) _writeFreezeUntilRows(freezeUntilBuf, nRows, c, expiry);
+        freezeAttr.needsUpdate = true;
+      }
+    }
+
     if (lockData) {
       for (const c of _msgLockedCols) _writeLockRows(lockData, nRows, c, -9999, -1, 0, 0);
       for (const c of _msgSpawnCols.keys())  _writeLockRows(lockData, nRows, c, -9999, -1, 0, 0);
@@ -2263,12 +2362,34 @@ export function initMatrixRain(element, opts = {}) {
     uniforms.uMsgXMin.value = 0.0;
     uniforms.uMsgXMax.value = 1.0;
     uniforms.uMsgRevealProgress.value = 0.0;
+    // B1: reset per-column fade uniforms
+    uniforms.uMsgFading.value    = 0.0;
+    uniforms.uMsgFadeStart.value = 0.0;
+    // D3: clear reserve screen X cache
+    _msgReserveScreenXs = null;
     if (resetState) {
       msgState = 'idle';
       _msgWorldYs = [];
       _msgTrackCamera = false;
       _msgCamY0 = 0;
+      // Round 2 state resets
+      _msgAspect0         = 1;
+      _msgExitGlitch      = false;
+      _msgFadeSpread      = 0;
+      _msgFadeDir         = 'left';
+      _msgFadeDuration    = 1.0;
+      _msgFreezeTrailDuration = 0;
+      // C1: fire onComplete before dequeue so re-entrant queueMessage sees msgState=idle
+      if (_msgOnComplete) { const cb = _msgOnComplete; _msgOnComplete = null; cb(); }
+      // C2: auto-dequeue next message
+      if (_msgQueue.length > 0) {
+        const next = _msgQueue.shift();
+        setTimeout(() => _doShowMessage(next.text, next.opts), 0);
+      }
     }
+    // Always clear callbacks to prevent stale fires
+    _msgOnHold     = null;
+    _msgOnComplete = null;
   }
 
   // Compute JS-side head Y for column c (approximation — ignores burst/breath/zone).
@@ -2284,6 +2405,19 @@ export function initMatrixRain(element, opts = {}) {
     const spdMul   = Math.max(0.01, uniforms.uSpeedMul.value);
     const cp       = ((t * aSpeed * spdMul + aSeed * cycleH) % cycleH + cycleH) % cycleH;
     return aYOff + uniforms.uWorldH.value / 2 - cp;
+  }
+
+  // B2: Shared glitch implementation callable from tick and triggerGlitch handle method.
+  // triggerGlitch is a handle-object method, not in scope from the tick closure.
+  function _doGlitch(intensity, duration) {
+    if (_reducedMotion) return;
+    const b = pp?._holoBuild
+      ?? currentRainNodes?.passBuilders?._holoBuild
+      ?? pp_rainNodes?.passBuilders?._holoBuild;
+    if (!b?.uGlitchAmt) return;
+    if (_glitchTimerId !== null) clearTimeout(_glitchTimerId);
+    b.uGlitchAmt.value = intensity;
+    _glitchTimerId = setTimeout(() => { _glitchTimerId = null; b.uGlitchAmt.value = 0.0; }, duration * 1000);
   }
 
   // ── State object ──────────────────────────────────────────────────────
@@ -2326,6 +2460,7 @@ export function initMatrixRain(element, opts = {}) {
       newLockData[i * 4 + 1] = -1;
     }
     newGeom.setAttribute('aLockState', new THREE.InstancedBufferAttribute(newLockData, 4));
+    newGeom.setAttribute('aFreezeUntil', new THREE.InstancedBufferAttribute(new Float32Array(newGeom.instanceCount), 1)); // B3
     mesh.geometry.dispose();
     mesh.geometry = newGeom;
     s.geom = newGeom;
@@ -2589,6 +2724,270 @@ export function initMatrixRain(element, opts = {}) {
       _ccpSloganTimer = setTimeout(showNext, (rv + hd + fd + 1.5) * 1000);
     }
     _ccpSloganTimer = setTimeout(showNext, 2500);
+  }
+
+  // C2: Inner closure for showMessage — accessible from tick/_clearAllLocks.
+  // (showMessage handle method is a thin wrapper so C2's queueMessage can call this directly.)
+  function _doShowMessage(text, opts = {}) {
+    if (typeof text === 'string') text = [text];
+    const {
+      yFrac                = 0.5,
+      lineSpacing          = 0.12,
+      revealDuration       = 2.0,
+      holdDuration         = 4.0,
+      fadeDuration         = 1.0,
+      boost                = 2.0,
+      trackCamera          = false,
+      tolMultMin           = 4,
+      tolMultMax           = 18,
+      tolMinScale          = 1.3,
+      // Round 2 additions
+      cascadeDir           = undefined,  // A1: 'left'|'right'|'center-out'|'rain'|undefined
+      fadeSpread           = 0,          // B1: stagger window in seconds (0 = simultaneous)
+      fadeDir              = 'left',     // B1: 'left'|'right'|'center-out'|'random'
+      exitGlitch           = false,      // B2: fire glitch at hold→fading
+      exitGlitchIntensity  = 0.8,        // B2: glitch peak intensity
+      exitGlitchDuration   = 0.3,        // B2: glitch duration in seconds
+      freezeTrailDuration  = 0,          // B3: seconds to hold trail after fade completes (0=off)
+      onHold               = null,       // C1: fired at revealing→holding
+      onComplete           = null,       // C1: fired at end of fade
+    } = opts;
+
+    // ── Auto-size reserve pool from total non-space chars ─────────────
+    const _totalNonSpace = text.reduce(
+      (acc, line) => acc + [...line].filter(c => c !== ' ').length, 0);
+    const _requiredReserves = Math.min(
+      Math.floor(_geomParams.nCols / 4),
+      Math.max(48, _totalNonSpace * 3)
+    );
+    if (_requiredReserves > _geomParams.spawnReserves) {
+      _geomParams.spawnReserves = _requiredReserves;
+      rebuildGeom();
+    }
+
+    // Clear any active message before starting a new one
+    if (msgState !== 'idle') _clearAllLocks(true);
+
+    const geomNow  = mesh.geometry;
+    const lockAttr = geomNow.getAttribute('aLockState');
+    const colAAttr = geomNow.getAttribute('aColA');
+    const colBAttr = geomNow.getAttribute('aColB');
+    if (!lockAttr || !colAAttr || !colBAttr) return;
+    const lockData = lockAttr.array;
+    const colABuf  = colAAttr.array;
+    const colBBuf  = colBAttr.array;
+    const nCols    = _geomParams.nCols;
+    const nRows    = geomNow.instanceCount / nCols;
+
+    // ── Compute world Y for each line ─────────────────────────────────
+    const wH     = uniforms.uWorldH.value;
+    _msgUVToLocalX = wH * camera.aspect;
+    _msgUVToLocalY = wH;
+    _msgAspect0    = camera.aspect;  // D1: snapshot for resize detection
+
+    const nLines   = text.length;
+    const blockTop = yFrac - ((nLines - 1) / 2) * lineSpacing;
+    _msgWorldYs = text.map((_, i) => {
+      const uvY = blockTop + i * lineSpacing;
+      return (0.5 - uvY) * _msgUVToLocalY;
+    });
+
+    // ── Project column world positions to screen X via camera VP ──────
+    camera.updateMatrixWorld();
+    camera.updateProjectionMatrix();
+    const vpMat = new THREE.Matrix4().multiplyMatrices(
+      camera.projectionMatrix, camera.matrixWorldInverse
+    );
+    const tmpV = new THREE.Vector4();
+
+    const reserveStart = geomNow._reservePool?.reserveStart ?? nCols;
+    const colScreen = [];
+    const midWorldY = (_msgWorldYs[0] + _msgWorldYs[nLines - 1]) / 2;
+    for (let c = 0; c < reserveStart; c++) {
+      const base = c * nRows * 4;
+      const wx   = colABuf[base + 0] + uniforms.uColumnOffset.value.x;
+      const wz   = colABuf[base + 1] + uniforms.uColumnOffset.value.y;
+      const revHash = _h2js(c * 0.23, 0.69);
+      if (revHash >= 1.0 - uniforms.uReverseChance.value) continue;
+      const densHash = _h2js(c * 0.137 + 0.5, 42.7);
+      if (densHash > uniforms.uDensity.value) continue;
+      tmpV.set(wx, midWorldY, wz, 1.0).applyMatrix4(vpMat);
+      if (tmpV.w <= 0) continue;
+      const ndcX   = tmpV.x / tmpV.w;
+      if (ndcX < -1.2 || ndcX > 1.2) continue;
+      const screenX = (ndcX + 1.0) * 0.5;
+      colScreen.push({ c, screenX });
+    }
+    colScreen.sort((a, b) => a.screenX - b.screenX);
+
+    // D3: Pre-allocate reserve screen-X cache (populated at start of each revealing tick)
+    _msgReserveScreenXs = new Float32Array(reserveStart);
+
+    // ── Build slot array ──────────────────────────────────────────────
+    const w = renderer.domElement.width  || element.clientWidth  || 512;
+    const h = renderer.domElement.height || element.clientHeight || 512;
+    const font = `bold ${Math.max(24, Math.round(h * 0.07))}px monospace`;
+    const tmpCanvas = document.createElement('canvas');
+    tmpCanvas.width = w; tmpCanvas.height = 16;
+    const tCtx = tmpCanvas.getContext('2d');
+    if (!tCtx) { console.warn('matrix-rain: showMessage — 2D canvas context unavailable'); return; }
+    tCtx.font  = font;
+
+    _msgSlots = [];
+    _msgClaimedCount = 0;
+    let overallStartUV = 1, overallEndUV = 0;
+
+    for (let li = 0; li < nLines; li++) {
+      const lineText  = text[li];
+      const lineWorldY = _msgWorldYs[li];
+      const chars    = [...lineText];
+      const advances = chars.map(ch => tCtx.measureText(ch).width);
+      const totalPx  = advances.reduce((a, b) => a + b, 0);
+      if (totalPx === 0) continue;
+
+      const startUV = 0.5 - (totalPx / w) * 0.5;
+      if (startUV < overallStartUV) overallStartUV = startUV;
+      if (startUV + totalPx / w > overallEndUV) overallEndUV = startUV + totalPx / w;
+
+      let curPx = 0;
+      for (let i = 0; i < chars.length; i++) {
+        const centerUV = startUV + (curPx + advances[i] * 0.5) / w;
+        const halfUV   = (advances[i] * 0.5) / w;
+        const glyph    = charToGlyphIdx(chars[i], _activeCharSet);
+        const isSpace  = chars[i] === ' ';
+        _msgSlots.push({
+          screenX: centerUV,
+          halfUV:  Math.max(halfUV, 0.01),
+          glyph,
+          claimed: isSpace,
+          colIdx:  -1,
+          lineIdx: li,
+          worldY:  lineWorldY,
+          fallbackTriggered: false,
+          revealDelay: 0,  // A1: seconds after msgRevealStart before fallback is eligible
+        });
+        if (isSpace) _msgClaimedCount++;
+        curPx += advances[i];
+      }
+    }
+
+    if (_msgSlots.length === 0) return;
+
+    // ── Assign best column to each character slot ─────────────────────
+    const usedCols = new Set();
+    for (let si = 0; si < _msgSlots.length; si++) {
+      const slot = _msgSlots[si];
+      if (slot.claimed) continue;
+      let bestDist = Infinity, bestCol = -1;
+      for (let ci = 0; ci < colScreen.length; ci++) {
+        const cs = colScreen[ci];
+        if (usedCols.has(cs.c)) continue;
+        const d = Math.abs(cs.screenX - slot.screenX);
+        if (d > 0.08) continue;
+        if (d < bestDist) { bestDist = d; bestCol = cs.c; }
+      }
+      if (bestCol >= 0) {
+        slot.colIdx = bestCol;
+        usedCols.add(bestCol);
+        _msgAssigned.set(bestCol, si);
+        _writeLockRows(lockData, nRows, bestCol, slot.worldY, slot.glyph, 0, 0);
+      }
+    }
+
+    // ── Fix order inversions (bubble-sort assigned same-line slots) ───
+    {
+      const colToScreenX = new Map(colScreen.map(({ c, screenX }) => [c, screenX]));
+      let swapped = true;
+      while (swapped) {
+        swapped = false;
+        for (let si = 0; si < _msgSlots.length - 1; si++) {
+          const a = _msgSlots[si];
+          const b = _msgSlots[si + 1];
+          if (a.claimed || b.claimed) continue;
+          if (a.colIdx < 0 || b.colIdx < 0) continue;
+          if (a.lineIdx !== b.lineIdx) continue;
+          const axs = colToScreenX.get(a.colIdx) ?? a.screenX;
+          const bxs = colToScreenX.get(b.colIdx) ?? b.screenX;
+          if (axs > bxs + 1e-4) {
+            const tmpCol = a.colIdx;
+            a.colIdx = b.colIdx;
+            b.colIdx = tmpCol;
+            _msgAssigned.set(a.colIdx, si);
+            _msgAssigned.set(b.colIdx, si + 1);
+            _writeLockRows(lockData, nRows, a.colIdx, a.worldY, a.glyph, 0, 0);
+            _writeLockRows(lockData, nRows, b.colIdx, b.worldY, b.glyph, 0, 0);
+            swapped = true;
+          }
+        }
+      }
+    }
+
+    // A1: Compute per-slot revealDelay based on cascadeDir.
+    // Spreads the fallback eligibility across 60% of the reveal window.
+    if (cascadeDir) {
+      const nonSpaceSlots = _msgSlots.filter(s => !s.claimed);
+      const xs   = nonSpaceSlots.map(s => s.screenX);
+      const xMin = Math.min(...xs);
+      const xMax = Math.max(...xs);
+      for (const slot of nonSpaceSlots) {
+        const xFrac = (slot.screenX - xMin) / (xMax - xMin || 1);
+        let t = 0;
+        switch (cascadeDir) {
+          case 'left':       t = xFrac; break;
+          case 'right':      t = 1 - xFrac; break;
+          case 'center-out': t = Math.abs(xFrac - 0.5) * 2; break;
+          case 'rain':       slot._rainSpeed = slot.colIdx >= 0 ? colABuf[slot.colIdx * nRows * 4 + 2] : 0; break;
+          default:           t = 0;
+        }
+        if (cascadeDir !== 'rain') slot.revealDelay = t * revealDuration * 0.6;
+      }
+      if (cascadeDir === 'rain') {
+        const assigned = nonSpaceSlots.filter(s => s.colIdx >= 0);
+        assigned.sort((a, b) => (b._rainSpeed ?? 0) - (a._rainSpeed ?? 0));
+        assigned.forEach((slot, i) => {
+          slot.revealDelay = (i / (assigned.length || 1)) * revealDuration * 0.6;
+        });
+        nonSpaceSlots.forEach(s => { if (s.revealDelay === undefined) s.revealDelay = 0; });
+      }
+    }
+
+    lockAttr.needsUpdate = true;
+
+    // ── Band suppression setup ─────────────────────────────────────────
+    const topWorldY = _msgWorldYs[0];
+    const botWorldY = _msgWorldYs[nLines - 1];
+    uniforms.uMsgBoost.value      = boost;
+    uniforms.uMsgRevealY.value    = (topWorldY + botWorldY) / 2;
+    uniforms.uMsgRevealBand.value = Math.abs(botWorldY - topWorldY) / 2 + 2 * uniforms.uCellH.value;
+    uniforms.uMsgRevealActive.value = 0.0;
+    const margin = (_msgSlots.length > 0 ? _msgSlots[0].halfUV : 0.01);
+    uniforms.uMsgXMin.value = Math.max(0.0, overallStartUV - margin);
+    uniforms.uMsgXMax.value = Math.min(1.0, overallEndUV   + margin);
+    msgTolMultMin     = tolMultMin;
+    msgTolMultMax     = tolMultMax;
+    msgTolMinScale    = tolMinScale;
+
+    // Store Round 2 state
+    _msgFadeDuration         = fadeDuration;   // B1
+    _msgFadeSpread           = fadeSpread;     // B1
+    _msgFadeDir              = fadeDir;        // B1
+    _msgExitGlitch           = exitGlitch;     // B2
+    _msgExitGlitchIntensity  = exitGlitchIntensity; // B2
+    _msgExitGlitchDuration   = exitGlitchDuration;  // B2
+    _msgFreezeTrailDuration  = freezeTrailDuration; // B3
+    _msgOnHold               = onHold  ?? null;  // C1
+    _msgOnComplete           = onComplete ?? null; // C1
+
+    const now = prevTs || performance.now() * 0.001;
+    msgRevealStart    = now;
+    msgHoldDuration   = holdDuration;
+    msgFadeSpeed      = fadeDuration > 0 ? 1.0 / fadeDuration : Infinity;
+    msgRevealEnd       = now + revealDuration;
+    msgRevealFallbackT = now + revealDuration * 0.92;
+    uniforms.uMsgRevealProgress.value = 1.0;
+    _msgTrackCamera   = trackCamera;
+    _msgCamY0         = camera.position.y;
+    msgState          = 'revealing';
   }
 
   // ── Control handle ────────────────────────────────────────────────────
@@ -2968,15 +3367,15 @@ export function initMatrixRain(element, opts = {}) {
      * @returns {Function} cancel — clears glitch immediately
      */
     triggerGlitch(intensity = 0.6, duration = 0.4) {
-      if (_reducedMotion) return () => {};
+      _doGlitch(intensity, duration);
+      // Cancel function: clears the glitch immediately.
       const b = pp?._holoBuild
         ?? currentRainNodes?.passBuilders?._holoBuild
         ?? pp_rainNodes?.passBuilders?._holoBuild;
-      if (!b?.uGlitchAmt) return () => {};
-      if (_glitchTimerId !== null) clearTimeout(_glitchTimerId);
-      b.uGlitchAmt.value = intensity;
-      _glitchTimerId = setTimeout(() => { _glitchTimerId = null; b.uGlitchAmt.value = 0.0; }, duration * 1000);
-      return () => { if (_glitchTimerId !== null) { clearTimeout(_glitchTimerId); _glitchTimerId = null; } b.uGlitchAmt.value = 0.0; };
+      return () => {
+        if (_glitchTimerId !== null) { clearTimeout(_glitchTimerId); _glitchTimerId = null; }
+        if (b?.uGlitchAmt) b.uGlitchAmt.value = 0.0;
+      };
     },
 
     /**
@@ -3278,248 +3677,27 @@ export function initMatrixRain(element, opts = {}) {
     // ── Message reveal API ────────────────────────────────────────────────
     /**
      * Display a message by locking rain column heads to target characters.
-     * Characters crystallise organically as columns reach the message band.
      *
-     * @param {string|string[]} text  Single line string or array of strings (one per line)
+     * @param {string|string[]} text
      * @param {object} [opts]
-     * @param {number} [opts.yFrac]           vertical centre 0–1 of the whole block (default: 0.5)
-     * @param {number} [opts.lineSpacing]     UV gap between line centres for multi-line (default: 0.12)
-     * @param {number} [opts.revealDuration]  seconds to allow organic reveal (default: 2.0)
-     * @param {number} [opts.holdDuration]    seconds to hold frozen message (default: 4.0)
-     * @param {number} [opts.fadeDuration]    seconds to fade out (default: 1.0)
-     * @param {number} [opts.boost]           brightness multiplier for locked head glyphs (default: 2.0)
-     * @param {boolean} [opts.trackCamera]    track camera.y during hold (default: false)
+     * @param {number}  [opts.yFrac=0.5]            vertical centre 0–1
+     * @param {number}  [opts.lineSpacing=0.12]      UV gap between lines
+     * @param {number}  [opts.revealDuration=2.0]    seconds for organic reveal
+     * @param {number}  [opts.holdDuration=4.0]      seconds to hold
+     * @param {number}  [opts.fadeDuration=1.0]      seconds to fade out
+     * @param {number}  [opts.boost=2.0]             brightness multiplier for locked heads
+     * @param {boolean} [opts.trackCamera=false]     track camera.y during hold
+     * @param {string}  [opts.cascadeDir]            A1: reveal order 'left'|'right'|'center-out'|'rain'
+     * @param {number}  [opts.fadeSpread=0]          B1: stagger window in seconds (0=simultaneous)
+     * @param {string}  [opts.fadeDir='left']        B1: 'left'|'right'|'center-out'|'random'
+     * @param {boolean} [opts.exitGlitch=false]      B2: fire glitch at hold→fading transition
+     * @param {number}  [opts.exitGlitchIntensity]   B2: glitch peak intensity (default 0.8)
+     * @param {number}  [opts.exitGlitchDuration]    B2: glitch duration seconds (default 0.3)
+     * @param {number}  [opts.freezeTrailDuration=0] B3: seconds to hold trail after fade (0=off)
+     * @param {Function} [opts.onHold]               C1: callback at revealing→holding
+     * @param {Function} [opts.onComplete]           C1: callback after fade completes
      */
-    showMessage(text, opts = {}) {
-      if (typeof text === 'string') text = [text];
-      const {
-        yFrac          = 0.5,
-        lineSpacing    = 0.12,
-        revealDuration = 2.0,
-        holdDuration   = 4.0,
-        fadeDuration   = 1.0,
-        boost          = 2.0,
-        trackCamera    = false,
-        tolMultMin     = 4,
-        tolMultMax     = 18,
-        tolMinScale    = 1.3,
-      } = opts;
-
-      // ── Auto-size reserve pool from total non-space chars ─────────────
-      const _totalNonSpace = text.reduce(
-        (acc, line) => acc + [...line].filter(c => c !== ' ').length, 0);
-      const _requiredReserves = Math.min(
-        Math.floor(_geomParams.nCols / 4),
-        Math.max(48, _totalNonSpace * 3)
-      );
-      if (_requiredReserves > _geomParams.spawnReserves) {
-        _geomParams.spawnReserves = _requiredReserves;
-        rebuildGeom();
-      }
-
-      // Clear any active message before starting a new one
-      if (msgState !== 'idle') _clearAllLocks(true);
-
-      const geomNow  = mesh.geometry;
-      const lockAttr = geomNow.getAttribute('aLockState');
-      const colAAttr = geomNow.getAttribute('aColA');
-      const colBAttr = geomNow.getAttribute('aColB');
-      if (!lockAttr || !colAAttr || !colBAttr) return;
-      const lockData = lockAttr.array;
-      const colABuf  = colAAttr.array;
-      const colBBuf  = colBAttr.array;
-      const nCols    = _geomParams.nCols;
-      const nRows    = geomNow.instanceCount / nCols;
-
-      // ── Compute world Y for each line ─────────────────────────────────
-      // yFrac = 0 → top, 1 → bottom. Map to world Y using uWorldH.
-      // The head sweep spans roughly [−uWorldH/2, +uWorldH/2].
-      const wH     = uniforms.uWorldH.value;  // typically 16
-      _msgUVToLocalX = wH * camera.aspect;    // world units per horizontal UV unit (approx)
-      _msgUVToLocalY = wH;                    // world units per vertical UV unit
-
-      const nLines   = text.length;
-      const blockTop = yFrac - ((nLines - 1) / 2) * lineSpacing;  // UV of top-line centre
-      _msgWorldYs = text.map((_, i) => {
-        const uvY = blockTop + i * lineSpacing;
-        return (0.5 - uvY) * _msgUVToLocalY;
-      });
-
-      // ── Project column world positions to screen X via camera VP ──────
-      camera.updateMatrixWorld();
-      camera.updateProjectionMatrix();
-      const vpMat = new THREE.Matrix4().multiplyMatrices(
-        camera.projectionMatrix, camera.matrixWorldInverse
-      );
-      const tmpV = new THREE.Vector4();
-
-      // Build array of (colIdx, screenX) for all eligible non-reserve columns.
-      // Reserve columns (>= reserveStart) are managed separately via _claimReserve.
-      const reserveStart = geomNow._reservePool?.reserveStart ?? nCols;
-      const colScreen = [];
-      // Use the vertical midpoint of all lines for the column-to-screen projection.
-      // Reserve and fallback picks use per-slot worldY at tick time.
-      const midWorldY = (_msgWorldYs[0] + _msgWorldYs[nLines - 1]) / 2;
-      for (let c = 0; c < reserveStart; c++) {
-        const base = c * nRows * 4;
-        const wx   = colABuf[base + 0] + uniforms.uColumnOffset.value.x;
-        const wz   = colABuf[base + 1] + uniforms.uColumnOffset.value.y;
-
-        // Skip reversed columns
-        const revHash = _h2js(c * 0.23, 0.69);
-        if (revHash >= 1.0 - uniforms.uReverseChance.value) continue;
-
-        // Skip density-culled columns
-        const densHash = _h2js(c * 0.137 + 0.5, 42.7);
-        if (densHash > uniforms.uDensity.value) continue;
-
-        // Project column world position to screen UV x
-        tmpV.set(wx, midWorldY, wz, 1.0).applyMatrix4(vpMat);
-        if (tmpV.w <= 0) continue;  // behind camera
-        const ndcX   = tmpV.x / tmpV.w;
-        if (ndcX < -1.2 || ndcX > 1.2) continue;  // off screen
-        const screenX = (ndcX + 1.0) * 0.5;  // 0..1 screen UV
-
-        colScreen.push({ c, screenX });
-      }
-      // Sort by screen X for faster matching
-      colScreen.sort((a, b) => a.screenX - b.screenX);
-
-      // ── Build slot array: one per character across all lines ──────────
-      const w = renderer.domElement.width  || element.clientWidth  || 512;
-      const h = renderer.domElement.height || element.clientHeight || 512;
-      const font = `bold ${Math.max(24, Math.round(h * 0.07))}px monospace`;
-      const tmpCanvas = document.createElement('canvas');
-      tmpCanvas.width = w; tmpCanvas.height = 16;
-      const tCtx = tmpCanvas.getContext('2d');
-      if (!tCtx) { console.warn('matrix-rain: showMessage — 2D canvas context unavailable'); return; }
-      tCtx.font  = font;
-
-      _msgSlots = [];
-      _msgClaimedCount = 0;
-      let overallStartUV = 1, overallEndUV = 0;  // track X extent across all lines
-
-      for (let li = 0; li < nLines; li++) {
-        const lineText = text[li];
-        const lineWorldY = _msgWorldYs[li];
-        const chars    = [...lineText];
-        const advances = chars.map(ch => tCtx.measureText(ch).width);
-        const totalPx  = advances.reduce((a, b) => a + b, 0);
-        if (totalPx === 0) continue;
-
-        const startUV = 0.5 - (totalPx / w) * 0.5;  // left edge in screen UV
-        if (startUV < overallStartUV) overallStartUV = startUV;
-        if (startUV + totalPx / w > overallEndUV) overallEndUV = startUV + totalPx / w;
-
-        let curPx = 0;
-        for (let i = 0; i < chars.length; i++) {
-          const centerUV = startUV + (curPx + advances[i] * 0.5) / w;
-          const halfUV   = (advances[i] * 0.5) / w;
-          const glyph    = charToGlyphIdx(chars[i], _activeCharSet);
-          const isSpace  = chars[i] === ' ';
-          _msgSlots.push({
-            screenX: centerUV,
-            halfUV:  Math.max(halfUV, 0.01),
-            glyph,
-            claimed: isSpace,
-            colIdx:  -1,
-            lineIdx: li,
-            worldY:  lineWorldY,
-            fallbackTriggered: false,
-          });
-          if (isSpace) _msgClaimedCount++;
-          curPx += advances[i];
-        }
-      }
-
-      if (_msgSlots.length === 0) return;
-
-      // ── Assign best column to each character slot ─────────────────────
-      const usedCols = new Set();
-      for (let si = 0; si < _msgSlots.length; si++) {
-        const slot = _msgSlots[si];
-        if (slot.claimed) continue;
-
-        // Find closest projected column to this slot's screen X
-        let bestDist = Infinity, bestCol = -1;
-        for (let ci = 0; ci < colScreen.length; ci++) {
-          const cs = colScreen[ci];
-          if (usedCols.has(cs.c)) continue;
-          const d = Math.abs(cs.screenX - slot.screenX);
-          if (d > 0.08) continue;  // max ~8% screen width tolerance
-          if (d < bestDist) { bestDist = d; bestCol = cs.c; }
-        }
-
-        if (bestCol >= 0) {
-          slot.colIdx = bestCol;
-          usedCols.add(bestCol);
-          _msgAssigned.set(bestCol, si);
-          // lockTime=0 signals "assigned but not yet locked" — tick() will set lockTime=t
-          // when the head reaches worldY
-          _writeLockRows(lockData, nRows, bestCol, slot.worldY, slot.glyph, 0, 0);
-        }
-      }
-
-      // ── Fix order inversions: adjacent same-line slots must have columns in the same
-      // left-to-right order as the characters. Greedy assignment can produce crossings
-      // (e.g. slot K gets a column visually to the right of slot E's column). One pass of
-      // bubble-sort over assigned slots on the same line resolves all inversions.
-      {
-        const colToScreenX = new Map(colScreen.map(({ c, screenX }) => [c, screenX]));
-        let swapped = true;
-        while (swapped) {
-          swapped = false;
-          for (let si = 0; si < _msgSlots.length - 1; si++) {
-            const a = _msgSlots[si];
-            const b = _msgSlots[si + 1];
-            if (a.claimed || b.claimed) continue;
-            if (a.colIdx < 0 || b.colIdx < 0) continue;
-            if (a.lineIdx !== b.lineIdx) continue;  // only fix within same line
-            const axs = colToScreenX.get(a.colIdx) ?? a.screenX;
-            const bxs = colToScreenX.get(b.colIdx) ?? b.screenX;
-            if (axs > bxs + 1e-4) {
-              // Swap column assignments
-              const tmpCol = a.colIdx;
-              a.colIdx = b.colIdx;
-              b.colIdx = tmpCol;
-              _msgAssigned.set(a.colIdx, si);
-              _msgAssigned.set(b.colIdx, si + 1);
-              _writeLockRows(lockData, nRows, a.colIdx, a.worldY, a.glyph, 0, 0);
-              _writeLockRows(lockData, nRows, b.colIdx, b.worldY, b.glyph, 0, 0);
-              swapped = true;
-            }
-          }
-        }
-      }
-
-      lockAttr.needsUpdate = true;
-
-      // ── Band suppression (set Y + band; active flag raised lazily on first lock) ──
-      const topWorldY = _msgWorldYs[0];
-      const botWorldY = _msgWorldYs[nLines - 1];
-      uniforms.uMsgBoost.value      = boost;
-      uniforms.uMsgRevealY.value    = (topWorldY + botWorldY) / 2;
-      uniforms.uMsgRevealBand.value = Math.abs(botWorldY - topWorldY) / 2 + 2 * uniforms.uCellH.value;
-      // uMsgRevealActive stays 0.0 — raised to 1.0 lazily when the first column locks.
-      uniforms.uMsgRevealActive.value = 0.0;
-      // X bounds in screen UV — covers full horizontal extent across all lines.
-      const margin = (_msgSlots.length > 0 ? _msgSlots[0].halfUV : 0.01);
-      uniforms.uMsgXMin.value = Math.max(0.0, overallStartUV - margin);
-      uniforms.uMsgXMax.value = Math.min(1.0, overallEndUV   + margin);
-      msgTolMultMin     = tolMultMin;
-      msgTolMultMax     = tolMultMax;
-      msgTolMinScale    = tolMinScale;
-      const now = prevTs || performance.now() * 0.001;
-      msgRevealStart    = now;
-      msgHoldDuration   = holdDuration;
-      msgFadeSpeed      = fadeDuration > 0 ? 1.0 / fadeDuration : Infinity;
-      msgRevealEnd       = now + revealDuration;
-      msgRevealFallbackT = now + revealDuration * 0.92;
-      uniforms.uMsgRevealProgress.value = 1.0;
-      _msgTrackCamera   = trackCamera;
-      _msgCamY0         = camera.position.y;
-      msgState          = 'revealing';
-    },
+    showMessage(text, opts = {}) { _doShowMessage(text, opts); },
 
     /**
      * Interrupt the current message and fade it out immediately.
@@ -3552,6 +3730,140 @@ export function initMatrixRain(element, opts = {}) {
 
     setMsgBandSuppress(on) { uniforms.uMsgBandSuppress.value = on ? 1.0 : 0.0; },
     setMsgSettleSharpness(v) { uniforms.uMsgSettleSharpness.value = Math.max(0.5, Math.min(20, v)); },
+
+    // ── Round 2 message handle methods ────────────────────────────────────
+    /** A2: Boost locked-column trail brightness near the head during reveal (0=off). */
+    setMsgTrailBoost(boost, decay) {
+      uniforms.uMsgTrailBoost.value = Math.max(0, Math.min(3, boost));
+      if (decay !== undefined) uniforms.uMsgTrailDecay.value = Math.max(1, Math.min(20, decay));
+    },
+
+    /** A3: Blend scramble candidates from full-atlas (0) to same atlas row as target (1). */
+    setSettleSetBlend(v) { uniforms.uSettleSetBlend.value = Math.max(0, Math.min(1, v)); },
+
+    /** B1: Set stagger window for per-column fade (0 = all fade together). */
+    setMsgFadeSpread(v) { _msgFadeSpread = Math.max(0, v); },
+
+    /** C2: Enqueue a message; fires immediately if idle, otherwise appended to queue. */
+    queueMessage(text, opts = {}) {
+      if (msgState === 'idle') {
+        _doShowMessage(text, opts);
+      } else {
+        _msgQueue.push({ text, opts });
+      }
+    },
+
+    /** C2: Clear pending message queue without cancelling the active message. */
+    clearQueue() { _msgQueue = []; },
+
+    /**
+     * C3: Display a single word vertically along one column.
+     * Characters lock immediately (no organic arrive-and-lock wait).
+     *
+     * @param {string} text  The word to display (max ~10 chars)
+     * @param {object} [opts]
+     * @param {number} [opts.xFrac=0.5]          Screen UV X of the target column (0–1)
+     * @param {number} [opts.yFrac=0.5]          Screen UV Y of the text block centre (0–1)
+     * @param {number} [opts.holdDuration=4.0]   Seconds to hold
+     * @param {number} [opts.fadeDuration=1.0]   Seconds to fade out
+     * @param {Function} [opts.onHold]           C1: callback at lock→holding
+     * @param {Function} [opts.onComplete]       C1: callback after fade
+     */
+    showVerticalMessage(text, opts = {}) {
+      if (typeof text !== 'string') return;
+      const chars = [...text];
+      if (chars.length === 0) return;
+
+      const {
+        xFrac         = 0.5,
+        yFrac         = 0.5,
+        holdDuration  = 4.0,
+        fadeDuration  = 1.0,
+        boost         = 2.0,
+        exitGlitch    = false,
+        exitGlitchIntensity = 0.8,
+        exitGlitchDuration  = 0.3,
+        freezeTrailDuration = 0,
+        onHold        = null,
+        onComplete    = null,
+      } = opts;
+
+      if (msgState !== 'idle') _clearAllLocks(true);
+
+      const geomNow  = mesh.geometry;
+      const lockAttr = geomNow.getAttribute('aLockState');
+      const colAAttr = geomNow.getAttribute('aColA');
+      const colBAttr = geomNow.getAttribute('aColB');
+      if (!lockAttr || !colAAttr || !colBAttr) return;
+      const lockData = lockAttr.array;
+      const colABuf  = colAAttr.array;
+      const colBBuf  = colBAttr.array;
+      const nCols    = _geomParams.nCols;
+      const nRows    = geomNow.instanceCount / nCols;
+      const reserveStart = geomNow._reservePool?.reserveStart ?? nCols;
+
+      // Project column world positions; find closest to xFrac.
+      camera.updateMatrixWorld();
+      camera.updateProjectionMatrix();
+      _msgVpMat.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+      const wH    = uniforms.uWorldH.value;
+      const wY0   = (0.5 - yFrac) * wH;  // world Y of vertical block centre
+
+      let bestCol = -1, bestDist = Infinity;
+      for (let c = 0; c < reserveStart; c++) {
+        const base = c * nRows * 4;
+        const wx   = colABuf[base + 0] + uniforms.uColumnOffset.value.x;
+        const wz   = colABuf[base + 1] + uniforms.uColumnOffset.value.y;
+        _msgTv.set(wx, wY0, wz, 1.0).applyMatrix4(_msgVpMat);
+        if (_msgTv.w <= 0) continue;
+        const sx   = (_msgTv.x / _msgTv.w) * 0.5 + 0.5;
+        const dist = Math.abs(sx - xFrac);
+        if (dist < bestDist) { bestDist = dist; bestCol = c; }
+      }
+      if (bestCol < 0) return;
+
+      // Lock each character immediately at the appropriate world Y.
+      const n        = chars.length;
+      const aScale   = colBBuf[bestCol * nRows * 4 + 1];
+      const cellStep = uniforms.uCellH.value * aScale * 1.85;
+      const now      = prevTs || performance.now() * 0.001;
+
+      _msgSlots = [];
+      _msgLockedCols.add(bestCol);
+      for (let i = 0; i < n; i++) {
+        const lockY = wY0 + (i - (n - 1) / 2) * cellStep;
+        const glyph = charToGlyphIdx(chars[i], _activeCharSet);
+        _writeLockRows(lockData, nRows, bestCol, lockY, glyph, now, 0);
+        _msgSlots.push({ screenX: 0, halfUV: 0.01, glyph, claimed: true,
+                         colIdx: bestCol, lineIdx: 0, worldY: lockY,
+                         fallbackTriggered: true, revealDelay: 0 });
+      }
+      lockAttr.needsUpdate = true;
+      _msgClaimedCount = _msgSlots.length;
+      _msgWorldYs      = [wY0];
+
+      uniforms.uMsgBoost.value            = boost;
+      uniforms.uMsgRevealProgress.value   = 1.0;
+      uniforms.uMsgRevealActive.value     = 0.0;
+      _msgFadeDuration         = fadeDuration;
+      _msgFadeSpread           = 0;
+      _msgExitGlitch           = exitGlitch;
+      _msgExitGlitchIntensity  = exitGlitchIntensity;
+      _msgExitGlitchDuration   = exitGlitchDuration;
+      _msgFreezeTrailDuration  = freezeTrailDuration;
+      _msgOnHold               = onHold ?? null;
+      _msgOnComplete           = onComplete ?? null;
+      _msgAspect0              = camera.aspect;
+
+      msgHoldDuration   = holdDuration;
+      msgFadeSpeed      = fadeDuration > 0 ? 1.0 / fadeDuration : Infinity;
+      msgRevealStart    = now;
+      msgRevealEnd      = now;  // skip reveal phase — go directly to holding
+      msgRevealFallbackT = now;
+      msgHoldEnd        = now + holdDuration;
+      msgState          = 'holding';
+      if (_msgOnHold) { const cb = _msgOnHold; _msgOnHold = null; cb(); }
+    },
 
     // ── externalLoop API ──────────────────────────────────────────────────
     /**

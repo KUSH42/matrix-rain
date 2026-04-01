@@ -171,6 +171,13 @@ export function makeUniforms(glyphCount = 56, gridW = 8, gridH = 8, lutTexture =
     uSpiralAmt:   uniform(0.0),         // orbital amplitude 0–1; 0 = off
     uSpiralRate:  uniform(0.1),         // angular velocity rad/s; range [0, 0.5]
     uSpiralPitch: uniform(Math.PI),     // angular phase spread per unit of aSpawnTheta [0–2π]
+    // Message reveal improvements (Round 2)
+    uMsgTrailBoost:   uniform(0.0),    // A2: additive brightness multiplier for locked-column trail  0–3
+    uMsgTrailDecay:   uniform(8.0),    // A2: exponential decay rate for trail boost                  1–20
+    uSettleSetBlend:  uniform(0.0),    // A3: scramble set narrowing — 0=full atlas, 1=same atlas row  0–1
+    uMsgFadeStart:    uniform(0.0),    // B1: absolute uTime when per-column staggered fade began
+    uMsgFadeDuration: uniform(1.0),    // B1: staggered fade duration in seconds
+    uMsgFading:       uniform(0.0),    // B1: 1 = per-column fade active; 0 = use uMsgRevealProgress global
   };
 }
 
@@ -216,6 +223,9 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     uPerspectiveWorldX, uPerspectiveStrength,
     uMorseRate, uMorseAmt,
     uSpiralAmt, uSpiralRate, uSpiralPitch,
+    uMsgTrailBoost, uMsgTrailDecay,
+    uSettleSetBlend,
+    uMsgFadeStart, uMsgFadeDuration, uMsgFading,
   } = uniforms;
 
   // ── Per-instance buffer attributes ────────────────────────────────────
@@ -250,6 +260,7 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
   const vLockState   = varying(vec4(),   'vLockState');  // (lockY, lockGlyph, lockTime, spawnActive)
   const vCyclePhase  = varying(float(),  'vCyclePhase'); // forward cyclePhase [0, 1] passed to fragment
   const vClusterHue  = varying(float(),  'vClusterHue'); // per-cluster hue offset [-1, 1] passed to fragment
+  const vFreezeUntil = varying(float(),  'vFreezeUntil'); // B3: per-cell freeze-until timestamp (aFreezeUntil attribute)
 
   // ── Degrees-to-radians conversion constant (build-time JS float node) ───
   const DEG_TO_RAD = float(Math.PI / 180);
@@ -301,6 +312,7 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     vLockState.assign(vec4(float(-9999), float(-1), float(0), float(0)));
     vCyclePhase.assign(0.0);
     vClusterHue.assign(0.0);
+    vFreezeUntil.assign(0.0);
 
     // Unpack per-column attributes — apply camera-follow offset to XZ world position
     const aWX    = aColAAttr.x.add(uColumnOffset.x);
@@ -497,6 +509,12 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
       headY.assign(select(isLocked, aLockStateAttr.x, headY));
       // Suppress death-fade so the frozen glyph never vanishes mid-hold
       vDeathFade.assign(select(isLocked, float(1.0), vDeathFade));
+
+      // B3: Freeze-trail — pin headY using lockY while aFreezeUntil > uTime (post-release)
+      const aFreezeUntilAttr = attribute('aFreezeUntil', 'float');
+      vFreezeUntil.assign(aFreezeUntilAttr);
+      const isFrozenV = aFreezeUntilAttr.greaterThan(uTime);
+      headY.assign(select(isFrozenV.and(isLocked.not()), aLockStateAttr.x, headY));
 
       // ── Head overshoot — bounce inertia surge ─────────────────────────
       const aHeadOvershootAttr = attribute('aHeadOvershoot', 'float');
@@ -710,7 +728,10 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     const holdSec    = select(isHead,
       float(0.067),                            // head: ~15 Hz — deliberately not scaled by uHoldMult
       nonHeadHold
-    );
+    ).toVar('holdSec');
+    // B3: Freeze-trail — frozen cells use static holdSec so glyphs don't churn after lock release
+    const isFrozenF = vFreezeUntil.greaterThan(uTime);
+    holdSec.assign(select(isFrozenF, float(10000.0), holdSec));
 
     // (Old cascade wave machinery removed — replaced by per-column lock state)
 
@@ -770,7 +791,15 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
     const settleT      = clamp(lockAge.mul(uMsgSettleSharpness), float(0.0), float(1.0));
     const settleCoin   = fract(sin(vLockState.z.mul(31.7).add(vColCenterX.mul(47.3))).mul(43758.5453));
     const useLockGlyph = settleCoin.lessThan(settleT).and(hasLockTarget);
-    glyphIdx.assign(select(isLockHead, select(useLockGlyph, lockGlyph, mutGlyph), glyphIdx));
+    // A3: Row-constrained scramble — narrow mutating candidates to the same atlas row as target.
+    // safeLockGlyph guards against lockGlyph=-1 (no target); settleBlend gated by hasLockTarget.
+    const safeLockGlyph = max(lockGlyph, float(0.0));
+    const targetRow     = floor(safeLockGlyph.div(float(uAtlasGridW)));
+    const rowStart      = targetRow.mul(float(uAtlasGridW));
+    const mutGlyphRow   = rowStart.add(floor(fract(mutHash.mul(uGlyphCount)).mul(float(uAtlasGridW))));
+    const settleBlend   = select(hasLockTarget, uSettleSetBlend, float(0.0));
+    const mutGlyphBlend = mix(mutGlyph.toFloat(), mutGlyphRow.toFloat(), settleBlend).floor();
+    glyphIdx.assign(select(isLockHead, select(useLockGlyph, lockGlyph, mutGlyphBlend), glyphIdx));
 
     // Suppress non-locked fragments inside the message reveal band.
     // Gated by uMsgBandSuppress (user toggle) and uMsgRevealActive (set when first glyph locks).
@@ -1014,12 +1043,30 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
 
     // ── Final alpha ────────────────────────────────────────────────────
     const rawBright = trail.mul(mask).mul(vAlpha).mul(vDepthDim).toVar('rawBright');
-    // Locked head cell: force full brightness shaped by MSDF mask, then fade via uMsgRevealProgress
-    rawBright.assign(select(isLockHead, uMsgRevealProgress.mul(mask), rawBright));
+    // Locked head cell: force full brightness shaped by MSDF mask.
+    // B1: When uMsgFading=1, each column fades independently using vLockState.w as a time offset.
+    //     When uMsgFadeStart=0 and uMsgFading=0, effectiveFadeT is large-negative → clamped to 0
+    //     → perColFadeMult=1.0 → identical to original behaviour during reveal/hold phases.
+    const fadeOffset      = vLockState.w;  // seconds of delay for this column (written at hold→fading)
+    const effectiveFadeT  = clamp(
+      uTime.sub(uMsgFadeStart).sub(fadeOffset).div(max(uMsgFadeDuration, float(0.001))),
+      float(0.0), float(1.0)
+    );
+    const perColFadeMult  = float(1.0).sub(effectiveFadeT);
+    rawBright.assign(select(isLockHead,
+      select(uMsgFading.greaterThan(float(0.5)), perColFadeMult, uMsgRevealProgress).mul(mask),
+      rawBright));
     // Trail cells of locked columns: fade in over 0.6 s so they don't pop in abruptly
     const trailFadeIn = smoothstep(0.0, 0.6, lockAge);
     const isLockTrail = lockActive.and(isLockHead.not());
     rawBright.assign(select(isLockTrail, rawBright.mul(trailFadeIn), rawBright));
+    // A2: Trail boost — locked-column trail cells brighten near the head, decaying into trail.
+    // exp(-d * decay) gives max boost at d=0 (head), decaying toward 0 deeper in the trail.
+    // uMsgTrailBoost=0 (default) makes trailBoostAmt=1.0 — no-op.
+    const trailBoostAmt = float(1.0).add(
+      uMsgTrailBoost.mul(exp(d.negate().mul(uMsgTrailDecay)))
+    );
+    col2.mulAssign(select(isLockTrail, trailBoostAmt, float(1.0)));
 
     // ── Scanline glow — CRT-style horizontal scan flash ───────────────────
     // Cells near the current scan front (uScanWorldY) briefly light up.

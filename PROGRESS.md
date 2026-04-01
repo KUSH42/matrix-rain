@@ -182,6 +182,20 @@ All items go in `specs/` before implementation.
   - `matrix-rain-webgpu.js`: added `case 'hebrew':` to `charToGlyphIdx` — previously fell through to `default: return -1`, making all Hebrew glyphs unmappable in `showMessage()`; fix uses `indexOf` against `HEBREW_BASE`/`HEBREW_FINAL` strings (non-contiguous Unicode block requires table lookup, not arithmetic)
   - `matrix-rain-webgpu.js`: removed `_flyRadius` dead-write from `CameraController` constructor and `setFlythrough()` — `_tickFly` never read this property; the documented `radius` parameter silently had no effect
 
+- [x] **SPEC-message-reveal-improvements** — 12 improvements across 4 themes (11 implemented; C3 vertical text included as bonus)
+  - **A1 Cascade direction**: `cascadeDir` opt ('left'|'right'|'center-out'|'rain'); `revealDelay` per slot; gates fallback + reserve-claim
+  - **A2 Trail boost**: `uMsgTrailBoost`/`uMsgTrailDecay` uniforms; fragment boost block on `isLockTrail` cells; `setMsgTrailBoost` handle
+  - **A3 Scramble set narrowing**: `uSettleSetBlend` uniform; row-constrained `mutGlyphBlend` replaces `mutGlyph` in lock-head scramble; `setSettleSetBlend` handle
+  - **B1 Per-column staggered fade**: `uMsgFadeStart`/`uMsgFadeDuration`/`uMsgFading` uniforms; `aLockState.w` reused for per-column `fadeOffset`; JS writes offset at hold→fading; shader uses `vLockState.w` as time offset; `setMsgFadeSpread` handle
+  - **B2 Exit glitch**: `_doGlitch()` closure (extracted from `triggerGlitch`); fires at hold→fading if `exitGlitch=true`; `triggerGlitch` updated as thin wrapper
+  - **B3 Freeze-trail mode**: `aFreezeUntil` per-cell attribute (Float32Array, nCols×nRows); `vFreezeUntil` varying; vertex pins `headY` when frozen + not locked; fragment sets `holdSec=10000` when frozen; `_writeFreezeUntilRows` helper; written in `_clearAllLocks` before lock clear
+  - **C1 onHold/onComplete callbacks**: `_msgOnHold`/`_msgOnComplete` closure vars; fired at revealing→holding and end of `_clearAllLocks(true)` respectively; null-before-call prevents re-entrance
+  - **C2 Message queue**: `_doShowMessage` closure (showMessage is now a thin wrapper); `_msgQueue` array; `queueMessage`/`clearQueue` handle methods; auto-dequeue in `_clearAllLocks(resetState=true)` via `setTimeout`
+  - **C3 Vertical text mode**: `showVerticalMessage(text, opts)` handle method; single-column lock at per-char world Y; bypasses organic reveal — locks immediately into `holding` state
+  - **D1 Resize resilience**: `_msgAspect0` snapshot; per-tick aspect check recomputes `_msgUVToLocalX` on change
+  - **D2 Velocity-aware tolerance**: `dynTol = max(tol, colSpeed * uSpeedMul * dt * 1.5)` applied to head-lock proximity check
+  - **D3 VP projection cache**: `_msgReserveScreenXs = new Float32Array(reserveStart)` allocated at `showMessage`; populated once at start of revealing tick; replaces old per-tick `camera.updateMatrixWorld()` call; reset in `_clearAllLocks`
+  - **Files**: `matrix-rain-tsl.js`, `matrix-rain-webgpu.js`
 - [ ] `prefers-reduced-motion` — disable/reduce heat, god rays, burst bloom
 - [ ] README.md — public documentation before any npm/gh-pages publish
 - [ ] `package.json` npm publish — subpath exports already wired
