@@ -1,0 +1,532 @@
+/**
+ * matrix-rain-geometry.js — Scene constants, MSDF loader, Cluster class,
+ * instanced buffer geometry builder, and CameraController.
+ */
+
+import * as THREE from 'three/webgpu';
+
+// ── Scene constants ────────────────────────────────────────────────────────
+export const N_ROWS  = 120;
+export const CELL_W  = 0.12;
+export const CELL_H  = 0.08;
+export const WORLD_H = 16;
+
+// ── MSDF atlas ────────────────────────────────────────────────────────────
+export function loadMSDF(path) {
+  const tex = new THREE.TextureLoader().load(path);
+  tex.flipY           = false;
+  // Mipmaps must be disabled for MTSDF atlases. Standard box-filter downsampling
+  // averages SDF channel values, producing invalid distance fields at lower mip levels.
+  // The GPU's LOD interpolation then blends between valid and corrupted mips as the
+  // camera moves, causing complex glyphs (R, K, etc.) to flicker.
+  tex.minFilter       = THREE.LinearFilter;
+  tex.magFilter       = THREE.LinearFilter;
+  tex.colorSpace      = THREE.LinearSRGBColorSpace;
+  tex.generateMipmaps = false;
+  return tex;
+}
+
+// Box-Muller Gaussian random — used for cluster angular jitter
+function _gaussRand() {
+  const u = 1 - Math.random(); // (0, 1] avoids log(0)
+  const v = Math.random();
+  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+}
+
+// ── Cluster class — owns all per-cluster state ────────────────────────────
+class Cluster {
+  constructor(thetaCenter, worldH) {
+    this.theta      = thetaCenter;
+    this.hue        = Math.random() * 2 - 1;   // per-cluster hue offset [-1, 1]
+    this.brightness = Math.random() * 2 - 1;   // per-cluster brightness bias [-1, 1]
+    this.speed      = Math.random() * 2 - 1;   // per-cluster speed bias [-1, 1]
+    this.burstSeed  = Math.random();            // burst desync offset [0, 1]
+    this.yCenter    = (Math.random() - 0.5) * worldH;  // spawn Y band center
+    this.rSeed      = Math.random();            // shell depth seed [0, 1]
+    this.phase      = Math.random();            // cycle phase seed [0, 1]
+    this._colCount  = 0;
+    this.squadPhases      = null;
+    this.squadTrailBiases = null;
+  }
+
+  initSquads(maxSquadsPerCluster) {
+    this.squadPhases = Array.from({ length: maxSquadsPerCluster }, () => {
+      return Math.max(0, Math.min(1, this.phase + (Math.random() - 0.5) * 0.2));
+    });
+    this.squadTrailBiases = Array.from({ length: maxSquadsPerCluster }, () => Math.random() * 2 - 1);
+  }
+
+  nextSquadIdx(squadSize) {
+    return Math.floor(this._colCount++ / squadSize);
+  }
+}
+
+// ── Instanced buffer geometry ─────────────────────────────────────────────
+export function buildGeometry({
+  speedMin      = 0.8,
+  speedMax      = 4.0,
+  trailMin      = 0.015,
+  trailMax      = 0.050,
+  nCols         = 600,
+  topology      = 'shell',    // 'shell' | 'ring' | 'curtain' | 'rectangle'
+  shellInner    = 3.5,
+  shellOuter    = 8.0,
+  rectW         = 8.0,        // rectangle topology: half-extent in X
+  rectH         = 8.0,        // rectangle topology: half-extent in Z
+  clusterCount  = 12,
+  clusterSpread = 0.017,      // σ as fraction of full circle; 0.017 ≈ 6°
+  radialBias    = 0.0,        // −1 = inner-concentrated, 0 = uniform, +1 = outer-concentrated
+  clusterUniform = 0.0,       // 0 = clustered, 1 = fully uniform angular scatter
+  clusterSpeedJitter = 0.18,  // ±jitter on [0,1] speed seed within cluster; 0=identical speeds
+  clusterYSpread   = 3.0,     // ±world-units jitter on Y offset within cluster; 0=same spawn Y
+  clusterRJitter   = 0.20,    // ±jitter on [0,1] radius seed within cluster; 0=same shell depth
+  squadSize        = 5,       // columns per squad; squads are formed within clusters
+  trailCohesion    = 0.7,     // 0 = no trail cohesion, 1 = full squad trail bias
+  spawnReserves  = 48,        // pre-allocated reserve columns for message reveal
+} = {}) {
+  // Guard against inverted ranges
+  const sMin = Math.min(speedMin, speedMax);
+  const sMax = Math.max(speedMin, speedMax);
+  // Trail values feed float(0.6931).div(vTrail) in the fragment shader; zero
+  // produces Inf/NaN, so enforce a positive floor here and in setTrailRange.
+  const tMin = Math.max(0.001, Math.min(trailMin, trailMax));
+  const tMax = Math.max(tMin,  Math.max(trailMin, trailMax));
+  const inner = shellInner;
+  const outer = Math.max(shellOuter, inner + 0.1);
+
+  const geom = new THREE.InstancedBufferGeometry();
+  const base = new THREE.PlaneGeometry(1, 1);
+  geom.index = base.index.clone();
+  geom.setAttribute('position', base.getAttribute('position').clone());
+  geom.setAttribute('uv',       base.getAttribute('uv').clone());
+  base.dispose();
+
+  const total      = nCols * N_ROWS;
+  const colBuf     = new Float32Array(total);
+  const rowBuf     = new Float32Array(total);
+  const colABuf    = new Float32Array(total * 4);  // wx, wz, speed, seed
+  const colBBuf    = new Float32Array(total * 4);  // yOff, scale, alpha, trail
+  const rawSpeedBuf = new Float32Array(nCols);     // raw [0,1] for speed — kept for in-place range updates
+  const biasedTrailBuf = new Float32Array(nCols);  // squad-biased [0.05,0.95] for trail
+  const clusterHueBuf       = new Float32Array(total);  // per-instance cluster hue offset [-1, 1]
+  const clusterBrightBuf    = new Float32Array(total);  // per-instance cluster brightness bias [-1, 1]
+  const clusterSpeedBuf     = new Float32Array(total);  // per-instance cluster speed bias [-1, 1]
+  const clusterBurstSeedBuf = new Float32Array(total);  // per-instance cluster burst phase [0, 1]
+  const squadPhaseBuf       = new Float32Array(total);  // per-instance squad cycle-phase seed [0, 1]
+  const spawnThetaBuf       = new Float32Array(total);  // per-instance normalised angular position [0, 1]
+
+  // Per-instance cluster centers — fresh per buildGeometry() call so each
+  // initMatrixRain() gets its own independent pattern.
+  const nClusters    = Math.max(1, Math.round(clusterCount));
+  const sigma        = Math.max(0.003, clusterSpread) * 2 * Math.PI;  // σ in radians
+  const exp_         = Math.pow(2, -radialBias);  // bias=0→exp=1 (uniform)
+  // Stratified placement: one center per arc — eliminates cluster-of-clusters bunching.
+  const arcSize      = (Math.PI * 2) / nClusters;
+  // Squad structure: subdivides each cluster into squads of ~squadSize columns.
+  // With round-robin assignment each cluster gets ceil(nCols/nClusters) columns, so the
+  // per-cluster squad count is ceil(ceil(nCols/nClusters) / squadSize) + 1 safety margin.
+  const maxColsPerCluster   = Math.ceil(nCols / nClusters);
+  const maxSquadsPerCluster = Math.ceil(maxColsPerCluster / squadSize) + 1;
+  // Create Cluster instances — all per-cluster state lives inside each object.
+  const clusters = Array.from({ length: nClusters }, (_, i) =>
+    new Cluster(i * arcSize + Math.random() * arcSize, WORLD_H)
+  );
+  clusters.forEach(cl => cl.initSquads(maxSquadsPerCluster));
+
+  for (let c = 0; c < nCols; c++) {
+    // Round-robin cluster assignment: guarantees balanced populations so squad sizes
+    // are consistent (each cluster gets exactly ceil(nCols/nClusters) columns).
+    const clusterIdx   = c % nClusters;
+    const cl           = clusters[clusterIdx];
+    const clustered    = cl.theta + _gaussRand() * sigma;
+    const colBurstSeed  = cl.burstSeed;
+    const squadSubIdx   = cl.nextSquadIdx(squadSize);
+    const colSquadPhase = cl.squadPhases[squadSubIdx];
+    const colTrailBias  = cl.squadTrailBiases[squadSubIdx];
+    const uniformTheta = Math.random() * Math.PI * 2;
+    const theta        = clustered + (uniformTheta - clustered) * clusterUniform;
+    // Normalize theta to [-1, 1] for linear topologies (curtain/rectangle X axis).
+    // fmod into [0, 2π] first so the mapping is uniform when clusterUniform=1.
+    const TWO_PI   = Math.PI * 2;
+    const thetaNorm = (((theta % TWO_PI) + TWO_PI) % TWO_PI) / TWO_PI * 2 - 1;  // [-1, 1]
+    // Radial position: cluster-centered for shell only — ring/curtain/rectangle override r below.
+    const rSeed  = topology === 'shell'
+      ? Math.max(0, Math.min(1, cl.rSeed + (Math.random() - 0.5) * 2 * clusterRJitter))
+      : Math.random();
+    let r        = inner + Math.pow(rSeed, exp_) * (outer - inner);
+
+    let wx, wz;
+    switch (topology) {
+      case 'ring': {
+        const r_ring = (inner + outer) / 2;
+        wx = Math.cos(theta) * r_ring;
+        wz = Math.sin(theta) * r_ring;
+        break;
+      }
+      case 'curtain': {
+        wx = thetaNorm * outer;
+        wz = 0;
+        break;
+      }
+      case 'rectangle': {
+        wx = thetaNorm * rectW;
+        wz = (Math.random() * 2 - 1) * rectH;
+        break;
+      }
+      default: // 'shell'
+        wx = Math.cos(theta) * r;
+        wz = Math.sin(theta) * r;
+    }
+
+    // Normalise angular/lateral position to [0, 1] for spawn wave gate.
+    // Shell/ring: use atan2 of actual world position (wx, wz) → genuine azimuth.
+    // Curtain/rectangle: use fractional X position — columns are arranged left-to-right
+    // so the spawn wave sweeps laterally, matching visual layout. The cluster `theta`
+    // angle is meaningless here since wx is derived from thetaNorm, not theta directly.
+    let colTheta;
+    if (topology === 'shell' || topology === 'ring') {
+      colTheta = ((Math.atan2(wz, wx) + Math.PI * 2) % (Math.PI * 2)) / (Math.PI * 2);
+    } else if (topology === 'curtain') {
+      colTheta = (wx / outer + 1) / 2;   // wx ∈ [−outer, outer] → [0, 1]
+    } else { // rectangle
+      colTheta = (wx / rectW + 1) / 2;   // wx ∈ [−rectW, rectW] → [0, 1]
+    }
+
+    // Normalise r for scale gradient — non-shell topologies use a representative radius
+    if (topology === 'ring')    r = (inner + outer) / 2;
+    if (topology === 'curtain') r = (inner + outer) / 2;
+    if (topology === 'rectangle') r = Math.min(Math.max(rectW, rectH), Math.max(inner, Math.sqrt(wx * wx + wz * wz)));
+
+    // Y offset: cluster-centered so columns in the same cluster spawn in the same world-Y band.
+    const yOff  = Math.max(-WORLD_H / 2, Math.min(WORLD_H / 2,
+      cl.yCenter + (Math.random() - 0.5) * 2 * clusterYSpread
+    ));
+    // Speed: cluster-centered so heads stay in the same vertical band over time.
+    // cl.speed ∈ [−1, 1] mapped to [0, 1] center via *0.5+0.5; cluster centers span full range.
+    const sr    = Math.max(0, Math.min(1,
+      cl.speed * 0.5 + 0.5 + (Math.random() - 0.5) * 2 * clusterSpeedJitter
+    ));
+    rawSpeedBuf[c] = sr;
+    // Base speed — cluster speed bias also applied at shader-time via uClusterSpeedRange
+    // so setClusterSpeedRange() takes effect instantly without a geometry rebuild.
+    const speed = sMin + sr * sr * (sMax - sMin);
+    const seed  = Math.random();
+    const t     = (r - inner) / (outer - inner);           // 0 = inner (close), 1 = outer (far)
+    const scale = (1.45 - t * 0.95) + (Math.random() - 0.5) * 0.2;
+    const alpha = 0.18 + Math.random() * 0.72;
+    const tr       = Math.random();
+    // Clamp to [0.05, 0.95] so no squad produces columns with near-zero trail.
+    // Coefficient 0.45 (not 0.5) keeps the full bias swing within this safe range.
+    const biasedTr = Math.max(0.05, Math.min(0.95, tr + colTrailBias * 0.45 * trailCohesion));
+    biasedTrailBuf[c] = biasedTr; // store biased value so setTrailRange preserves squad cohesion
+    const trail    = tMin + biasedTr * (tMax - tMin);
+
+    for (let row = 0; row < N_ROWS; row++) {
+      const idx = c * N_ROWS + row;
+      colBuf[idx] = c;
+      rowBuf[idx] = row;
+      const i4 = idx * 4;
+      colABuf[i4]     = wx;
+      colABuf[i4 + 1] = wz;
+      colABuf[i4 + 2] = speed;
+      colABuf[i4 + 3] = seed;
+      colBBuf[i4]     = yOff;
+      colBBuf[i4 + 1] = scale;
+      colBBuf[i4 + 2] = alpha;
+      colBBuf[i4 + 3] = trail;
+      clusterHueBuf[idx]       = cl.hue;
+      clusterBrightBuf[idx]    = cl.brightness;
+      clusterSpeedBuf[idx]     = cl.speed;
+      clusterBurstSeedBuf[idx] = colBurstSeed;
+      squadPhaseBuf[idx]       = colSquadPhase;
+      spawnThetaBuf[idx]       = colTheta;
+    }
+  }
+
+  // ── aClusterCenter centroid computation ── must precede reserve pool loop ──────────────────
+  // Regular columns only (c < reserveStart); the reserve loop below fills reserve entries.
+  // clusterCenterBuf/X/Z must be declared here so they are in scope inside the reserve loop.
+  const reserveStart    = nCols - spawnReserves;
+  const clusterSumX     = new Float32Array(nClusters);
+  const clusterSumZ     = new Float32Array(nClusters);
+  const clusterCount2   = new Int32Array(nClusters);
+  for (let c = 0; c < reserveStart; c++) {
+    const ci   = c % nClusters;
+    const base = c * N_ROWS * 4;
+    clusterSumX[ci]  += colABuf[base];
+    clusterSumZ[ci]  += colABuf[base + 1];
+    clusterCount2[ci]++;
+  }
+  const clusterCenterX = new Float32Array(nClusters);
+  const clusterCenterZ = new Float32Array(nClusters);
+  for (let ci = 0; ci < nClusters; ci++) {
+    const cnt = Math.max(1, clusterCount2[ci]);
+    clusterCenterX[ci] = clusterSumX[ci] / cnt;
+    clusterCenterZ[ci] = clusterSumZ[ci] / cnt;
+  }
+  const clusterCenterBuf = new Float32Array(total * 2);
+  for (let c = 0; c < reserveStart; c++) {
+    const ci = c % nClusters;
+    const cx = clusterCenterX[ci];
+    const cz = clusterCenterZ[ci];
+    for (let row = 0; row < N_ROWS; row++) {
+      const i2 = (c * N_ROWS + row) * 2;
+      clusterCenterBuf[i2]     = cx;
+      clusterCenterBuf[i2 + 1] = cz;
+    }
+  }
+
+  // ── Reserve pool — last spawnReserves columns repositioned for predictable screen coverage ──
+  // Placement depends on topology so that reserves project across the full screen-X range.
+  //   shell:     evenly-spaced angles on the inner shell (r = shellInner)
+  //   ring:      evenly-spaced angles on the ring radius ((inner+outer)/2)
+  //   curtain:   evenly-spaced wx across [-outer, outer] on the curtain plane (wz=0)
+  //   rectangle: evenly-spaced wx across [-rectW, rectW] on the front edge (wz=0)
+  // Cluster attributes are reassigned to the nearest cluster by angular position so that
+  // reserve columns participate in the correct cluster's burst timing during message reveals.
+  const reserveOrigYOff = new Float32Array(spawnReserves);
+  const rRing = (inner + outer) / 2;
+  for (let i = 0; i < spawnReserves; i++) {
+    const c    = reserveStart + i;
+    const frac = spawnReserves > 1 ? i / (spawnReserves - 1) : 0.5;  // [0, 1] linear spread
+    const angle = (i / spawnReserves) * Math.PI * 2;                   // [0, 2π] angular spread
+    let rwx, rwz;
+    switch (topology) {
+      case 'ring':
+        rwx = Math.cos(angle) * rRing;
+        rwz = Math.sin(angle) * rRing;
+        break;
+      case 'curtain':
+        rwx = (frac * 2 - 1) * outer;
+        rwz = 0;
+        break;
+      case 'rectangle':
+        rwx = (frac * 2 - 1) * rectW;
+        rwz = 0;
+        break;
+      default: // 'shell'
+        rwx = Math.cos(angle) * inner;
+        rwz = Math.sin(angle) * inner;
+    }
+
+    // Find the cluster center angularly closest to this reserve column's position.
+    let nearestCluster = 0, nearestDist = Infinity;
+    for (let ci = 0; ci < nClusters; ci++) {
+      // Signed angular difference wrapped to [-π, π]
+      const diff = Math.abs(((angle - clusters[ci].theta) % (Math.PI * 2) + Math.PI * 3) % (Math.PI * 2) - Math.PI);
+      if (diff < nearestDist) { nearestDist = diff; nearestCluster = ci; }
+    }
+    const reserveCl = clusters[nearestCluster];
+    // Pick the squad whose index reflects this reserve's position within the cluster's
+    // population — read-only, no _colCount increment (reserves not counted as active columns).
+    const reserveSquadIdx   = Math.floor(reserveCl._colCount / squadSize);
+    const reserveSquadPhase = reserveCl.squadPhases[Math.min(reserveSquadIdx, reserveCl.squadPhases.length - 1)];
+
+    // Spawn theta for the reserve's actual repositioned position (not original round-robin slot).
+    let reserveColTheta;
+    if (topology === 'shell' || topology === 'ring') {
+      reserveColTheta = ((Math.atan2(rwz, rwx) + Math.PI * 2) % (Math.PI * 2)) / (Math.PI * 2);
+    } else if (topology === 'curtain') {
+      reserveColTheta = (rwx / outer + 1) / 2;
+    } else { // rectangle
+      reserveColTheta = (rwx / rectW + 1) / 2;
+    }
+
+    // Assign cluster-coherent Y so the reserve falls in the right vertical band during idle.
+    // This also becomes the restore value on _releaseReserve so it returns to the correct band.
+    const reserveYOff = reserveCl.yCenter;
+    const base  = c * N_ROWS;
+    reserveOrigYOff[i] = reserveYOff;
+    for (let r = 0; r < N_ROWS; r++) {
+      const i4 = (base + r) * 4;
+      colABuf[i4]     = rwx;
+      colABuf[i4 + 1] = rwz;
+      colBBuf[i4]     = reserveYOff;   // overwrite stale round-robin Y with cluster Y
+      const idx = base + r;
+      clusterHueBuf[idx]       = reserveCl.hue;
+      clusterBrightBuf[idx]    = reserveCl.brightness;
+      clusterSpeedBuf[idx]     = reserveCl.speed;
+      clusterBurstSeedBuf[idx] = reserveCl.burstSeed;
+      squadPhaseBuf[idx]       = reserveSquadPhase;
+      spawnThetaBuf[idx]       = reserveColTheta;
+    }
+    // aClusterCenter for reserve columns: use nearest cluster centroid
+    for (let r = 0; r < N_ROWS; r++) {
+      const i2 = (c * N_ROWS + r) * 2;
+      clusterCenterBuf[i2]     = clusterCenterX[nearestCluster];
+      clusterCenterBuf[i2 + 1] = clusterCenterZ[nearestCluster];
+    }
+  }
+
+  // aHeadOvershoot: per-column phase for overshoot pulse [0, 1], replicated per row
+  const headOvershootBuf = new Float32Array(total);
+  for (let c = 0; c < nCols; c++) {
+    const ov = Math.random();
+    for (let row = 0; row < N_ROWS; row++) {
+      headOvershootBuf[c * N_ROWS + row] = ov;
+    }
+  }
+
+  // aLockState: per-instance (lockY, lockGlyph, lockTime, spawnActive)
+  // Replicated across all N_ROWS rows of each column, same as aColA/aColB.
+  const lockStateBuf = new Float32Array(total * 4);
+  for (let i = 0; i < total; i++) {
+    lockStateBuf[i * 4 + 0] = -9999;
+    lockStateBuf[i * 4 + 1] = -1;
+    lockStateBuf[i * 4 + 2] = 0;
+    lockStateBuf[i * 4 + 3] = 0;
+  }
+
+  geom.setAttribute('aColIdx',      new THREE.InstancedBufferAttribute(colBuf,         1));
+  geom.setAttribute('aRowIdx',      new THREE.InstancedBufferAttribute(rowBuf,         1));
+  geom.setAttribute('aColA',        new THREE.InstancedBufferAttribute(colABuf,        4));
+  geom.setAttribute('aColB',        new THREE.InstancedBufferAttribute(colBBuf,        4));
+  geom.setAttribute('aClusterHue',       new THREE.InstancedBufferAttribute(clusterHueBuf,       1));
+  geom.setAttribute('aClusterBright',    new THREE.InstancedBufferAttribute(clusterBrightBuf,    1));
+  geom.setAttribute('aClusterSpeed',     new THREE.InstancedBufferAttribute(clusterSpeedBuf,     1));
+  geom.setAttribute('aClusterBurstSeed', new THREE.InstancedBufferAttribute(clusterBurstSeedBuf, 1));
+  geom.setAttribute('aClusterCenter',    new THREE.InstancedBufferAttribute(clusterCenterBuf,    2));
+  geom.setAttribute('aSquadPhase',       new THREE.InstancedBufferAttribute(squadPhaseBuf,       1));
+  geom.setAttribute('aSpawnTheta',       new THREE.InstancedBufferAttribute(spawnThetaBuf,       1));
+  geom.setAttribute('aHeadOvershoot',    new THREE.InstancedBufferAttribute(headOvershootBuf,    1));
+  geom.setAttribute('aLockState',        new THREE.InstancedBufferAttribute(lockStateBuf,        4));
+  geom.setAttribute('aFreezeUntil',      new THREE.InstancedBufferAttribute(new Float32Array(total), 1)); // B3: per-cell freeze-until timestamp
+  geom.instanceCount = total;
+  geom._rawSpeed    = rawSpeedBuf;
+  geom._biasedTrail = biasedTrailBuf;
+  geom._reservePool = {
+    reserveStart,
+    free:     Array.from({ length: spawnReserves }, (_, i) => reserveStart + i),
+    used:     new Set(),
+    origYOff: reserveOrigYOff,
+  };
+  return geom;
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// CAMERA CONTROLLER
+// ═════════════════════════════════════════════════════════════════════════
+
+/**
+ * Autonomous camera animation controller.
+ * Handles orbit and Lissajous flythrough modes with optional column-follow.
+ * Pre-allocates frustum/matrix/sphere to avoid per-frame GC.
+ */
+export class CameraController {
+  constructor(camera) {
+    this._cam           = camera;
+    this._mode          = 'none';   // 'none' | 'orbit' | 'fly'
+    this._orbitTheta    = 0;
+    this._orbitRadius   = 6;
+    this._orbitSpeed    = 0.015;
+    this._orbitElevDeg  = 0;
+    this._flyPhase      = 0;   // raw seconds; drives heading oscillation
+    this._flySpeed      = 0.008;
+    // _flyRadius removed — _tickFly uses only _flySpeed/_flyPhase
+    this._flyYaw        = 0;   // current integrated yaw (radians)
+    this._flyPitch      = 0;   // current integrated pitch (radians)
+    this._flyPos        = new THREE.Vector3();  // integrated world position
+    this._columnFollow  = false;
+    // Pre-allocated to avoid GC pressure during updateFrustumCull
+    this._frustum          = new THREE.Frustum();
+    this._projScreenMatrix = new THREE.Matrix4();
+    this._testSphere       = new THREE.Sphere(new THREE.Vector3(), 0);
+  }
+
+  setMode(mode) { this._mode = mode; }
+
+  /**
+   * Advance the camera by dt seconds.
+   * @param {number} dt  elapsed seconds
+   */
+  tick(dt) {
+    if (this._mode === 'orbit') this._tickOrbit(dt);
+    else if (this._mode === 'fly')  this._tickFly(dt);
+  }
+
+  _tickOrbit(dt) {
+    this._orbitTheta += this._orbitSpeed * Math.PI * 2 * dt;
+    const elevRad = this._orbitElevDeg * (Math.PI / 180);
+    const r = this._orbitRadius;
+    this._cam.position.set(
+      r * Math.cos(elevRad) * Math.sin(this._orbitTheta),
+      r * Math.sin(elevRad),
+      r * Math.cos(elevRad) * Math.cos(this._orbitTheta),
+    );
+    this._cam.lookAt(0, 0, 0);
+    this._cam.updateProjectionMatrix();
+  }
+
+  _tickFly(dt) {
+    // Phase accumulates as raw wall-clock seconds — heading oscillation is independent of speed
+    this._flyPhase += dt;
+    const t = this._flyPhase;
+
+    // Target yaw/pitch: slow sinusoidal banking — gentle S-curves and vertical drift
+    const targetYaw   = Math.sin(t * 0.25) * (Math.PI / 5);  // ±36°, ~25 s half-period
+    const targetPitch = Math.sin(t * 0.37) * 0.18;            // ±10°, ~17 s half-period
+
+    // Lag filter — heading changes feel like banking, not snapping
+    const lag = Math.min(1.0, 2.5 * dt);
+    this._flyYaw   += (targetYaw   - this._flyYaw)   * lag;
+    this._flyPitch += (targetPitch - this._flyPitch) * lag;
+
+    // Forward unit vector from yaw/pitch
+    const cp = Math.cos(this._flyPitch), sp = Math.sin(this._flyPitch);
+    const cy = Math.cos(this._flyYaw),   sy = Math.sin(this._flyYaw);
+    const fx = sy * cp, fy = sp, fz = cy * cp;
+
+    // Integrate position; flySpeed slider controls world-units/s directly
+    const spd = this._flySpeed * 150;   // default 0.008 → 1.2 wu/s
+    this._flyPos.x += fx * spd * dt;
+    this._flyPos.y += fy * spd * dt;
+    this._flyPos.z += fz * spd * dt;
+
+    this._cam.position.copy(this._flyPos);
+    this._cam.lookAt(
+      this._flyPos.x + fx,
+      this._flyPos.y + fy,
+      this._flyPos.z + fz,
+    );
+    this._cam.updateProjectionMatrix();
+  }
+
+  /**
+   * Update the aFrustumVis per-instance attribute based on the current camera frustum.
+   * Columns whose representative sphere intersects the frustum get vis=1, others vis=0.
+   * @param {THREE.Mesh}    mesh          the instanced glyph mesh
+   * @param {THREE.Vector2} columnOffset  current XZ offset applied to column world positions
+   * @param {number}        nCols         number of columns (e.g. 600)
+   */
+  updateFrustumCull(mesh, columnOffset, nCols) {
+    this._projScreenMatrix.multiplyMatrices(
+      this._cam.projectionMatrix,
+      this._cam.matrixWorldInverse,
+    );
+    this._frustum.setFromProjectionMatrix(this._projScreenMatrix);
+
+    const attr   = mesh.geometry.getAttribute('aFrustumVis');
+    if (!attr) return;
+    const colA   = mesh.geometry.getAttribute('aColA');
+    if (!colA) return;
+    const nRows  = attr.count / nCols;   // e.g. 72000 / 600 = 120
+    const sphere = this._testSphere;
+    sphere.radius = 8;  // large enough to cover a full column height and trail
+
+    // Direct typed-array access for performance (avoids 72k getter calls)
+    const colAArr = colA.array;   // Float32Array, itemSize=4: wx, wz, speed, seed per instance
+    const visArr  = attr.array;   // Float32Array, itemSize=1
+
+    for (let c = 0; c < nCols; c++) {
+      // aColA entries are ordered col0_row0, col0_row1, ..., col0_rowN, col1_row0, ...
+      // so column c's first instance is at flat index c * nRows, offset by itemSize=4
+      const flatBase = c * nRows * 4;
+      const wx = colAArr[flatBase    ] + columnOffset.x;
+      const wz = colAArr[flatBase + 1] + columnOffset.y;
+      sphere.center.set(wx, 0, wz);
+      const vis = this._frustum.intersectsSphere(sphere) ? 1.0 : 0.0;
+      visArr.fill(vis, c * nRows, c * nRows + nRows);
+    }
+    attr.needsUpdate = true;
+  }
+}
