@@ -6,7 +6,7 @@ export default defineConfig({
     include: ['tests/**/*.test.js'],
     coverage: {
       provider: 'v8',
-      include: ['matrix-rain-tsl.js', 'matrix-rain-passes-tsl.js'],
+      include: ['matrix-rain-tsl.js', 'matrix-rain-passes-tsl.js', 'matrix-rain-geometry.js'],
       reporter: ['text', 'lcov'],
     },
   },
