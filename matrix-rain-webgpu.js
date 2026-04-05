@@ -677,16 +677,16 @@ export function initMatrixRain(element, opts = {}) {
           if (slot.colIdx < 0) {
             const lineSlots = _msgSlots.filter(s => s.lineIdx === slot.lineIdx);
             const slotLineIdx = lineSlots.indexOf(slot);
-            const reserveMatch = _claimReserve(geomNow._reservePool, slot.screenX, _msgWorldYs[slot.lineIdx],
+            const reserveMatch = _claimReserve(geomNow._reservePool, slot.screenX, slot.worldY,
               colABuf, nRows, _msgVpMat, screenX => _slotCanUseColumnScreenX(lineSlots, slotLineIdx, screenX));
             if (reserveMatch) {
               const bestCol = reserveMatch.c;
-              const newYOff = _yOffForHead(colABuf, colBBuf, nRows, bestCol, _msgWorldYs[slot.lineIdx], t);
+              const newYOff = _yOffForHead(colABuf, colBBuf, nRows, bestCol, slot.worldY, t);
               for (let r = 0; r < nRows; r++) colBBuf[(bestCol * nRows + r) * 4] = newYOff;
               colBDirty = true;
               _assignMsgSlotColumn(slot, bestCol, reserveMatch.screenX);
               // spawnActive=1 keeps reserve visible regardless of density/frustum cull
-              _writeLockRows(lockData, nRows, bestCol, _msgWorldYs[slot.lineIdx], slot.glyph, 0, 1);
+              _writeLockRows(lockData, nRows, bestCol, slot.worldY, slot.glyph, 0, 1);
               lockDirty = true;
             } else {
               // Pool exhausted — fall back to nearest non-reserve column
@@ -701,7 +701,7 @@ export function initMatrixRain(element, opts = {}) {
                 const base = c * nRows * 4;
                 const wx   = colABuf[base + 0] + uniforms.uColumnOffset.value.x;
                 const wz   = colABuf[base + 1] + uniforms.uColumnOffset.value.y;
-                _msgTv.set(wx, _msgWorldYs[slot.lineIdx], wz, 1.0).applyMatrix4(_msgVpMat);
+                _msgTv.set(wx, slot.worldY, wz, 1.0).applyMatrix4(_msgVpMat);
                 if (_msgTv.w <= 0) continue;
                 const sx   = (_msgTv.x / _msgTv.w + 1.0) * 0.5;
                 if (sx <= bounds.left + 1e-4 || sx >= bounds.right - 1e-4) continue;
@@ -711,7 +711,7 @@ export function initMatrixRain(element, opts = {}) {
               }
               if (bestCol >= 0) {
                 _assignMsgSlotColumn(slot, bestCol, bestScreenX);
-                _writeLockRows(lockData, nRows, bestCol, _msgWorldYs[slot.lineIdx], slot.glyph, 0, 0);
+                _writeLockRows(lockData, nRows, bestCol, slot.worldY, slot.glyph, 0, 0);
                 lockDirty = true;
               }
             }
@@ -722,7 +722,7 @@ export function initMatrixRain(element, opts = {}) {
           if (slot.colIdx >= 0 && t >= msgRevealFallbackT && !slot.fallbackTriggered && lockData
               && t >= msgRevealStart + (slot.revealDelay ?? 0)) {
             slot.fallbackTriggered = true;
-            const tgtY      = _msgWorldYs[slot.lineIdx];
+            const tgtY      = slot.worldY;
             const base0     = slot.colIdx * nRows * 4;
             const sc0       = colBBuf[base0 + 1];
             const cs0       = uniforms.uCellH.value * sc0 * 1.85;
@@ -768,7 +768,7 @@ export function initMatrixRain(element, opts = {}) {
           const colSpeed = colABuf[colIdx * nRows * 4 + 2];  // aColA.z = speed
           const maxDisp  = colSpeed * uniforms.uSpeedMul.value * dt;
           const dynTol   = Math.max(tol, maxDisp * 1.5);
-          if (Math.abs(headY - _msgWorldYs[slot.lineIdx]) < dynTol) {
+          if (Math.abs(headY - slot.worldY) < dynTol) {
             // _yOffForHead can produce cp ≥ nRows*cellStep (~53% chance),
             // placing the lock-head row index out of range → no bright glyph appears at lockY.
             // Wrap cp to [0, nRows*cellStep) so the lock-head row is always valid.
@@ -779,10 +779,10 @@ export function initMatrixRain(element, opts = {}) {
               const cs0      = uniforms.uCellH.value * sc0 * 1.85;
               const headRange = nRows * cs0;
               const aYOff0   = colBBuf[base0];
-              const cp0      = aYOff0 + uniforms.uWorldH.value * 0.5 - _msgWorldYs[slot.lineIdx];
+              const cp0      = aYOff0 + uniforms.uWorldH.value * 0.5 - slot.worldY;
               if (cp0 < 0 || cp0 >= headRange) {
                 const cpW  = ((cp0 % headRange) + headRange) % headRange;
-                const yOff = _msgWorldYs[slot.lineIdx] - uniforms.uWorldH.value * 0.5 + cpW;
+                const yOff = slot.worldY - uniforms.uWorldH.value * 0.5 + cpW;
                 for (let r = 0; r < nRows; r++) colBBuf[(colIdx * nRows + r) * 4] = yOff;
                 colBDirty = true;
               }
@@ -791,7 +791,7 @@ export function initMatrixRain(element, opts = {}) {
             // a blank black bar during the approach phase before any glyphs have locked).
             uniforms.uMsgRevealActive.value = 1.0;
             // Lock this column
-            _writeLockRows(lockData, nRows, colIdx, _msgWorldYs[slot.lineIdx], slot.glyph, t, 0);
+            _writeLockRows(lockData, nRows, colIdx, slot.worldY, slot.glyph, t, 0);
             lockDirty = true;
             slot.claimed = true;
             _msgClaimedCount++;
@@ -812,7 +812,7 @@ export function initMatrixRain(element, opts = {}) {
               const wx0          = colABuf[colIdx * nRows * 4 + 0] + uniforms.uColumnOffset.value.x;
               const aScl         = colBBuf[colIdx * nRows * 4 + 1];
               const cs           = uniforms.uCellH.value * aScl * 1.85;
-              const tgt          = _msgWorldYs[slot.lineIdx] - 1.5 * cs;
+              const tgt          = slot.worldY - 1.5 * cs;
               const SPAWN_CAP    = 4;
               const slotHalf     = slot.halfUV * _msgUVToLocalX;
               const revThresh    = 1.0 - uniforms.uReverseChance.value;
@@ -836,7 +836,7 @@ export function initMatrixRain(element, opts = {}) {
                 for (let r = 0; r < nRows; r++) colBBuf[(sc * nRows + r) * 4] = newY;
                 colBDirty = true;
                 _writeLockRows(lockData, nRows, sc, -9999, -1, 0, 1);  // spawnActive=1
-                _msgSpawnCols.set(sc, _msgWorldYs[slot.lineIdx]);
+                _msgSpawnCols.set(sc, slot.worldY);
                 lockDirty = true;
                 spawned++;
               }
@@ -866,7 +866,7 @@ export function initMatrixRain(element, opts = {}) {
             for (const [colIdx, slotIdx] of [..._msgAssigned]) {
               const slt = _msgSlots[slotIdx];
               if (slt.claimed) { _msgAssigned.delete(colIdx); continue; }
-              const tgtY      = _msgWorldYs[slt.lineIdx];
+              const tgtY      = slt.worldY;
               const base0     = colIdx * nRows * 4;
               const sc0       = colBBuf[base0 + 1];
               const cs0       = uniforms.uCellH.value * sc0 * 1.85;
@@ -976,12 +976,13 @@ export function initMatrixRain(element, opts = {}) {
         const camDeltaY = camera.position.y - _msgCamY0;
         if (Math.abs(camDeltaY) > 1e-5) {
           for (let li = 0; li < _msgWorldYs.length; li++) _msgWorldYs[li] += camDeltaY;
+          for (const slot of _msgSlots) slot.worldY += camDeltaY;
           _msgCamY0 = camera.position.y;
 
           let trackDirty = false;
           for (const slot of _msgSlots) {
             if (!slot.claimed || slot.colIdx < 0) continue;
-            const lockY = _msgWorldYs[slot.lineIdx];
+            const lockY = slot.worldY;
             for (let r = 0; r < nRows; r++) lockData[(slot.colIdx * nRows + r) * 4 + 0] = lockY;
             trackDirty = true;
           }
@@ -1307,19 +1308,19 @@ export function initMatrixRain(element, opts = {}) {
     let prevScreenX = -Infinity;
     for (let slotIdx = 0; slotIdx < lineSlots.length; slotIdx++) {
       const slot = lineSlots[slotIdx];
-      let best = null;
-      let bestDist = Infinity;
+      const candidates = [];
       for (const cs of colScreen) {
         if (usedCols.has(cs.c)) continue;
         if (cs.screenX <= prevScreenX + 1e-4) continue;
         const d = Math.abs(cs.screenX - slot.screenX);
         if (d > maxDist) continue;
         if (!_slotCanUseColumnScreenX(lineSlots, slotIdx, cs.screenX)) continue;
-        if (d < bestDist) {
-          best = cs;
-          bestDist = d;
-        }
+        candidates.push({ cs, d });
       }
+      candidates.sort((a, b) => a.d - b.d);
+      const pickSpan = Math.min(candidates.length, 3);
+      const pickIdx = pickSpan > 1 ? Math.min(pickSpan - 1, Math.floor((slot.pickBias ?? 0) * pickSpan)) : 0;
+      const best = candidates[pickIdx]?.cs ?? null;
       if (best) {
         _assignMsgSlotColumn(slot, best.c, best.screenX);
         usedCols.add(best.c);
@@ -1907,6 +1908,9 @@ export function initMatrixRain(element, opts = {}) {
         const halfUV   = (advances[i] * 0.5) / w;
         const glyph    = charToGlyphIdx(chars[i], _activeCharSet);
         const isSpace  = chars[i] === ' ';
+        const jitterHash = _h2js(li * 17.13 + i * 0.71 + glyph * 0.031, 9.17);
+        const pickBias   = _h2js(li * 3.1 + i * 7.3 + glyph * 0.017, 0.91);
+        const yJitter    = isSpace ? 0 : (jitterHash - 0.5) * uniforms.uCellH.value * 1.35;
         _msgSlots.push({
           screenX: centerUV,
           halfUV:  Math.max(halfUV, 0.01),
@@ -1914,7 +1918,9 @@ export function initMatrixRain(element, opts = {}) {
           claimed: isSpace,
           colIdx:  -1,
           lineIdx: li,
-          worldY:  lineWorldY,
+          worldY:  lineWorldY + yJitter,
+          yJitter,
+          pickBias,
           fallbackTriggered: false,
           revealDelay: 0,  // A1: seconds after msgRevealStart before fallback is eligible
         });
