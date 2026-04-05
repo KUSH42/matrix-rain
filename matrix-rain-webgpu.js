@@ -1266,13 +1266,51 @@ export function initMatrixRain(element, opts = {}) {
     return c;
   }
 
-  // Assign columns to message slots while preserving left-to-right order.
-  // Use a monotonic greedy pass rather than a strict global matcher so sparse
-  // coverage still assigns most letters instead of dropping the whole line.
-  function _assignOrderedLineSlots(lineSlots, usedCols, colScreen, maxDist = 0.18) {
+  // Assign a compact, ordered run of columns to one message line.
+  // The goal is visual coherence, not literal nearest-neighbour matching.
+  // Choosing a contiguous run prevents letters from drifting too far apart when
+  // the visible rain columns have irregular gaps.
+  function _assignOrderedLineSlots(lineSlots, usedCols, colScreen, maxDist = 0.22) {
     if (lineSlots.length === 0) return;
-    let prevScreenX = -Infinity;
-    for (const slot of lineSlots) {
+    const available = colScreen.filter(cs => !usedCols.has(cs.c));
+    const n = lineSlots.length;
+    if (available.length === 0) return;
+
+    let bestStart = -1;
+    let bestCount = 0;
+    let bestScore = Infinity;
+
+    for (let start = 0; start < available.length; start++) {
+      let count = 0;
+      let score = 0;
+      for (let i = 0; i < n && (start + i) < available.length; i++) {
+        const d = Math.abs(available[start + i].screenX - lineSlots[i].screenX);
+        if (d > maxDist) break;
+        score += d;
+        count++;
+      }
+      if (count > bestCount || (count === bestCount && score < bestScore)) {
+        bestStart = start;
+        bestCount = count;
+        bestScore = score;
+      }
+    }
+
+    if (bestStart < 0 || bestCount === 0) return;
+
+    for (let i = 0; i < bestCount; i++) {
+      const slot = lineSlots[i];
+      const col  = available[bestStart + i].c;
+      slot.colIdx = col;
+      usedCols.add(col);
+      _msgAssigned.set(col, slot.slotIdx);
+    }
+
+    // If coverage was incomplete, greedily fill the remaining tail while keeping
+    // strict left-to-right monotonicity.
+    let prevScreenX = available[bestStart + bestCount - 1].screenX;
+    for (let i = bestCount; i < n; i++) {
+      const slot = lineSlots[i];
       let best = null;
       let bestDist = Infinity;
       for (const cs of colScreen) {
@@ -1285,11 +1323,26 @@ export function initMatrixRain(element, opts = {}) {
           bestDist = d;
         }
       }
-      if (best) {
-        slot.colIdx = best.c;
-        usedCols.add(best.c);
-        _msgAssigned.set(best.c, slot.slotIdx);
-        prevScreenX = best.screenX;
+      if (!best) break;
+      slot.colIdx = best.c;
+      usedCols.add(best.c);
+      _msgAssigned.set(best.c, slot.slotIdx);
+      prevScreenX = best.screenX;
+    }
+
+    // And try to backfill any missing leading slots from the left side.
+    if (bestStart > 0) {
+      let nextScreenX = available[bestStart].screenX;
+      for (let i = bestStart - 1, slotI = bestStart - 1; i >= 0 && slotI >= 0; i--, slotI--) {
+        const slot = lineSlots[slotI];
+        if (slot.colIdx >= 0) continue;
+        const cs = available[i];
+        const d = Math.abs(cs.screenX - slot.screenX);
+        if (cs.screenX >= nextScreenX - 1e-4 || d > maxDist || usedCols.has(cs.c)) break;
+        slot.colIdx = cs.c;
+        usedCols.add(cs.c);
+        _msgAssigned.set(cs.c, slot.slotIdx);
+        nextScreenX = cs.screenX;
       }
     }
   }
