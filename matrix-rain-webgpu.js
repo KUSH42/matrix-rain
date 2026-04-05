@@ -688,6 +688,9 @@ export function initMatrixRain(element, opts = {}) {
               lockDirty = true;
             } else {
               // Pool exhausted — fall back to nearest non-reserve column
+              const lineSlots = _msgSlots.filter(s => s.lineIdx === slot.lineIdx);
+              const slotLineIdx = lineSlots.indexOf(slot);
+              const bounds = _neighborAssignedBounds(lineSlots, slotLineIdx, colScreenXMap);
               let bestDist = Infinity;
               bestCol = -1;
               const revThresh = 1.0 - uniforms.uReverseChance.value;
@@ -700,6 +703,7 @@ export function initMatrixRain(element, opts = {}) {
                 _msgTv.set(wx, _msgWorldYs[slot.lineIdx], wz, 1.0).applyMatrix4(_msgVpMat);
                 if (_msgTv.w <= 0) continue;
                 const sx   = (_msgTv.x / _msgTv.w + 1.0) * 0.5;
+                if (sx <= bounds.left + 1e-4 || sx >= bounds.right - 1e-4) continue;
                 const dist = Math.abs(sx - slot.screenX);
                 if (dist < bestDist) { bestDist = dist; bestCol = c; }
               }
@@ -1263,55 +1267,45 @@ export function initMatrixRain(element, opts = {}) {
   }
 
   // Assign columns to message slots while preserving left-to-right order.
-  // Greedy nearest-neighbour assignment can cross wires when column density is uneven,
-  // which makes all the right glyphs appear without ever forming a coherent word.
-  function _assignOrderedLineSlots(lineSlots, usedCols, colScreen, maxDist = 0.12) {
+  // Use a monotonic greedy pass rather than a strict global matcher so sparse
+  // coverage still assigns most letters instead of dropping the whole line.
+  function _assignOrderedLineSlots(lineSlots, usedCols, colScreen, maxDist = 0.18) {
     if (lineSlots.length === 0) return;
-    const xMin = lineSlots[0].screenX - maxDist;
-    const xMax = lineSlots[lineSlots.length - 1].screenX + maxDist;
-    const candidates = colScreen.filter(cs =>
-      !usedCols.has(cs.c) && cs.screenX >= xMin && cs.screenX <= xMax
-    );
-    if (candidates.length === 0) return;
-
-    const n = lineSlots.length;
-    const m = candidates.length;
-    if (m < n) return;
-
-    const dp = Array.from({ length: n + 1 }, () => new Float64Array(m + 1).fill(Infinity));
-    const take = Array.from({ length: n + 1 }, () => new Int8Array(m + 1));
-    for (let j = 0; j <= m; j++) dp[0][j] = 0;
-
-    for (let i = 1; i <= n; i++) {
-      for (let j = 1; j <= m; j++) {
-        dp[i][j] = dp[i][j - 1];
-        const d = Math.abs(candidates[j - 1].screenX - lineSlots[i - 1].screenX);
-        if (d <= maxDist) {
-          const cost = dp[i - 1][j - 1] + d;
-          if (cost < dp[i][j]) {
-            dp[i][j] = cost;
-            take[i][j] = 1;
-          }
+    let prevScreenX = -Infinity;
+    for (const slot of lineSlots) {
+      let best = null;
+      let bestDist = Infinity;
+      for (const cs of colScreen) {
+        if (usedCols.has(cs.c)) continue;
+        if (cs.screenX <= prevScreenX + 1e-4) continue;
+        const d = Math.abs(cs.screenX - slot.screenX);
+        if (d > maxDist) continue;
+        if (d < bestDist) {
+          best = cs;
+          bestDist = d;
         }
       }
-    }
-
-    if (!Number.isFinite(dp[n][m])) return;
-
-    let i = n, j = m;
-    while (i > 0 && j > 0) {
-      if (take[i][j]) {
-        const slot = lineSlots[i - 1];
-        const col  = candidates[j - 1].c;
-        slot.colIdx = col;
-        usedCols.add(col);
-        _msgAssigned.set(col, slot.slotIdx);
-        j--;
-        i--;
-      } else {
-        j--;
+      if (best) {
+        slot.colIdx = best.c;
+        usedCols.add(best.c);
+        _msgAssigned.set(best.c, slot.slotIdx);
+        prevScreenX = best.screenX;
       }
     }
+  }
+
+  function _neighborAssignedBounds(slots, slotIdx, colScreenXMap) {
+    let left = -Infinity;
+    let right = Infinity;
+    for (let i = slotIdx - 1; i >= 0; i--) {
+      const c = slots[i].colIdx;
+      if (c >= 0) { left = colScreenXMap.get(c) ?? left; break; }
+    }
+    for (let i = slotIdx + 1; i < slots.length; i++) {
+      const c = slots[i].colIdx;
+      if (c >= 0) { right = colScreenXMap.get(c) ?? right; break; }
+    }
+    return { left, right };
   }
 
   // Release a reserve column: restore its aYOff and clear lock state.
@@ -1838,6 +1832,7 @@ export function initMatrixRain(element, opts = {}) {
       colScreen.push({ c, screenX });
     }
     colScreen.sort((a, b) => a.screenX - b.screenX);
+    const colScreenXMap = new Map(colScreen.map(({ c, screenX }) => [c, screenX]));
 
     // D3: Pre-allocate reserve screen-X cache (populated at start of each revealing tick)
     _msgReserveScreenXs = new Float32Array(reserveStart);
