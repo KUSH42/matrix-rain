@@ -1262,6 +1262,58 @@ export function initMatrixRain(element, opts = {}) {
     return c;
   }
 
+  // Assign columns to message slots while preserving left-to-right order.
+  // Greedy nearest-neighbour assignment can cross wires when column density is uneven,
+  // which makes all the right glyphs appear without ever forming a coherent word.
+  function _assignOrderedLineSlots(lineSlots, usedCols, colScreen, maxDist = 0.12) {
+    if (lineSlots.length === 0) return;
+    const xMin = lineSlots[0].screenX - maxDist;
+    const xMax = lineSlots[lineSlots.length - 1].screenX + maxDist;
+    const candidates = colScreen.filter(cs =>
+      !usedCols.has(cs.c) && cs.screenX >= xMin && cs.screenX <= xMax
+    );
+    if (candidates.length === 0) return;
+
+    const n = lineSlots.length;
+    const m = candidates.length;
+    if (m < n) return;
+
+    const dp = Array.from({ length: n + 1 }, () => new Float64Array(m + 1).fill(Infinity));
+    const take = Array.from({ length: n + 1 }, () => new Int8Array(m + 1));
+    for (let j = 0; j <= m; j++) dp[0][j] = 0;
+
+    for (let i = 1; i <= n; i++) {
+      for (let j = 1; j <= m; j++) {
+        dp[i][j] = dp[i][j - 1];
+        const d = Math.abs(candidates[j - 1].screenX - lineSlots[i - 1].screenX);
+        if (d <= maxDist) {
+          const cost = dp[i - 1][j - 1] + d;
+          if (cost < dp[i][j]) {
+            dp[i][j] = cost;
+            take[i][j] = 1;
+          }
+        }
+      }
+    }
+
+    if (!Number.isFinite(dp[n][m])) return;
+
+    let i = n, j = m;
+    while (i > 0 && j > 0) {
+      if (take[i][j]) {
+        const slot = lineSlots[i - 1];
+        const col  = candidates[j - 1].c;
+        slot.colIdx = col;
+        usedCols.add(col);
+        _msgAssigned.set(col, slot.slotIdx);
+        j--;
+        i--;
+      } else {
+        j--;
+      }
+    }
+  }
+
   // Release a reserve column: restore its aYOff and clear lock state.
   function _releaseReserve(pool, colIdx, colBBuf, lockData, colBAttr, lockAttr, nRows) {
     if (!pool) return;
@@ -1840,51 +1892,23 @@ export function initMatrixRain(element, opts = {}) {
 
     if (_msgSlots.length === 0) return;
 
-    // ── Assign best column to each character slot ─────────────────────
+    // ── Assign columns to character slots ─────────────────────────────
+    // Use an order-preserving matcher per line. This keeps the reveal legible
+    // even when screen-space column density is irregular.
     const usedCols = new Set();
-    for (let si = 0; si < _msgSlots.length; si++) {
-      const slot = _msgSlots[si];
-      if (slot.claimed) continue;
-      let bestDist = Infinity, bestCol = -1;
-      for (let ci = 0; ci < colScreen.length; ci++) {
-        const cs = colScreen[ci];
-        if (usedCols.has(cs.c)) continue;
-        const d = Math.abs(cs.screenX - slot.screenX);
-        if (d > 0.08) continue;
-        if (d < bestDist) { bestDist = d; bestCol = cs.c; }
+    for (let li = 0; li < nLines; li++) {
+      const lineSlots = [];
+      for (let si = 0; si < _msgSlots.length; si++) {
+        const slot = _msgSlots[si];
+        if (slot.claimed || slot.lineIdx !== li) continue;
+        slot.slotIdx = si;
+        lineSlots.push(slot);
       }
-      if (bestCol >= 0) {
-        slot.colIdx = bestCol;
-        usedCols.add(bestCol);
-        _msgAssigned.set(bestCol, si);
-        _writeLockRows(lockData, nRows, bestCol, slot.worldY, slot.glyph, 0, 0);
-      }
-    }
-
-    // ── Fix order inversions (bubble-sort assigned same-line slots) ───
-    {
-      const colToScreenX = new Map(colScreen.map(({ c, screenX }) => [c, screenX]));
-      let swapped = true;
-      while (swapped) {
-        swapped = false;
-        for (let si = 0; si < _msgSlots.length - 1; si++) {
-          const a = _msgSlots[si];
-          const b = _msgSlots[si + 1];
-          if (a.claimed || b.claimed) continue;
-          if (a.colIdx < 0 || b.colIdx < 0) continue;
-          if (a.lineIdx !== b.lineIdx) continue;
-          const axs = colToScreenX.get(a.colIdx) ?? a.screenX;
-          const bxs = colToScreenX.get(b.colIdx) ?? b.screenX;
-          if (axs > bxs + 1e-4) {
-            const tmpCol = a.colIdx;
-            a.colIdx = b.colIdx;
-            b.colIdx = tmpCol;
-            _msgAssigned.set(a.colIdx, si);
-            _msgAssigned.set(b.colIdx, si + 1);
-            _writeLockRows(lockData, nRows, a.colIdx, a.worldY, a.glyph, 0, 0);
-            _writeLockRows(lockData, nRows, b.colIdx, b.worldY, b.glyph, 0, 0);
-            swapped = true;
-          }
+      _assignOrderedLineSlots(lineSlots, usedCols, colScreen);
+      for (const slot of lineSlots) {
+        delete slot.slotIdx;
+        if (slot.colIdx >= 0) {
+          _writeLockRows(lockData, nRows, slot.colIdx, slot.worldY, slot.glyph, 0, 0);
         }
       }
     }
