@@ -28,6 +28,23 @@ import {
 import * as THREE from 'three/webgpu';
 import { PRESETS } from './matrix-rain-presets.js';
 
+// ── WebGL2 TextureNode sampler fix (Three.js r183) ────────────────────────
+// WebGL2 uses combined sampler uniforms, unlike WebGPU's separate texture +
+// sampler bindings. Three's TextureNode still asks for a sampler output on the
+// fallback path, which compiles to the wrong symbol name and leaves the scene
+// black. Mirror the 3D module's patch here so the 2D pipeline also renders on
+// the WebGL2 backend.
+if (!THREE.TextureNode.prototype._matrixRainWebGLSamplerPatched) {
+  const _origTextureNodeGenerate = THREE.TextureNode.prototype.generate;
+  THREE.TextureNode.prototype.generate = function _patchedGenerate(builder, output) {
+    if (/^sampler/.test(output) && builder.renderer?.backend?.isWebGPUBackend !== true) {
+      return _origTextureNodeGenerate.call(this, builder, 'property');
+    }
+    return _origTextureNodeGenerate.call(this, builder, output);
+  };
+  THREE.TextureNode.prototype._matrixRainWebGLSamplerPatched = true;
+}
+
 // ── Named character set descriptors (Option B: local copy) ─────────────────
 // Duplicated from matrix-rain-webgpu.js to keep this module independently usable.
 // `weights`: per-glyph complexity weights; mirrors data/glyph-sets.js GLYPH_SETS[key].weights.
