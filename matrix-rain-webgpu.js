@@ -153,15 +153,19 @@ export function initMatrixRain(element, opts = {}) {
   // 12 custom vertex attributes; Three.js r183's node builder contaminates all
   // subsequently compiled MeshBasicNodeMaterial pipelines with those attributes,
   // causing pipeline creation to fail at the default limit of 8.
-  const renderer = new THREE.WebGPURenderer({ antialias: false, alpha: true, requiredLimits: { maxVertexBuffers: 16 } });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-  renderer.setSize(element.clientWidth || 1, element.clientHeight || 1);
-
-  const canvas = renderer.domElement;
+  const canvas = document.createElement('canvas');
   canvas.dataset.matrixRain = '1';
   canvas.style.cssText =
     'position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:0;';
   element.appendChild(canvas);
+  const renderer = new THREE.WebGPURenderer({
+    canvas,
+    antialias: false,
+    alpha: true,
+    requiredLimits: { maxVertexBuffers: 16 },
+  });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setSize(element.clientWidth || 1, element.clientHeight || 1);
 
   // ── Scene ─────────────────────────────────────────────────────────────
   const scene  = new THREE.Scene();
