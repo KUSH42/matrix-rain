@@ -137,9 +137,9 @@ export function initMatrixRain(element, opts = {}) {
     squadSize:         5,
     trailCohesion:     0.7,
     spawnReserves:     48,
-    webglCompat: (typeof navigator !== 'undefined' && !navigator.gpu),
+    webglCompat: true,
   };
-  let _webglCompat = _geomParams.webglCompat === true;
+  let _webglCompat = true;
 
   // Resolve atlas path + grid dimensions from charSet or explicit opts
   const _desc         = CHAR_SETS[charSet] ?? CHAR_SETS.matrixcode;
@@ -149,10 +149,9 @@ export function initMatrixRain(element, opts = {}) {
   const resolvedGridH = atlasPath ? ATLAS_GRID_H  : _desc.gridH;
 
   // ── Renderer ─────────────────────────────────────────────────────────
-  // Request maxVertexBuffers=16 (default is 8). The instanced rain geometry has
-  // 12 custom vertex attributes; Three.js r183's node builder contaminates all
-  // subsequently compiled MeshBasicNodeMaterial pipelines with those attributes,
-  // causing pipeline creation to fail at the default limit of 8.
+  // Use the adapter's default supported limits. Hard-requesting maxVertexBuffers=16
+  // causes device creation to fail on some browsers/drivers even when WebGPU is
+  // otherwise available, which then kicks the app down into the WebGL2 fallback.
   const canvas = document.createElement('canvas');
   canvas.dataset.matrixRain = '1';
   canvas.style.cssText =
@@ -162,7 +161,6 @@ export function initMatrixRain(element, opts = {}) {
     canvas,
     antialias: false,
     alpha: true,
-    requiredLimits: { maxVertexBuffers: 16 },
   });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setSize(element.clientWidth || 1, element.clientHeight || 1);
@@ -1127,14 +1125,14 @@ export function initMatrixRain(element, opts = {}) {
   renderer.init().then(async () => {
     try {
       const _isWebGPU = renderer.backend?.isWebGPUBackend === true;
-      if (!_isWebGPU && !_webglCompat) {
-        _webglCompat = true;
-        _geomParams.webglCompat = true;
-        const compatMaterial = buildGlyphMaterial(uniforms, atlasTex, { webglCompat: true });
+      if (_isWebGPU && _webglCompat) {
+        _webglCompat = false;
+        _geomParams.webglCompat = false;
+        const fullMaterial = buildGlyphMaterial(uniforms, atlasTex, { webglCompat: false });
         mesh.material.dispose();
-        mesh.material = compatMaterial;
-        material = compatMaterial;
-        s.material = compatMaterial;
+        mesh.material = fullMaterial;
+        material = fullMaterial;
+        s.material = fullMaterial;
         rebuildGeom();
       }
       switch (postProcessing) {
