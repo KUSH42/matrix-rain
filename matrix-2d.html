@@ -192,6 +192,7 @@
         <option value="iosevka">iosevka</option>
         <option value="datatype">datatype</option>
         <option value="gsanscode">gsanscode</option>
+        <option value="hebrew">hebrew</option>
       </select>
     </label>
 
@@ -432,8 +433,8 @@ try {
     syncControls();
     // Reflect charSet change if the preset switched it (e.g. matrix1999)
     const u = rain._uniforms;
-    // uGlyphCount 64 → matrix1999, 56 → matrixcode, 36 → latin, 95 → ascii
-    const countToSet = { 64: 'matrix1999', 56: 'matrixcode', 36: 'latin', 95: 'ascii' };
+    // Best-effort reflection for presets that switch atlas families.
+    const countToSet = { 64: 'matrix1999', 56: 'matrixcode', 36: 'latin', 95: 'ascii', 29: 'hebrew' };
     const csGuess = countToSet[u.uGlyphCount.value];
     if (csGuess) document.getElementById('ctl-charset').value = csGuess;
   });

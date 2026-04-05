@@ -67,6 +67,14 @@ describe('makeUniforms() default scalar values', () => {
   it('uAtlasGridW defaults to 8', () => expect(u.uAtlasGridW.value).toBe(8));
   it('uAtlasGridH defaults to 8', () => expect(u.uAtlasGridH.value).toBe(8));
   it('uGlyphCount defaults to 56', () => expect(u.uGlyphCount.value).toBe(56));
+  it('uAtlasFieldMode defaults to compat', () => expect(u.uAtlasFieldMode.value).toBe(0));
+  it('uAtlasPxRange defaults to 4', () => expect(u.uAtlasPxRange.value).toBe(4));
+  it('uAtlasTextureSize defaults to 512x512', () => {
+    expect(u.uAtlasTextureSize.value.x).toBe(512);
+    expect(u.uAtlasTextureSize.value.y).toBe(512);
+  });
+  it('uTinyGlyphPxStart defaults to 3', () => expect(u.uTinyGlyphPxStart.value).toBe(3));
+  it('uTinyGlyphPxEnd defaults to 6', () => expect(u.uTinyGlyphPxEnd.value).toBe(6));
 
   // Cell dimensions
   it('uCellW defaults to 0.12', () => expect(u.uCellW.value).toBeCloseTo(0.12));
@@ -96,6 +104,7 @@ describe('makeUniforms() default scalar values', () => {
 
   // POM
   it('uPomSteps defaults to 6', () => expect(u.uPomSteps.value).toBe(6));
+  it('uAtlasMTSDF compatibility mirror defaults to 0', () => expect(u.uAtlasMTSDF.value).toBe(0));
 
   // Column dynamics
   it('uReverseChance defaults to 0', () => expect(u.uReverseChance.value).toBe(0));

@@ -12,8 +12,7 @@ export const CELL_H  = 0.08;
 export const WORLD_H = 16;
 
 // ── MSDF atlas ────────────────────────────────────────────────────────────
-export function loadMSDF(path) {
-  const tex = new THREE.TextureLoader().load(path);
+export function configureDistanceFieldTexture(tex) {
   tex.flipY           = false;
   // Mipmaps must be disabled for MTSDF atlases. Standard box-filter downsampling
   // averages SDF channel values, producing invalid distance fields at lower mip levels.
@@ -24,6 +23,10 @@ export function loadMSDF(path) {
   tex.colorSpace      = THREE.LinearSRGBColorSpace;
   tex.generateMipmaps = false;
   return tex;
+}
+
+export function loadMSDF(path) {
+  return configureDistanceFieldTexture(new THREE.TextureLoader().load(path));
 }
 
 // Box-Muller Gaussian random — used for cluster angular jitter
@@ -408,13 +411,15 @@ export function buildGeometry({
   base.dispose();
 
   const total  = nCols * N_ROWS;
-  const colBuf = new Float32Array(total);
-  const rowBuf = new Float32Array(total);
+  const cellMetaBuf = new Float32Array(total * 4);
   for (let c = 0; c < nCols; c++) {
     for (let row = 0; row < N_ROWS; row++) {
       const idx   = c * N_ROWS + row;
-      colBuf[idx] = c;
-      rowBuf[idx] = row;
+      const i4    = idx * 4;
+      cellMetaBuf[i4]     = c;
+      cellMetaBuf[i4 + 1] = row;
+      cellMetaBuf[i4 + 2] = 1.0;                  // aFrustumVis
+      cellMetaBuf[i4 + 3] = spawnThetaBuf[idx];   // aSpawnTheta
     }
   }
 
@@ -434,17 +439,29 @@ export function buildGeometry({
     lockStateBuf[i * 4 + 3] = 0;
   }
 
-  geom.setAttribute('aColIdx',           new THREE.InstancedBufferAttribute(colBuf,              1));
-  geom.setAttribute('aRowIdx',           new THREE.InstancedBufferAttribute(rowBuf,              1));
+  const cellMetaIBuf = new THREE.InstancedInterleavedBuffer(cellMetaBuf, 4);
+  const clusterMetaBuf = new Float32Array(total * 4);
+  for (let i = 0; i < total; i++) {
+    const i4 = i * 4;
+    clusterMetaBuf[i4]     = clusterHueBuf[i];
+    clusterMetaBuf[i4 + 1] = clusterBrightBuf[i];
+    clusterMetaBuf[i4 + 2] = clusterSpeedBuf[i];
+    clusterMetaBuf[i4 + 3] = clusterBurstSeedBuf[i];
+  }
+  const clusterMetaIBuf = new THREE.InstancedInterleavedBuffer(clusterMetaBuf, 4);
+
+  geom.setAttribute('aColIdx',           new THREE.InterleavedBufferAttribute(cellMetaIBuf,    1, 0));
+  geom.setAttribute('aRowIdx',           new THREE.InterleavedBufferAttribute(cellMetaIBuf,    1, 1));
+  geom.setAttribute('aFrustumVis',       new THREE.InterleavedBufferAttribute(cellMetaIBuf,    1, 2));
+  geom.setAttribute('aSpawnTheta',       new THREE.InterleavedBufferAttribute(cellMetaIBuf,    1, 3));
   geom.setAttribute('aColA',             new THREE.InstancedBufferAttribute(colABuf,             4));
   geom.setAttribute('aColB',             new THREE.InstancedBufferAttribute(colBBuf,             4));
-  geom.setAttribute('aClusterHue',       new THREE.InstancedBufferAttribute(clusterHueBuf,       1));
-  geom.setAttribute('aClusterBright',    new THREE.InstancedBufferAttribute(clusterBrightBuf,    1));
-  geom.setAttribute('aClusterSpeed',     new THREE.InstancedBufferAttribute(clusterSpeedBuf,     1));
-  geom.setAttribute('aClusterBurstSeed', new THREE.InstancedBufferAttribute(clusterBurstSeedBuf, 1));
+  geom.setAttribute('aClusterHue',       new THREE.InterleavedBufferAttribute(clusterMetaIBuf, 1, 0));
+  geom.setAttribute('aClusterBright',    new THREE.InterleavedBufferAttribute(clusterMetaIBuf, 1, 1));
+  geom.setAttribute('aClusterSpeed',     new THREE.InterleavedBufferAttribute(clusterMetaIBuf, 1, 2));
+  geom.setAttribute('aClusterBurstSeed', new THREE.InterleavedBufferAttribute(clusterMetaIBuf, 1, 3));
   if (!webglCompat) geom.setAttribute('aClusterCenter', new THREE.InstancedBufferAttribute(clusterCenterBuf, 2));
   geom.setAttribute('aSquadPhase',       new THREE.InstancedBufferAttribute(squadPhaseBuf,       1));
-  geom.setAttribute('aSpawnTheta',       new THREE.InstancedBufferAttribute(spawnThetaBuf,       1));
   if (!webglCompat) geom.setAttribute('aHeadOvershoot', new THREE.InstancedBufferAttribute(headOvershootBuf, 1));
   geom.setAttribute('aLockState',        new THREE.InstancedBufferAttribute(lockStateBuf,        4));
   if (!webglCompat) geom.setAttribute('aFreezeUntil', new THREE.InstancedBufferAttribute(new Float32Array(total), 1));
@@ -572,7 +589,9 @@ export class CameraController {
 
     // Direct typed-array access for performance (avoids 72k getter calls)
     const colAArr = colA.array;   // Float32Array, itemSize=4: wx, wz, speed, seed per instance
-    const visArr  = attr.array;   // Float32Array, itemSize=1
+    const visArr  = attr.isInterleavedBufferAttribute ? attr.data.array : attr.array;
+    const visStride = attr.isInterleavedBufferAttribute ? attr.data.stride : attr.itemSize;
+    const visOffset = attr.isInterleavedBufferAttribute ? attr.offset : 0;
 
     for (let c = 0; c < nCols; c++) {
       // aColA entries are ordered col0_row0, col0_row1, ..., col0_rowN, col1_row0, ...
@@ -582,8 +601,11 @@ export class CameraController {
       const wz = colAArr[flatBase + 1] + columnOffset.y;
       sphere.center.set(wx, 0, wz);
       const vis = this._frustum.intersectsSphere(sphere) ? 1.0 : 0.0;
-      visArr.fill(vis, c * nRows, c * nRows + nRows);
+      const start = c * nRows;
+      const end = start + nRows;
+      for (let i = start; i < end; i++) visArr[i * visStride + visOffset] = vis;
     }
-    attr.needsUpdate = true;
+    if (attr.isInterleavedBufferAttribute) attr.data.needsUpdate = true;
+    else attr.needsUpdate = true;
   }
 }

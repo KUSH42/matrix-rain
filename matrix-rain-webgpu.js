@@ -44,8 +44,17 @@ import {
   buildDustPass,
   buildRadialChromaPass,
 } from './matrix-rain-passes-tsl.js';
-import { GLYPHS, CHAR_SETS, applyGlyphWeightLUT, charToGlyphIdx } from './matrix-rain-glyphs.js';
-import { N_ROWS, CELL_W, CELL_H, WORLD_H, loadMSDF, buildGeometry, CameraController } from './matrix-rain-geometry.js';
+import {
+  CHAR_SETS,
+  applyGlyphWeightLUT,
+  atlasFieldModeToValue,
+  charToGlyphIdx,
+  resolveAtlasDescriptor,
+} from './matrix-rain-glyphs.js';
+import {
+  N_ROWS, CELL_W, CELL_H, WORLD_H,
+  configureDistanceFieldTexture, loadMSDF, buildGeometry, CameraController,
+} from './matrix-rain-geometry.js';
 import {
   CCP_ART, _CCP_POSES, CCP_SLOGANS,
   buildGlowTexture, buildBrailleTexture, buildFlagTexture, buildTiananmenTexture,
@@ -87,7 +96,16 @@ const _state = new Map();
  * @param {string}  [opts.color='#00ff70']         glyph tint (hex)
  * @param {number}  [opts.opacity=0.82]            global alpha 0–1
  * @param {string}  [opts.charSet='matrixcode']    named glyph set; see CHAR_SETS
- * @param {string}  [opts.atlasPath=null]          explicit atlas path — overrides charSet
+ * @param {string}  [opts.atlasPath=null]          explicit atlas path — overrides charSet.
+ *                                                Without explicit metadata this stays on the
+ *                                                compatibility decode path.
+ * @param {number}  [opts.atlasGlyphCount=null]    explicit glyph count for atlasPath
+ * @param {number}  [opts.atlasGridW=null]         explicit atlas grid width for atlasPath
+ * @param {number}  [opts.atlasGridH=null]         explicit atlas grid height for atlasPath
+ * @param {string}  [opts.atlasFieldMode=null]     'compat' | 'msdf' | 'mtsdf'
+ * @param {number}  [opts.atlasPxRange=null]       distance-field pixel range for atlasPath
+ * @param {number}  [opts.atlasWidth=null]         atlas texture width in pixels
+ * @param {number}  [opts.atlasHeight=null]        atlas texture height in pixels
  * @param {string}  [opts.preset=null]             named preset applied after PP graph is ready
  * @param {object|null} [opts.syncCamera=null]     THREE.Camera to mirror
  * @param {string}  [opts.postProcessing='rain']   pipeline mode: 'rain' | 'crt' | 'none'
@@ -104,6 +122,13 @@ export function initMatrixRain(element, opts = {}) {
     opacity        = 0.82,
     charSet        = 'matrixcode',
     atlasPath      = null,
+    atlasGlyphCount = null,
+    atlasGridW = null,
+    atlasGridH = null,
+    atlasFieldMode = null,
+    atlasPxRange = null,
+    atlasWidth = null,
+    atlasHeight = null,
     preset         = null,
     syncCamera     = null,
     externalLoop   = false,
@@ -142,11 +167,21 @@ export function initMatrixRain(element, opts = {}) {
   let _webglCompat = true;
 
   // Resolve atlas path + grid dimensions from charSet or explicit opts
-  const _desc         = CHAR_SETS[charSet] ?? CHAR_SETS.matrixcode;
-  const resolvedPath  = atlasPath ?? _desc.path;
-  const resolvedCount = atlasPath ? GLYPHS.length : _desc.glyphCount;
-  const resolvedGridW = atlasPath ? ATLAS_GRID_W  : _desc.gridW;
-  const resolvedGridH = atlasPath ? ATLAS_GRID_H  : _desc.gridH;
+  const atlasDesc = resolveAtlasDescriptor({
+    charSet,
+    atlasPath,
+    atlasGlyphCount,
+    atlasGridW,
+    atlasGridH,
+    atlasFieldMode,
+    atlasPxRange,
+    atlasWidth,
+    atlasHeight,
+  });
+  const resolvedPath  = atlasDesc.path;
+  const resolvedCount = atlasDesc.glyphCount;
+  const resolvedGridW = atlasDesc.gridW;
+  const resolvedGridH = atlasDesc.gridH;
 
   // ── Renderer ─────────────────────────────────────────────────────────
   // Use the adapter's default supported limits. Hard-requesting maxVertexBuffers=16
@@ -182,6 +217,15 @@ export function initMatrixRain(element, opts = {}) {
   const atlasTex = loadMSDF(resolvedPath);
 
   const uniforms = makeUniforms(resolvedCount, resolvedGridW, resolvedGridH);
+  function applyAtlasUniforms(desc) {
+    uniforms.uGlyphCount.value = desc.glyphCount;
+    uniforms.uAtlasGridW.value = desc.gridW;
+    uniforms.uAtlasGridH.value = desc.gridH;
+    uniforms.uAtlasFieldMode.value = atlasFieldModeToValue(desc.fieldMode);
+    uniforms.uAtlasPxRange.value = desc.pxRange;
+    uniforms.uAtlasTextureSize.value.set(desc.atlasWidth, desc.atlasHeight);
+    uniforms.uAtlasMTSDF.value = desc.fieldMode === 'mtsdf' ? 1.0 : 0.0;
+  }
 
   // Apply opts
   const rgb = new THREE.Color(color);
@@ -191,25 +235,15 @@ export function initMatrixRain(element, opts = {}) {
   uniforms.uCellH.value       = CELL_H;
   uniforms.uWorldH.value      = WORLD_H;
   uniforms.uNRows.value       = N_ROWS;
-  uniforms.uAtlasGridW.value  = resolvedGridW;
-  uniforms.uAtlasGridH.value  = resolvedGridH;
+  applyAtlasUniforms(atlasDesc);
 
   let material = buildGlyphMaterial(uniforms, atlasTex, { webglCompat: _webglCompat });
   applyGlyphWeightLUT(charSet, resolvedCount, uniforms);
-  // Legacy single-channel atlas (matrixcode) has unknown alpha; bypass MTSDF blend.
-  // Explicit atlasPath also defaults off since MTSDF state is unknown.
-  uniforms.uAtlasMTSDF.value = (charSet === 'matrixcode' || atlasPath !== null) ? 0.0 : 1.0;
   let geom     = buildGeometry(_geomParams);
   const mesh     = new THREE.Mesh(geom, material);
   mesh.frustumCulled = false;
   mesh.renderOrder   = 1;
   scene.add(mesh);
-
-  // ── Frustum visibility attribute (per-instance) ───────────────────────
-  // All cells start visible (1.0); updateFrustumCull() writes 0 for off-screen columns.
-  const frustumVisData = new Float32Array(mesh.geometry.instanceCount).fill(1);
-  const frustumVisAttr = new THREE.InstancedBufferAttribute(frustumVisData, 1);
-  mesh.geometry.setAttribute('aFrustumVis', frustumVisAttr);
 
   // ── Phosphor persistence ──────────────────────────────────────────────
   // prevRT is lazily created at full renderer resolution on first use.
@@ -1131,7 +1165,9 @@ export function initMatrixRain(element, opts = {}) {
   renderer.init().then(async () => {
     try {
       const _isWebGPU = renderer.backend?.isWebGPUBackend === true;
-      if (_isWebGPU && _webglCompat) {
+      const maxVertexBuffers = renderer.backend?.device?.limits?.maxVertexBuffers ?? Infinity;
+      const canUseFullVertexLayout = maxVertexBuffers >= 11;
+      if (_isWebGPU && _webglCompat && canUseFullVertexLayout) {
         _webglCompat = false;
         _geomParams.webglCompat = false;
         const fullMaterial = buildGlyphMaterial(uniforms, atlasTex, { webglCompat: false });
@@ -1140,6 +1176,11 @@ export function initMatrixRain(element, opts = {}) {
         material = fullMaterial;
         s.material = fullMaterial;
         rebuildGeom();
+      } else if (_isWebGPU && _webglCompat && !canUseFullVertexLayout) {
+        console.warn(
+          `matrix-rain-webgpu: keeping webglCompat geometry on this WebGPU adapter ` +
+          `(maxVertexBuffers=${maxVertexBuffers}) to avoid pipeline creation failure.`
+        );
       }
       switch (postProcessing) {
 
@@ -1518,10 +1559,6 @@ export function initMatrixRain(element, opts = {}) {
 
   function rebuildGeom() {
     const newGeom = buildGeometry(_geomParams);
-    // Re-attach frustum visibility attribute
-    const newVisData = new Float32Array(newGeom.instanceCount).fill(1);
-    const newVisAttr = new THREE.InstancedBufferAttribute(newVisData, 1);
-    newGeom.setAttribute('aFrustumVis', newVisAttr);
     // Re-attach lock state attribute (reset all locks on geometry rebuild)
     const newLockData = new Float32Array(newGeom.instanceCount * 4);
     for (let i = 0; i < newGeom.instanceCount; i++) {
@@ -1542,6 +1579,13 @@ export function initMatrixRain(element, opts = {}) {
   function _resetFrustumVis() {
     const attr = mesh.geometry.getAttribute('aFrustumVis');
     if (!attr) return;
+    if (attr.isInterleavedBufferAttribute) {
+      const arr = attr.data.array;
+      const stride = attr.data.stride;
+      for (let i = 0; i < attr.count; i++) arr[i * stride + attr.offset] = 1;
+      attr.data.needsUpdate = true;
+      return;
+    }
     attr.array.fill(1);
     attr.needsUpdate = true;
   }
@@ -2470,19 +2514,12 @@ export function initMatrixRain(element, opts = {}) {
       new THREE.TextureLoader().load(descriptor.path, (newTex) => {
         if (seq !== _charSetLoadSeq) { newTex.dispose(); return; }  // stale load
 
-        newTex.flipY           = false;
-        newTex.minFilter       = THREE.LinearFilter;
-        newTex.magFilter       = THREE.LinearFilter;
-        newTex.colorSpace      = THREE.LinearSRGBColorSpace;
-        newTex.generateMipmaps = false;
+        configureDistanceFieldTexture(newTex);
         newTex.needsUpdate     = true;
 
         // Apply LUT before building material so the new material sees the correct LUT.
-        uniforms.uGlyphCount.value = descriptor.glyphCount;
-        uniforms.uAtlasGridW.value = descriptor.gridW;
-        uniforms.uAtlasGridH.value = descriptor.gridH;
+        applyAtlasUniforms(descriptor);
         applyGlyphWeightLUT(name, descriptor.glyphCount, uniforms);
-        uniforms.uAtlasMTSDF.value = (name === 'matrixcode') ? 0.0 : 1.0;
 
         // Rebuild the glyph material with the new texture and update state
         const newMaterial = buildGlyphMaterial(uniforms, newTex, { webglCompat: _webglCompat });
