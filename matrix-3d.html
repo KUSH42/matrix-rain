@@ -2546,7 +2546,9 @@
   }
 
   // ── National anthem audio ──────────────────────────────────────────────
-  const _anthemAudio = new Audio('data/ccp-anthem.mp3');
+  const _anthemAudio = new Audio();
+  _anthemAudio.preload = 'none';
+  _anthemAudio.src = 'data/ccp-anthem.mp3';
   _anthemAudio.loop = true;
   _anthemAudio.volume = 0.8;
 
@@ -2557,7 +2559,9 @@
   }
 
   // ── Hava Nagila audio ─────────────────────────────────────────────────
-  const _havaNagilaAudio = new Audio('data/hava-nagila.mp3');
+  const _havaNagilaAudio = new Audio();
+  _havaNagilaAudio.preload = 'none';
+  _havaNagilaAudio.src = 'data/hava-nagila.mp3';
   _havaNagilaAudio.loop   = true;
   _havaNagilaAudio.volume = 0.8;
 

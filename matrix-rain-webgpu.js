@@ -137,7 +137,9 @@ export function initMatrixRain(element, opts = {}) {
     squadSize:         5,
     trailCohesion:     0.7,
     spawnReserves:     48,
+    webglCompat: (typeof navigator !== 'undefined' && !navigator.gpu),
   };
+  let _webglCompat = _geomParams.webglCompat === true;
 
   // Resolve atlas path + grid dimensions from charSet or explicit opts
   const _desc         = CHAR_SETS[charSet] ?? CHAR_SETS.matrixcode;
@@ -190,12 +192,12 @@ export function initMatrixRain(element, opts = {}) {
   uniforms.uAtlasGridW.value  = resolvedGridW;
   uniforms.uAtlasGridH.value  = resolvedGridH;
 
-  const material = buildGlyphMaterial(uniforms, atlasTex);
+  let material = buildGlyphMaterial(uniforms, atlasTex, { webglCompat: _webglCompat });
   applyGlyphWeightLUT(charSet, resolvedCount, uniforms);
   // Legacy single-channel atlas (matrixcode) has unknown alpha; bypass MTSDF blend.
   // Explicit atlasPath also defaults off since MTSDF state is unknown.
   uniforms.uAtlasMTSDF.value = (charSet === 'matrixcode' || atlasPath !== null) ? 0.0 : 1.0;
-  const geom     = buildGeometry(_geomParams);
+  let geom     = buildGeometry(_geomParams);
   const mesh     = new THREE.Mesh(geom, material);
   mesh.frustumCulled = false;
   mesh.renderOrder   = 1;
@@ -1120,6 +1122,17 @@ export function initMatrixRain(element, opts = {}) {
   // Init renderer then kick off animation
   renderer.init().then(async () => {
     try {
+      const _isWebGPU = renderer.backend?.isWebGPUBackend === true;
+      if (!_isWebGPU && !_webglCompat) {
+        _webglCompat = true;
+        _geomParams.webglCompat = true;
+        const compatMaterial = buildGlyphMaterial(uniforms, atlasTex, { webglCompat: true });
+        mesh.material.dispose();
+        mesh.material = compatMaterial;
+        material = compatMaterial;
+        s.material = compatMaterial;
+        rebuildGeom();
+      }
       switch (postProcessing) {
 
         case 'rain':
@@ -1156,7 +1169,6 @@ export function initMatrixRain(element, opts = {}) {
           typeof opts.bootSweep === 'object' ? opts.bootSweep : {}
         );
       }
-      const _isWebGPU = renderer.backend?.isWebGPUBackend === true;
       handle.backend  = _isWebGPU ? 'webgpu' : 'webgl2';
       element.dispatchEvent(
         new CustomEvent('matrixrain:ready', { bubbles: false, detail: { backend: handle.backend } })
@@ -1411,7 +1423,9 @@ export function initMatrixRain(element, opts = {}) {
       newLockData[i * 4 + 1] = -1;
     }
     newGeom.setAttribute('aLockState', new THREE.InstancedBufferAttribute(newLockData, 4));
-    newGeom.setAttribute('aFreezeUntil', new THREE.InstancedBufferAttribute(new Float32Array(newGeom.instanceCount), 1)); // B3
+    if (!_webglCompat) {
+      newGeom.setAttribute('aFreezeUntil', new THREE.InstancedBufferAttribute(new Float32Array(newGeom.instanceCount), 1)); // B3
+    }
     mesh.geometry.dispose();
     mesh.geometry = newGeom;
     s.geom = newGeom;
@@ -2405,7 +2419,7 @@ export function initMatrixRain(element, opts = {}) {
         uniforms.uAtlasMTSDF.value = (name === 'matrixcode') ? 0.0 : 1.0;
 
         // Rebuild the glyph material with the new texture and update state
-        const newMaterial = buildGlyphMaterial(uniforms, newTex);
+        const newMaterial = buildGlyphMaterial(uniforms, newTex, { webglCompat: _webglCompat });
         s.mesh.material.dispose();
         s.mesh.material = newMaterial;
         s.atlasTex.dispose();

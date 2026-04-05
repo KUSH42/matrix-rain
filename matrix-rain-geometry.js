@@ -383,6 +383,7 @@ export function buildGeometry({
   squadSize      = 5,
   trailCohesion  = 0.7,
   spawnReserves  = 48,
+  webglCompat    = false,
 } = {}) {
   const arrays = buildClusterArrays({
     nCols, topology, shellInner, shellOuter, rectW, rectH,
@@ -441,12 +442,12 @@ export function buildGeometry({
   geom.setAttribute('aClusterBright',    new THREE.InstancedBufferAttribute(clusterBrightBuf,    1));
   geom.setAttribute('aClusterSpeed',     new THREE.InstancedBufferAttribute(clusterSpeedBuf,     1));
   geom.setAttribute('aClusterBurstSeed', new THREE.InstancedBufferAttribute(clusterBurstSeedBuf, 1));
-  geom.setAttribute('aClusterCenter',    new THREE.InstancedBufferAttribute(clusterCenterBuf,    2));
+  if (!webglCompat) geom.setAttribute('aClusterCenter', new THREE.InstancedBufferAttribute(clusterCenterBuf, 2));
   geom.setAttribute('aSquadPhase',       new THREE.InstancedBufferAttribute(squadPhaseBuf,       1));
   geom.setAttribute('aSpawnTheta',       new THREE.InstancedBufferAttribute(spawnThetaBuf,       1));
-  geom.setAttribute('aHeadOvershoot',    new THREE.InstancedBufferAttribute(headOvershootBuf,    1));
+  if (!webglCompat) geom.setAttribute('aHeadOvershoot', new THREE.InstancedBufferAttribute(headOvershootBuf, 1));
   geom.setAttribute('aLockState',        new THREE.InstancedBufferAttribute(lockStateBuf,        4));
-  geom.setAttribute('aFreezeUntil',      new THREE.InstancedBufferAttribute(new Float32Array(total), 1));
+  if (!webglCompat) geom.setAttribute('aFreezeUntil', new THREE.InstancedBufferAttribute(new Float32Array(total), 1));
   geom.instanceCount = total;
   geom._rawSpeed    = rawSpeedBuf;
   geom._biasedTrail = biasedTrailBuf;

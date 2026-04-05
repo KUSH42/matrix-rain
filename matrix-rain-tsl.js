@@ -189,7 +189,8 @@ export function makeUniforms(glyphCount = 56, gridW = 8, gridH = 8, lutTexture =
  * @param {THREE.Texture}            atlasTexture  pre-loaded MSDF atlas
  * @returns {THREE.MeshBasicNodeMaterial}
  */
-export function buildGlyphMaterial(uniforms, atlasTexture) {
+export function buildGlyphMaterial(uniforms, atlasTexture, opts = {}) {
+  const { webglCompat = false } = opts;
   const {
     uGlyphCount, uAtlasGridW, uAtlasGridH, uTime,
     uCellW, uCellH, uWorldH, uNRows,
@@ -237,10 +238,12 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
   const aClusterBrightAttr     = attribute('aClusterBright',    'float'); // per-cluster brightness bias [-1, 1]
   const aClusterSpeedAttr      = attribute('aClusterSpeed',     'float'); // per-cluster speed bias [-1, 1]
   const aClusterBurstSeedAttr  = attribute('aClusterBurstSeed', 'float'); // per-cluster burst phase offset [0, 1]
-  const aSquadPhaseAttr       = attribute('aSquadPhase',       'float'); // shared cyclePos phase seed within squad
-  const aFrustumVisAttr       = attribute('aFrustumVis',       'float'); // 1 = visible in frustum, 0 = culled
-  const aSpawnThetaAttr       = attribute('aSpawnTheta',       'float'); // normalised angular position [0, 1] for spawn wave
-  const aClusterCenterAttr    = attribute('aClusterCenter',    'vec2');  // raw world XZ of cluster centroid
+  const aSquadPhaseAttr        = attribute('aSquadPhase',       'float'); // shared cyclePos phase seed within squad
+  const aFrustumVisAttr        = attribute('aFrustumVis',       'float'); // 1 = visible in frustum, 0 = culled
+  const aSpawnThetaAttr        = attribute('aSpawnTheta',       'float'); // normalised angular position [0, 1] for spawn wave
+  const aClusterCenterAttr     = webglCompat ? vec2(0.0, 0.0) : attribute('aClusterCenter', 'vec2');
+  const aFreezeUntilAttr       = webglCompat ? float(0.0) : attribute('aFreezeUntil', 'float');
+  const aHeadOvershootAttr     = webglCompat ? float(0.0) : attribute('aHeadOvershoot', 'float');
 
   // ── Varyings shared between vertex and fragment stages ─────────────────
   const vUvRain    = varying(vec2(),   'vUvRain');
@@ -511,13 +514,11 @@ export function buildGlyphMaterial(uniforms, atlasTexture) {
       vDeathFade.assign(select(isLocked, float(1.0), vDeathFade));
 
       // B3: Freeze-trail — pin headY using lockY while aFreezeUntil > uTime (post-release)
-      const aFreezeUntilAttr = attribute('aFreezeUntil', 'float');
       vFreezeUntil.assign(aFreezeUntilAttr);
       const isFrozenV = aFreezeUntilAttr.greaterThan(uTime);
       headY.assign(select(isFrozenV.and(isLocked.not()), aLockStateAttr.x, headY));
 
       // ── Head overshoot — bounce inertia surge ─────────────────────────
-      const aHeadOvershootAttr = attribute('aHeadOvershoot', 'float');
       const overPhase   = fract(uTime.div(float(4.0)).add(aHeadOvershootAttr));
       // Gaussian pulse: peak at overPhase=0.12, σ=0.03 (2σ²=0.0018)
       const overPulse   = exp(
