@@ -677,20 +677,20 @@ export function initMatrixRain(element, opts = {}) {
           if (slot.colIdx < 0) {
             const lineSlots = _msgSlots.filter(s => s.lineIdx === slot.lineIdx);
             const slotLineIdx = lineSlots.indexOf(slot);
-            let bestCol = _claimReserve(geomNow._reservePool, slot.screenX, _msgWorldYs[slot.lineIdx],
+            const reserveMatch = _claimReserve(geomNow._reservePool, slot.screenX, _msgWorldYs[slot.lineIdx],
               colABuf, nRows, _msgVpMat, screenX => _slotCanUseColumnScreenX(lineSlots, slotLineIdx, screenX));
-            if (bestCol >= 0) {
-              const slotScreenX = _msgReserveScreenXs?.[bestCol];
+            if (reserveMatch) {
+              const bestCol = reserveMatch.c;
               const newYOff = _yOffForHead(colABuf, colBBuf, nRows, bestCol, _msgWorldYs[slot.lineIdx], t);
               for (let r = 0; r < nRows; r++) colBBuf[(bestCol * nRows + r) * 4] = newYOff;
               colBDirty = true;
-              _assignMsgSlotColumn(slot, bestCol, Number.isFinite(slotScreenX) ? slotScreenX : slot.screenX);
+              _assignMsgSlotColumn(slot, bestCol, reserveMatch.screenX);
               // spawnActive=1 keeps reserve visible regardless of density/frustum cull
               _writeLockRows(lockData, nRows, bestCol, _msgWorldYs[slot.lineIdx], slot.glyph, 0, 1);
               lockDirty = true;
             } else {
               // Pool exhausted — fall back to nearest non-reserve column
-              const bounds = _neighborAssignedBounds(lineSlots, slotLineIdx, colScreenXMap);
+              const bounds = _neighborAssignedBounds(lineSlots, slotLineIdx);
               let bestDist = Infinity;
               bestCol = -1;
               let bestScreenX = slot.screenX;
@@ -1236,6 +1236,26 @@ export function initMatrixRain(element, opts = {}) {
     _msgAssigned.set(colIdx, slot.slotIdx);
   }
 
+  function _projectVisibleColumnsAtWorldY(worldY, colABuf, nRows, reserveStart, vpMat) {
+    const colScreen = [];
+    for (let c = 0; c < reserveStart; c++) {
+      const base = c * nRows * 4;
+      const wx   = colABuf[base + 0] + uniforms.uColumnOffset.value.x;
+      const wz   = colABuf[base + 1] + uniforms.uColumnOffset.value.y;
+      const revHash = _h2js(c * 0.23, 0.69);
+      if (revHash >= 1.0 - uniforms.uReverseChance.value) continue;
+      const densHash = _h2js(c * 0.137 + 0.5, 42.7);
+      if (densHash > uniforms.uDensity.value) continue;
+      _msgTv.set(wx, worldY, wz, 1.0).applyMatrix4(vpMat);
+      if (_msgTv.w <= 0) continue;
+      const ndcX = _msgTv.x / _msgTv.w;
+      if (ndcX < -1.2 || ndcX > 1.2) continue;
+      colScreen.push({ c, screenX: (ndcX + 1.0) * 0.5 });
+    }
+    colScreen.sort((a, b) => a.screenX - b.screenX);
+    return colScreen;
+  }
+
   // Compute the aYOff value that places column c's head at targetWorldY at time t.
   // Mirrors the JS-side head-Y approximation used throughout the message reveal system.
   function _yOffForHead(colABuf, colBBuf, nRows, c, targetWorldY, t) {
@@ -1253,8 +1273,9 @@ export function initMatrixRain(element, opts = {}) {
   // "Best" = closest by screen X projection to slotScreenX. Returns colIdx or -1 if pool empty.
   // Caller must call _writeLockRows to set spawnActive=1.
   function _claimReserve(pool, slotScreenX, worldY, colABuf, nRows, vpMat, acceptScreenX = null) {
-    if (!pool || pool.free.length === 0) return -1;
+    if (!pool || pool.free.length === 0) return null;
     let bestDist = Infinity, bestFreeIdx = -1;
+    let bestScreenX = 0;
     for (let fi = 0; fi < pool.free.length; fi++) {
       const c    = pool.free[fi];
       const base = c * nRows * 4;
@@ -1265,13 +1286,17 @@ export function initMatrixRain(element, opts = {}) {
       const sx   = (_msgTv.x / _msgTv.w + 1.0) * 0.5;
       if (acceptScreenX && !acceptScreenX(sx)) continue;
       const dist = Math.abs(sx - slotScreenX);
-      if (dist < bestDist) { bestDist = dist; bestFreeIdx = fi; }
+      if (dist < bestDist) {
+        bestDist = dist;
+        bestFreeIdx = fi;
+        bestScreenX = sx;
+      }
     }
-    if (bestFreeIdx < 0) return -1;
+    if (bestFreeIdx < 0) return null;
     const c = pool.free.splice(bestFreeIdx, 1)[0];
     pool.used.add(c);
     // spawnActive=1 is written by the caller's _writeLockRows — no need to write here
-    return c;
+    return { c, screenX: bestScreenX };
   }
 
   // Assign columns to message slots while preserving left-to-right order.
@@ -1326,16 +1351,16 @@ export function initMatrixRain(element, opts = {}) {
     return true;
   }
 
-  function _neighborAssignedBounds(slots, slotIdx, colScreenXMap) {
+  function _neighborAssignedBounds(slots, slotIdx) {
     let left = -Infinity;
     let right = Infinity;
     for (let i = slotIdx - 1; i >= 0; i--) {
-      const c = slots[i].colIdx;
-      if (c >= 0) { left = colScreenXMap.get(c) ?? left; break; }
+      const sx = slots[i].assignedScreenX;
+      if (slots[i].colIdx >= 0 && Number.isFinite(sx)) { left = sx; break; }
     }
     for (let i = slotIdx + 1; i < slots.length; i++) {
-      const c = slots[i].colIdx;
-      if (c >= 0) { right = colScreenXMap.get(c) ?? right; break; }
+      const sx = slots[i].assignedScreenX;
+      if (slots[i].colIdx >= 0 && Number.isFinite(sx)) { right = sx; break; }
     }
     return { left, right };
   }
@@ -1846,25 +1871,6 @@ export function initMatrixRain(element, opts = {}) {
     const tmpV = new THREE.Vector4();
 
     const reserveStart = geomNow._reservePool?.reserveStart ?? nCols;
-    const colScreen = [];
-    const midWorldY = (_msgWorldYs[0] + _msgWorldYs[nLines - 1]) / 2;
-    for (let c = 0; c < reserveStart; c++) {
-      const base = c * nRows * 4;
-      const wx   = colABuf[base + 0] + uniforms.uColumnOffset.value.x;
-      const wz   = colABuf[base + 1] + uniforms.uColumnOffset.value.y;
-      const revHash = _h2js(c * 0.23, 0.69);
-      if (revHash >= 1.0 - uniforms.uReverseChance.value) continue;
-      const densHash = _h2js(c * 0.137 + 0.5, 42.7);
-      if (densHash > uniforms.uDensity.value) continue;
-      tmpV.set(wx, midWorldY, wz, 1.0).applyMatrix4(vpMat);
-      if (tmpV.w <= 0) continue;
-      const ndcX   = tmpV.x / tmpV.w;
-      if (ndcX < -1.2 || ndcX > 1.2) continue;
-      const screenX = (ndcX + 1.0) * 0.5;
-      colScreen.push({ c, screenX });
-    }
-    colScreen.sort((a, b) => a.screenX - b.screenX);
-    const colScreenXMap = new Map(colScreen.map(({ c, screenX }) => [c, screenX]));
 
     // D3: Pre-allocate reserve screen-X cache (populated at start of each revealing tick)
     _msgReserveScreenXs = new Float32Array(reserveStart);
@@ -1931,7 +1937,8 @@ export function initMatrixRain(element, opts = {}) {
         slot.slotIdx = si;
         lineSlots.push(slot);
       }
-      _assignOrderedLineSlots(lineSlots, usedCols, colScreen);
+      const lineColScreen = _projectVisibleColumnsAtWorldY(_msgWorldYs[li], colABuf, nRows, reserveStart, vpMat);
+      _assignOrderedLineSlots(lineSlots, usedCols, lineColScreen);
       for (const slot of lineSlots) {
         delete slot.slotIdx;
         if (slot.colIdx >= 0) {
