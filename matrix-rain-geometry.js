@@ -172,7 +172,7 @@ export function buildClusterArrays({
       }
       case 'curtain':
         wx = thetaNorm * outer;
-        wz = 0;
+        wz = (Math.random() * 2 - 1) * inner;
         break;
       case 'rectangle':
         wx = thetaNorm * rectW;
@@ -195,7 +195,7 @@ export function buildClusterArrays({
 
     // Normalise r for scale gradient
     if (topology === 'ring')      r = (inner + outer) / 2;
-    if (topology === 'curtain')   r = (inner + outer) / 2;
+    if (topology === 'curtain')   r = Math.min(Math.max(inner, outer), Math.max(inner, Math.sqrt(wx * wx + wz * wz)));
     if (topology === 'rectangle') r = Math.min(Math.max(rectW, rectH), Math.max(inner, Math.sqrt(wx * wx + wz * wz)));
 
     // Y offset: cluster-centered so columns in the same cluster spawn in the same world-Y band.
@@ -288,11 +288,11 @@ export function buildClusterArrays({
         break;
       case 'curtain':
         rwx = (frac * 2 - 1) * outer;
-        rwz = 0;
+        rwz = (Math.random() * 2 - 1) * inner;
         break;
       case 'rectangle':
         rwx = (frac * 2 - 1) * rectW;
-        rwz = 0;
+        rwz = (Math.random() * 2 - 1) * rectH;
         break;
       default: // 'shell'
         rwx = Math.cos(angle) * inner;

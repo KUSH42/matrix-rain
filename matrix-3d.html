@@ -1069,7 +1069,7 @@
         </span>
       </label>
 
-      <label id="lbl-shell-in" title="Rebuilds geometry">Shell inner ⟳
+      <label id="lbl-shell-in" title="Rebuilds geometry"><span id="txt-shell-in">Shell inner</span> ⟳
         <span style="display:flex;align-items:center;gap:4px;">
           <input id="ctl-shell-in"     type="range"  min="1.0" max="6.0"  step="0.5" value="3.5">
           <input id="ctl-shell-in-num" type="number" min="1.0" max="6.0"  step="0.5" value="3.5">
@@ -1807,7 +1807,7 @@
 
   // Contextual distribution controls — show/hide based on active topology
   const _distTopoMap = {
-    'lbl-shell-in':       ['shell', 'ring'],
+    'lbl-shell-in':       ['shell', 'ring', 'curtain'],
     'lbl-shell-out':      ['shell', 'ring', 'curtain'],
     'lbl-clusters':        ['shell', 'ring', 'curtain', 'rectangle'],
     'lbl-cluster-spread':  ['shell', 'ring', 'curtain', 'rectangle'],
@@ -1824,12 +1824,14 @@
     'lbl-rect-w':         ['rectangle'],
     'lbl-rect-h':         ['rectangle'],
   };
-  const _shellOutLabels = { shell: 'Shell outer', ring: 'Shell outer', curtain: 'Spread width' };
+  const _shellInLabels  = { shell: 'Shell inner', ring: 'Shell inner', curtain: 'Curtain depth Z' };
+  const _shellOutLabels = { shell: 'Shell outer', ring: 'Shell outer', curtain: 'Spread width X' };
 
   function updateDistControls(topo) {
     for (const [id, topos] of Object.entries(_distTopoMap)) {
       document.getElementById(id).style.display = topos.includes(topo) ? '' : 'none';
     }
+    document.getElementById('txt-shell-in').textContent = _shellInLabels[topo] ?? 'Shell inner';
     document.getElementById('txt-shell-out').textContent = _shellOutLabels[topo] ?? 'Shell outer';
   }
   updateDistControls('shell');
