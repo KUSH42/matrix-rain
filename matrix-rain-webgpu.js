@@ -675,24 +675,25 @@ export function initMatrixRain(element, opts = {}) {
           // ── Recruit a column for unassigned slots every tick ──────────
           // Try reserve pool first; fall back to nearest non-reserve column.
           if (slot.colIdx < 0) {
+            const lineSlots = _msgSlots.filter(s => s.lineIdx === slot.lineIdx);
+            const slotLineIdx = lineSlots.indexOf(slot);
             let bestCol = _claimReserve(geomNow._reservePool, slot.screenX, _msgWorldYs[slot.lineIdx],
-              colABuf, nRows, _msgVpMat);
+              colABuf, nRows, _msgVpMat, screenX => _slotCanUseColumnScreenX(lineSlots, slotLineIdx, screenX));
             if (bestCol >= 0) {
+              const slotScreenX = _msgReserveScreenXs?.[bestCol];
               const newYOff = _yOffForHead(colABuf, colBBuf, nRows, bestCol, _msgWorldYs[slot.lineIdx], t);
               for (let r = 0; r < nRows; r++) colBBuf[(bestCol * nRows + r) * 4] = newYOff;
               colBDirty = true;
-              slot.colIdx = bestCol;
-              _msgAssigned.set(bestCol, si);
+              _assignMsgSlotColumn(slot, bestCol, Number.isFinite(slotScreenX) ? slotScreenX : slot.screenX);
               // spawnActive=1 keeps reserve visible regardless of density/frustum cull
               _writeLockRows(lockData, nRows, bestCol, _msgWorldYs[slot.lineIdx], slot.glyph, 0, 1);
               lockDirty = true;
             } else {
               // Pool exhausted — fall back to nearest non-reserve column
-              const lineSlots = _msgSlots.filter(s => s.lineIdx === slot.lineIdx);
-              const slotLineIdx = lineSlots.indexOf(slot);
               const bounds = _neighborAssignedBounds(lineSlots, slotLineIdx, colScreenXMap);
               let bestDist = Infinity;
               bestCol = -1;
+              let bestScreenX = slot.screenX;
               const revThresh = 1.0 - uniforms.uReverseChance.value;
               for (let c = 0; c < reserveStart; c++) {
                 if (_msgLockedCols.has(c) || _msgAssigned.has(c) || _msgSpawnCols.has(c)) continue;
@@ -704,12 +705,12 @@ export function initMatrixRain(element, opts = {}) {
                 if (_msgTv.w <= 0) continue;
                 const sx   = (_msgTv.x / _msgTv.w + 1.0) * 0.5;
                 if (sx <= bounds.left + 1e-4 || sx >= bounds.right - 1e-4) continue;
+                if (!_slotCanUseColumnScreenX(lineSlots, slotLineIdx, sx)) continue;
                 const dist = Math.abs(sx - slot.screenX);
-                if (dist < bestDist) { bestDist = dist; bestCol = c; }
+                if (dist < bestDist) { bestDist = dist; bestCol = c; bestScreenX = sx; }
               }
               if (bestCol >= 0) {
-                slot.colIdx = bestCol;
-                _msgAssigned.set(bestCol, si);
+                _assignMsgSlotColumn(slot, bestCol, bestScreenX);
                 _writeLockRows(lockData, nRows, bestCol, _msgWorldYs[slot.lineIdx], slot.glyph, 0, 0);
                 lockDirty = true;
               }
@@ -1229,6 +1230,12 @@ export function initMatrixRain(element, opts = {}) {
     for (let r = 0; r < nRows; r++) buf[c * nRows + r] = val;
   }
 
+  function _assignMsgSlotColumn(slot, colIdx, screenX) {
+    slot.colIdx = colIdx;
+    slot.assignedScreenX = screenX;
+    _msgAssigned.set(colIdx, slot.slotIdx);
+  }
+
   // Compute the aYOff value that places column c's head at targetWorldY at time t.
   // Mirrors the JS-side head-Y approximation used throughout the message reveal system.
   function _yOffForHead(colABuf, colBBuf, nRows, c, targetWorldY, t) {
@@ -1245,7 +1252,7 @@ export function initMatrixRain(element, opts = {}) {
   // Claim the best-matching free reserve column for a message slot.
   // "Best" = closest by screen X projection to slotScreenX. Returns colIdx or -1 if pool empty.
   // Caller must call _writeLockRows to set spawnActive=1.
-  function _claimReserve(pool, slotScreenX, worldY, colABuf, nRows, vpMat) {
+  function _claimReserve(pool, slotScreenX, worldY, colABuf, nRows, vpMat, acceptScreenX = null) {
     if (!pool || pool.free.length === 0) return -1;
     let bestDist = Infinity, bestFreeIdx = -1;
     for (let fi = 0; fi < pool.free.length; fi++) {
@@ -1256,6 +1263,7 @@ export function initMatrixRain(element, opts = {}) {
       _msgTv.set(wx, worldY, wz, 1.0).applyMatrix4(vpMat);
       if (_msgTv.w <= 0) continue;
       const sx   = (_msgTv.x / _msgTv.w + 1.0) * 0.5;
+      if (acceptScreenX && !acceptScreenX(sx)) continue;
       const dist = Math.abs(sx - slotScreenX);
       if (dist < bestDist) { bestDist = dist; bestFreeIdx = fi; }
     }
@@ -1272,7 +1280,8 @@ export function initMatrixRain(element, opts = {}) {
   function _assignOrderedLineSlots(lineSlots, usedCols, colScreen, maxDist = 0.18) {
     if (lineSlots.length === 0) return;
     let prevScreenX = -Infinity;
-    for (const slot of lineSlots) {
+    for (let slotIdx = 0; slotIdx < lineSlots.length; slotIdx++) {
+      const slot = lineSlots[slotIdx];
       let best = null;
       let bestDist = Infinity;
       for (const cs of colScreen) {
@@ -1280,18 +1289,41 @@ export function initMatrixRain(element, opts = {}) {
         if (cs.screenX <= prevScreenX + 1e-4) continue;
         const d = Math.abs(cs.screenX - slot.screenX);
         if (d > maxDist) continue;
+        if (!_slotCanUseColumnScreenX(lineSlots, slotIdx, cs.screenX)) continue;
         if (d < bestDist) {
           best = cs;
           bestDist = d;
         }
       }
       if (best) {
-        slot.colIdx = best.c;
+        _assignMsgSlotColumn(slot, best.c, best.screenX);
         usedCols.add(best.c);
-        _msgAssigned.set(best.c, slot.slotIdx);
         prevScreenX = best.screenX;
       }
     }
+  }
+
+  function _slotCanUseColumnScreenX(lineSlots, slotIdx, screenX) {
+    const slot = lineSlots[slotIdx];
+    const minGapSelf = Math.max(0.012, slot.halfUV * 0.55);
+
+    for (let i = slotIdx - 1; i >= 0; i--) {
+      const other = lineSlots[i];
+      if (other.colIdx < 0 || other.assignedScreenX === undefined) continue;
+      const minGap = Math.max(minGapSelf, other.halfUV * 0.55, (slot.halfUV + other.halfUV) * 0.45);
+      if (screenX <= other.assignedScreenX + minGap) return false;
+      break;
+    }
+
+    for (let i = slotIdx + 1; i < lineSlots.length; i++) {
+      const other = lineSlots[i];
+      if (other.colIdx < 0 || other.assignedScreenX === undefined) continue;
+      const minGap = Math.max(minGapSelf, other.halfUV * 0.55, (slot.halfUV + other.halfUV) * 0.45);
+      if (screenX >= other.assignedScreenX - minGap) return false;
+      break;
+    }
+
+    return true;
   }
 
   function _neighborAssignedBounds(slots, slotIdx, colScreenXMap) {
