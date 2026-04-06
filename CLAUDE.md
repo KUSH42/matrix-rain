@@ -152,8 +152,11 @@ Returns a control handle with methods below.
 | `setHoloAberration(v)` | Screen-space chromatic aberration in holo pass 0–0.015 |
 | `setBrightness(v)` | Output brightness multiplier 0.2–2.0 |
 | `setBreathAmt(v)` | Speed-oscillation amplitude 0–3 (0=off, 1=±15% speed) |
-| `setWaveSpeed(v)` | Wave crest angular speed rad/s (default 0.15) |
-| `setWaveAmt(v)` | Wave offset amplitude 0–1 (0=off, 1=±4 world units) |
+| `setWaveSpeed(v)` | Head wave angular speed in rad/s (default 0.15) |
+| `setWaveAmt(v)` | Head wave offset amplitude 0–1 (0=off, 1=±4 world units) |
+| `setHeadWaveSpeed(v)` | Alias for `setWaveSpeed(v)` |
+| `setHeadWaveAmt(v)` | Alias for `setWaveAmt(v)` |
+| `setHeadWaveCrests(n)` | Alias for `setWaveCrests(n)` |
 | `setWeightedGlyphs(v)` | Glyph weight LUT blend 0–1 (0=uniform, 1=full LUT) |
 | `setCellSize(w, h)` | Cell world-unit dimensions (default 0.12, 0.08) |
 | `setReverseChance(v)` | Fraction of columns falling upward 0–1 (0=all down, 1=all up) |
@@ -163,8 +166,8 @@ Returns a control handle with methods below.
 | `setZoneSpeed(inner, outer)` | Radial speed multiplier inner/outer shell (default 1.0, 1.0) |
 | `setZoneBrightness(inner, outer)` | Radial brightness multiplier inner/outer shell (default 1.0, 1.0) |
 | `applyPreset(name)` | Apply named preset: `'default'`\|`'matrix1999'`\|`'ghost'`\|`'overdrive'` |
-| `savePreset(name)` | Snapshot current settings to localStorage as `matrix-rain-preset-{name}` |
-| `loadPreset(name)` | Restore a previously saved preset from localStorage |
+| `savePreset(name)` | Snapshot current settings to localStorage as `matrix-rain-preset-{name}`; includes canonical motion/clustering state such as head wave, speed entrainment, scan phase lock, cluster burst participation, and squad phase lock |
+| `loadPreset(name)` | Restore a previously saved preset from localStorage using the same canonical motion/clustering keys |
 | `listSavedPresets()` | Returns `string[]` of saved preset names in localStorage |
 | `deleteSavedPreset(name)` | Remove a saved preset from localStorage |
 | `get crt` | CRT handle after `renderer.init()` resolves in `'crt'` mode; `null` otherwise |
@@ -191,10 +194,13 @@ Returns a control handle with methods below.
 | `setSectorStrength(v)` | Fraction masked outside sector 0–1 (0 = off, default) |
 | `setHeightFade(v)` | Sine density fade at vertical poles 0–1 (0 = off) |
 | `setContagion(v)` | Cluster burst participation strength 0–1 (0 = off, default). Legacy name; behavior is cluster burst join probability, not true propagation. |
+| `setClusterBurstParticipation(v)` | Alias for `setContagion(v)` |
 | `setEntrainment(amt, speed?, crests?)` | Speed entrainment: amplitude 0–0.8, angular speed rad/s, crest count 1–12 |
+| `setSpeedEntrainment(amt, speed?, crests?)` | Alias for `setEntrainment(amt, speed?, crests?)` |
 | `setEntrainSpeed(v)` | Speed entrainment sweep rate in rad/s (default 0.25) |
 | `setEntrainCrests(n)` | Number of speed-entrainment bands 1–12 (default 3) |
 | `setSquadCoherence(v)` | Squad phase lock 0–1 (0 = full squad lock, 1 = individual random). Visible UI may refer to this as squad independence. |
+| `setSquadIndependence(v)` | Alias for `setSquadCoherence(v)` |
 | `setSquadSize(n)` | Squad size 2–20 — triggers geometry rebuild |
 | `setTrailCohesion(v)` | Trail-length bias within squads 0–1 — triggers geometry rebuild |
 | `spawnWave({duration?, easing?, startAngle?})` | Animate rain sweep-in from `startAngle` [0,1] over `duration` seconds |

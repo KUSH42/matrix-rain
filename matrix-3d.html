@@ -722,25 +722,25 @@
         </span>
       </label>
 
-      <label style="flex-direction:row;gap:6px;align-items:center;">Waves
+      <label style="flex-direction:row;gap:6px;align-items:center;" title="Adds a spatial head-position offset. Does not change speed.">Head wave
         <input id="ctl-wave-enabled" type="checkbox" checked>
       </label>
 
-      <label>Wave speed
+      <label title="Adds a spatial head-position offset. Does not change speed.">Head wave speed
         <span style="display:flex;align-items:center;gap:4px;">
           <input id="ctl-wave-speed"     type="range"  min="0" max="0.5" step="0.01" value="0.15">
           <input id="ctl-wave-speed-num" type="number" min="0" max="0.5" step="0.01" value="0.15">
         </span>
       </label>
 
-      <label>Wave height
+      <label title="Adds a spatial head-position offset. Does not change speed.">Head wave amount
         <span style="display:flex;align-items:center;gap:4px;">
           <input id="ctl-wave-amt"     type="range"  min="0" max="3" step="0.05" value="1.0">
           <input id="ctl-wave-amt-num" type="number" min="0" max="3" step="0.05" value="1.0">
         </span>
       </label>
 
-      <label>Wave crests
+      <label title="Adds a spatial head-position offset. Does not change speed.">Head wave crests
         <span style="display:flex;align-items:center;gap:4px;">
           <input id="ctl-wave-crests"     type="range"  min="1" max="12" step="1" value="3">
           <input id="ctl-wave-crests-num" type="number" min="1" max="12" step="1" value="3">
@@ -1107,14 +1107,14 @@
         </span>
       </label>
 
-      <label id="lbl-clusters" title="Rebuilds geometry">Clusters ⟳
+      <label id="lbl-clusters" title="Rebuilds geometry">Cluster count ⟳
         <span style="display:flex;align-items:center;gap:4px;">
           <input id="ctl-clusters"     type="range"  min="1" max="36"  step="1"     value="12">
           <input id="ctl-clusters-num" type="number" min="1" max="36"  step="1"     value="12">
         </span>
       </label>
 
-      <label id="lbl-cluster-spread" title="Rebuilds geometry">Cluster sigma ⟳
+      <label id="lbl-cluster-spread" title="Angular spread only. Does not change Y spread or shell-depth spread.">Cluster angular spread ⟳
         <span style="display:flex;align-items:center;gap:4px;">
           <input id="ctl-cluster-spread"     type="range"  min="0.003" max="0.5" step="0.001" value="0.017">
           <input id="ctl-cluster-spread-num" type="number" min="0.003" max="0.5" step="0.001" value="0.017">
@@ -1172,14 +1172,14 @@
         </span>
       </label>
 
-      <label>Cluster sync
+      <label title="Probability a column joins its cluster's shared burst window.">Cluster burst participation
         <span style="display:flex;align-items:center;gap:4px;">
           <input id="ctl-contagion"     type="range"  min="0" max="1" step="0.01" value="0.35">
           <input id="ctl-contagion-num" type="number" min="0" max="1" step="0.01" value="0.35">
         </span>
       </label>
 
-      <label>Squad coherence
+      <label title="0 = shared squad phase, 1 = individual per-column phase.">Squad independence
         <span style="display:flex;align-items:center;gap:4px;">
           <input id="ctl-squad-coherence"     type="range"  min="0" max="1" step="0.01" value="0.3">
           <input id="ctl-squad-coherence-num" type="number" min="0" max="1" step="0.01" value="0.3">
@@ -1193,7 +1193,7 @@
         </span>
       </label>
 
-      <label title="Rebuilds geometry">Trail cohesion ⟳
+      <label title="How strongly squad trail bias affects trail length.">Squad trail cohesion ⟳
         <span style="display:flex;align-items:center;gap:4px;">
           <input id="ctl-trail-cohesion"     type="range"  min="0" max="1" step="0.01" value="0.5">
           <input id="ctl-trail-cohesion-num" type="number" min="0" max="1" step="0.01" value="0.5">
@@ -1239,21 +1239,21 @@
         </span>
       </label>
 
-      <label>Entrainment
+      <label title="Modulates column speed in traveling spatial bands.">Speed entrainment
         <span style="display:flex;align-items:center;gap:4px;">
           <input id="ctl-entrain-amt"     type="range"  min="0" max="0.8" step="0.01" value="0.15">
           <input id="ctl-entrain-amt-num" type="number" min="0" max="0.8" step="0.01" value="0.15">
         </span>
       </label>
 
-      <label>Entrain speed
+      <label title="Modulates column speed in traveling spatial bands.">Speed entrain rate
         <span style="display:flex;align-items:center;gap:4px;">
           <input id="ctl-entrain-speed"     type="range"  min="0" max="2" step="0.01" value="0.25">
           <input id="ctl-entrain-speed-num" type="number" min="0" max="2" step="0.01" value="0.25">
         </span>
       </label>
 
-      <label>Entrain crests
+      <label title="Modulates column speed in traveling spatial bands.">Speed entrain crests
         <span style="display:flex;align-items:center;gap:4px;">
           <input id="ctl-entrain-crests"     type="range"  min="1" max="12" step="1" value="3">
           <input id="ctl-entrain-crests-num" type="number" min="1" max="12" step="1" value="3">
@@ -1287,13 +1287,13 @@
       <label style="flex-direction:row;gap:6px;align-items:center;">Scanline boot
         <button id="ctl-scan-trigger" style="padding:2px 8px;cursor:pointer;">Trigger</button>
       </label>
-      <label>Scan sync amt
+      <label title="Blends natural per-column cycle motion toward one shared cycle position.">Scan phase lock
         <span style="display:flex;align-items:center;gap:4px;">
           <input id="ctl-scan-sync"     type="range"  min="0" max="1" step="0.01" value="0">
           <input id="ctl-scan-sync-num" type="number" min="0" max="1" step="0.01" value="0">
         </span>
       </label>
-      <label>Scan phase
+      <label title="The shared cyclePos used when scan phase lock is above 0.">Shared cycle position
         <span style="display:flex;align-items:center;gap:4px;">
           <input id="ctl-scan-phase"     type="range"  min="0" max="40" step="0.1" value="0">
           <input id="ctl-scan-phase-num" type="number" min="0" max="40" step="0.1" value="0">

@@ -1,7 +1,7 @@
 # Settings wiring reference
 
-This page maps the settings around `sync-amt`, `phase`, `breathing`,
-`waves`, `entrainment`, and clustering from UI labels to runtime handle
+This page maps the settings around `scan phase lock`, shared cycle position,
+`breathing`, `head wave`, `speed entrainment`, and clustering from UI labels to runtime handle
 methods to shader behavior. You can use it as a naming audit before
 renaming controls or changing preset/state formats.
 
@@ -14,9 +14,9 @@ like variants of the same feature when they are not.
   affect different layers of motion.
 - `Phase` exists in at least four meanings: cluster seed phase, squad phase,
   scanline shared cycle position, and per-column cycle phase.
-- `Contagion` is not true propagation. It is a cluster burst participation
+- `Cluster burst participation` (legacy `Contagion`) is not true propagation. It is a cluster burst participation
   probability.
-- `Squad coherence` is directionally inverted from what many users expect:
+- `Squad independence` (legacy `Squad coherence`) is directionally inverted from what many users expect:
   `0` means more locking, `1` means less.
 - The HTML/UI state serializer knows about many newer controls that the
   built-in `savePreset()` and `loadPreset()` API do not persist.

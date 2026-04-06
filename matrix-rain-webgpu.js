@@ -2187,6 +2187,9 @@ export function initMatrixRain(element, opts = {}) {
     setWaveSpeed(v)      { uniforms.uWaveSpeed.value = v; },
     setWaveAmt(v)        { uniforms.uWaveAmt.value = v; },
     setWaveCrests(n)     { uniforms.uWaveCrests.value = Math.max(1, Math.round(n)); },
+    setHeadWaveSpeed(v)  { this.setWaveSpeed(v); },
+    setHeadWaveAmt(v)    { this.setWaveAmt(v); },
+    setHeadWaveCrests(n) { this.setWaveCrests(n); },
     setWeightedGlyphs(v) { uniforms.uWeightedGlyphs.value = v; },
     setCellSize(w, h)    { uniforms.uCellW.value = w; uniforms.uCellH.value = h; },
     setReverseChance(v)  { uniforms.uReverseChance.value = v; },
@@ -2299,6 +2302,7 @@ export function initMatrixRain(element, opts = {}) {
     // require storing per-column burst state in a GPU texture or compute buffer and
     // propagating it each frame. Planned as a future feature.
     setContagion(v)       { uniforms.uContagionStrength.value = Math.max(0, Math.min(1, v)); },
+    setClusterBurstParticipation(v) { this.setContagion(v); },
     setRadialChroma(v) {
       if (postProcessing !== 'rain') return;
       _ppState.radialChromaAmt = v;
@@ -2383,9 +2387,11 @@ export function initMatrixRain(element, opts = {}) {
       uniforms.uEntrainSpeed.value  = speed;
       uniforms.uEntrainCrests.value = Math.round(Math.max(1, Math.min(12, crests)));
     },
+    setSpeedEntrainment(amt, speed, crests) { this.setEntrainment(amt, speed, crests); },
     setEntrainSpeed(v)  { uniforms.uEntrainSpeed.value  = Math.max(0, v); },
     setEntrainCrests(n) { uniforms.uEntrainCrests.value = Math.round(Math.max(1, Math.min(12, n))); },
     setSquadCoherence(v)  { uniforms.uSquadCoherence.value = Math.max(0, Math.min(1, v)); },
+    setSquadIndependence(v) { this.setSquadCoherence(v); },
     setSquadSize(n) {
       _geomParams.squadSize = Math.max(2, Math.min(20, Math.round(n)));
       rebuildGeom();
@@ -2663,8 +2669,13 @@ export function initMatrixRain(element, opts = {}) {
         density:          u.uDensity.value,
         reverseChance:    u.uReverseChance?.value ?? 0,
         breathAmt:        u.uBreathAmt.value,
+        waveEnabled:      u.uWaveAmt.value > 0,
         waveAmt:          u.uWaveAmt.value,
         waveSpeed:        u.uWaveSpeed.value,
+        waveCrests:       u.uWaveCrests.value,
+        entrainAmt:       u.uEntrainAmt.value,
+        entrainSpeed:     u.uEntrainSpeed.value,
+        entrainCrests:    u.uEntrainCrests.value,
         drip:             u.uDripAmt.value,
         edgeGlow:         u.uEdgeGlow.value,
         zRotation:        u.uZRotRange.value * (180 / Math.PI),
@@ -2677,7 +2688,25 @@ export function initMatrixRain(element, opts = {}) {
         weightedGlyphs:   u.uWeightedGlyphs.value,
         hueRange:         u.uHueRange.value,
         burstProb:        u.uBurstProb.value,
+        clusters:         _geomParams.clusterCount,
+        clusterSpread:    _geomParams.clusterSpread,
+        clusterUniform:   _geomParams.clusterUniform,
+        clusterHueRange:  u.uClusterHueRange.value,
+        clusterBrightRange: u.uClusterBrightRange.value,
+        clusterSpeedRange:  u.uClusterSpeedRange.value,
+        clusterSpeedJitter: _geomParams.clusterSpeedJitter,
+        clusterYSpread:     _geomParams.clusterYSpread,
+        clusterRJitter:     _geomParams.clusterRJitter,
         contagion:        u.uContagionStrength.value,
+        squadCoherence:   u.uSquadCoherence.value,
+        squadSize:        _geomParams.squadSize,
+        trailCohesion:    _geomParams.trailCohesion,
+        densityIn:        u.uDensityInner.value,
+        densityOut:       u.uDensityOuter.value,
+        heightFade:       u.uHeightFade.value,
+        spawnFront:       u.uSpawnWaveFront.value,
+        scanSync:         u.uScanSyncAmt.value,
+        scanPhase:        u.uScanPhase.value,
         // Post-processing (rain mode only — no-ops in other modes)
         bloomThreshold:   bloomThreshold,
         bloomStrength:    _ppState.bloomStrength,
@@ -2717,6 +2746,17 @@ export function initMatrixRain(element, opts = {}) {
         console.warn('matrix-rain: loadPreset() failed:', e);
         return;
       }
+      const read = (...keys) => {
+        for (const key of keys) {
+          if (snap[key] !== undefined) return snap[key];
+        }
+        return undefined;
+      };
+      const waveAmt = read('waveAmt');
+      const waveEnabled = snap.waveEnabled !== undefined
+        ? !!snap.waveEnabled
+        : (waveAmt !== undefined ? waveAmt > 0 : undefined);
+
       if (snap.color           !== undefined) handle.setColor(snap.color);
       if (snap.opacity         !== undefined) handle.setOpacity(snap.opacity);
       if (snap.brightness      !== undefined) handle.setBrightness(snap.brightness);
@@ -2728,9 +2768,6 @@ export function initMatrixRain(element, opts = {}) {
       if (snap.trailMin        !== undefined) handle.setTrailRange(snap.trailMin, snap.trailMax ?? _geomParams.trailMax);
       if (snap.density         !== undefined) handle.setDensity(snap.density);
       if (snap.reverseChance   !== undefined) handle.setReverseChance(snap.reverseChance);
-      if (snap.breathAmt       !== undefined) handle.setBreathAmt(snap.breathAmt);
-      if (snap.waveAmt         !== undefined) handle.setWaveAmt(snap.waveAmt);
-      if (snap.waveSpeed       !== undefined) handle.setWaveSpeed(snap.waveSpeed);
       if (snap.drip            !== undefined) handle.setDrip(snap.drip);
       if (snap.edgeGlow        !== undefined) handle.setEdgeGlow(snap.edgeGlow);
       if (snap.zRotation       !== undefined) handle.setZRotation(snap.zRotation);
@@ -2742,7 +2779,6 @@ export function initMatrixRain(element, opts = {}) {
       if (snap.weightedGlyphs  !== undefined) handle.setWeightedGlyphs(snap.weightedGlyphs);
       if (snap.hueRange        !== undefined) handle.setColorBlend(snap.hueRange);
       if (snap.burstProb       !== undefined) handle.setBurstProb(snap.burstProb);
-      if (snap.contagion       !== undefined) handle.setContagion(snap.contagion);
       if (snap.bloomThreshold  !== undefined) handle.setBloomThreshold(snap.bloomThreshold);
       if (snap.bloomStrength   !== undefined) handle.setBloomStrength(snap.bloomStrength);
       if (snap.phosphorDecay   !== undefined) handle.setPhosphorDecay(snap.phosphorDecay);
@@ -2755,6 +2791,69 @@ export function initMatrixRain(element, opts = {}) {
       if (snap.zoneSpeedInner  !== undefined) handle.setZoneSpeed(snap.zoneSpeedInner, snap.zoneSpeedOuter ?? 1.0);
       if (snap.zoneBrightInner !== undefined) handle.setZoneBrightness(snap.zoneBrightInner, snap.zoneBrightOuter ?? 1.0);
       if (snap.charSet         !== undefined) handle.setCharSet(snap.charSet);
+
+      // Canonical cluster/squad rebuild-time state. Apply in one rebuild pass.
+      const clusters = read('clusters');
+      const clusterSpread = read('clusterSpread');
+      const clusterUniform = read('clusterUniform');
+      const clusterSpeedJitter = read('clusterSpeedJitter');
+      const clusterYSpread = read('clusterYSpread');
+      const clusterRJitter = read('clusterRJitter');
+      const squadSize = read('squadSize');
+      const trailCohesion = read('trailCohesion');
+      const needsClusterRebuild =
+        clusters !== undefined ||
+        clusterSpread !== undefined ||
+        clusterUniform !== undefined ||
+        clusterSpeedJitter !== undefined ||
+        clusterYSpread !== undefined ||
+        clusterRJitter !== undefined ||
+        squadSize !== undefined ||
+        trailCohesion !== undefined;
+      if (needsClusterRebuild) {
+        if (clusters !== undefined) _geomParams.clusterCount = Math.max(1, Math.round(clusters));
+        if (clusterSpread !== undefined) _geomParams.clusterSpread = clusterSpread;
+        if (clusterUniform !== undefined) _geomParams.clusterUniform = Math.max(0, Math.min(1, clusterUniform));
+        if (clusterSpeedJitter !== undefined) _geomParams.clusterSpeedJitter = Math.max(0, Math.min(0.5, clusterSpeedJitter));
+        if (clusterYSpread !== undefined) _geomParams.clusterYSpread = Math.max(0, clusterYSpread);
+        if (clusterRJitter !== undefined) _geomParams.clusterRJitter = Math.max(0, Math.min(0.5, clusterRJitter));
+        if (squadSize !== undefined) _geomParams.squadSize = Math.max(2, Math.min(20, Math.round(squadSize)));
+        if (trailCohesion !== undefined) _geomParams.trailCohesion = Math.max(0, Math.min(1, trailCohesion));
+        rebuildGeom();
+      }
+
+      // Runtime cluster uniforms.
+      if (read('clusterHueRange') !== undefined) handle.setClusterHueRange(read('clusterHueRange'));
+      if (read('clusterBrightRange') !== undefined) handle.setClusterBrightRange(read('clusterBrightRange'));
+      if (read('clusterSpeedRange') !== undefined) handle.setClusterSpeedRange(read('clusterSpeedRange'));
+      if (read('contagion') !== undefined) handle.setContagion(read('contagion'));
+      if (read('squadCoherence') !== undefined) handle.setSquadCoherence(read('squadCoherence'));
+      if (read('densityIn') !== undefined || read('densityOut') !== undefined) {
+        handle.setRadialDensityTaper(
+          read('densityIn') ?? uniforms.uDensityInner.value,
+          read('densityOut') ?? uniforms.uDensityOuter.value,
+        );
+      }
+      if (read('heightFade') !== undefined) handle.setHeightFade(read('heightFade'));
+
+      // Motion layers.
+      if (read('breathAmt') !== undefined) handle.setBreathAmt(read('breathAmt'));
+      if (read('waveSpeed') !== undefined) handle.setWaveSpeed(read('waveSpeed'));
+      if (read('waveCrests') !== undefined) handle.setWaveCrests(read('waveCrests'));
+      if (waveEnabled === false) handle.setWaveAmt(0);
+      else if (waveAmt !== undefined) handle.setWaveAmt(waveAmt);
+      if (read('entrainAmt') !== undefined || read('entrainSpeed') !== undefined || read('entrainCrests') !== undefined) {
+        handle.setEntrainment(
+          read('entrainAmt') ?? uniforms.uEntrainAmt.value,
+          read('entrainSpeed') ?? uniforms.uEntrainSpeed.value,
+          read('entrainCrests') ?? uniforms.uEntrainCrests.value,
+        );
+      }
+      if (read('spawnFront') !== undefined) handle.setSpawnWaveFront(read('spawnFront'));
+
+      // Scanline runtime state.
+      if (read('scanSync') !== undefined) handle.setScanlineSync(read('scanSync'));
+      if (read('scanPhase') !== undefined) handle.setScanlinePhase(read('scanPhase'));
     },
 
     /** @returns {string[]} Names of all localStorage presets saved for this page */
