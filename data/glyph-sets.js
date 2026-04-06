@@ -561,6 +561,29 @@ export const GLYPH_SETS = {
   },
 
   /**
+   * arabic — 28 base Arabic letters and 10 Arabic-Indic digits.
+   * 38 glyphs in an 8×8 grid (26 unused slots).
+   * Font: Noto Sans Arabic Regular or another font with Arabic + Arabic-Indic digits.
+   * Generate atlas: tools/gen-atlas-cli.js --set arabic
+   */
+  arabic: {
+    gridW: 8, gridH: 8,
+    weights: [
+      // 28 base letters
+      ...Array.from({ length: 28 }, () => 1.0),
+      // 10 digits
+      ...Array.from({ length: 10 }, () => 0.8),
+      // 26 unused trailing slots
+      ...Array.from({ length: 26 }, () => 0.0),
+    ],
+    glyphs: [
+      ...'ابتثجحخدذرزسشصضطظعغفقكلمنهوي'.split('').map(c => ({ char: c, mirror: false })),
+      ...'٠١٢٣٤٥٦٧٨٩'.split('').map(c => ({ char: c, mirror: false })),
+      // 26 unused trailing slots omitted
+    ],
+  },
+
+  /**
    * gsanscode — all 95 printable ASCII chars (U+0020–U+007E). 10×10 grid (5 unused).
    * Drop-in visual swap for 'ascii'. Font: data/fonts/Google_Sans_Code/static/GoogleSansCode-Regular.ttf
    * weights.length = 100; unused → 0.0.

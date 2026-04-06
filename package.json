@@ -42,5 +42,8 @@
     "msdf",
     "effect"
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "spessasynth_lib": "^4.1.0"
+  }
 }

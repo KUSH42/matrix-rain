@@ -40,6 +40,8 @@ const FONT_MAP = {
   cyrillic:   join(FONTS_DIR, 'Iosevka_Charon_Mono', 'IosevkaCharonMono-Regular.ttf'),
   japanese:   join(FONTS_DIR, 'noto', 'NotoSansJP-Regular.ttf'),
   chinese:    join(FONTS_DIR, 'noto', 'NotoSansTC-Regular.ttf'),
+  arabic:     join(FONTS_DIR, 'noto', 'NotoSansArabic-Regular.ttf'),
+  hebrew:     join(FONTS_DIR, 'noto', 'NotoSansHebrew-Regular.ttf'),
   orbitron:   join(FONTS_DIR, 'Orbitron', 'static', 'Orbitron-Bold.ttf'),
   iosevka:    join(FONTS_DIR, 'Iosevka_Charon_Mono', 'IosevkaCharonMono-Regular.ttf'),
   datatype:   join(FONTS_DIR, 'Datatype', 'static', 'Datatype-Regular.ttf'),

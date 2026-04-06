@@ -97,6 +97,22 @@
     #controls input[type="number"]::-webkit-inner-spin-button {
       -webkit-appearance: none;
     }
+    #controls input[type="file"] {
+      max-width: 140px;
+      color: #00ff70;
+      font-family: 'Courier New', monospace;
+      font-size: 10px;
+    }
+    #controls button {
+      background: #111;
+      color: #00ff70;
+      border: 1px solid #00ff70;
+      font-family: 'Courier New', monospace;
+      font-size: 10px;
+      cursor: pointer;
+      padding: 2px 6px;
+      letter-spacing: 0.1em;
+    }
 
     /* ── Mobile ─────────────────────────────────────────────────────── */
   @media (max-width: 600px) {
@@ -149,6 +165,10 @@
       width: 54px;
       padding: 2px 4px;
       min-height: 28px;
+    }
+    #controls input[type="file"] {
+      max-width: 160px;
+      font-size: 12px;
     }
     #hint { display: none; }
   }
@@ -220,10 +240,12 @@
   <script type="importmap">
   {
     "imports": {
-      "three":          "https://cdn.jsdelivr.net/npm/three@0.183.0/build/three.webgpu.js",
-      "three/webgpu":   "https://cdn.jsdelivr.net/npm/three@0.183.0/build/three.webgpu.js",
-      "three/tsl":      "https://cdn.jsdelivr.net/npm/three@0.183.0/build/three.tsl.js",
-      "three/addons/":  "https://cdn.jsdelivr.net/npm/three@0.183.0/examples/jsm/"
+      "three":          "./node_modules/three/build/three.webgpu.js",
+      "three/webgpu":   "./node_modules/three/build/three.webgpu.js",
+      "three/tsl":      "./node_modules/three/build/three.tsl.js",
+      "three/addons/":  "./node_modules/three/examples/jsm/",
+      "spessasynth_lib": "./node_modules/spessasynth_lib/dist/index.js",
+      "spessasynth_core": "./node_modules/spessasynth_core/dist/index.js"
     }
   }
   </script>
@@ -520,10 +542,12 @@
         <option value="cyrillic">cyrillic</option>
         <option value="japanese">japanese</option>
         <option value="chinese">chinese</option>
+        <option value="arabic">arabic</option>
         <option value="orbitron">orbitron</option>
         <option value="iosevka">iosevka</option>
         <option value="datatype">datatype</option>
         <option value="gsanscode">gsanscode</option>
+        <option value="hebrew">hebrew</option>
       </select>
     </label>
 
@@ -1208,24 +1232,6 @@
         </span>
       </label>
 
-      <label>Sector on
-        <input id="ctl-sector-strength" type="checkbox">
-      </label>
-
-      <label>Sector center °
-        <span style="display:flex;align-items:center;gap:4px;">
-          <input id="ctl-sector-center"     type="range"  min="-180" max="180" step="1" value="0">
-          <input id="ctl-sector-center-num" type="number" min="-180" max="180" step="1" value="0">
-        </span>
-      </label>
-
-      <label>Sector width °
-        <span style="display:flex;align-items:center;gap:4px;">
-          <input id="ctl-sector-width"     type="range"  min="1" max="180" step="1" value="180">
-          <input id="ctl-sector-width-num" type="number" min="1" max="180" step="1" value="180">
-        </span>
-      </label>
-
       <label>Height fade
         <span style="display:flex;align-items:center;gap:4px;">
           <input id="ctl-height-fade"     type="range"  min="0" max="1" step="0.01" value="0">
@@ -1361,18 +1367,47 @@
     <div style="border-top:1px solid #00ff7044;margin-top:6px;padding-top:6px;
                 display:flex;gap:6px;">
       <button id="ctl-export"
-              style="flex:1;background:#111;color:#00ff70;border:1px solid #00ff70;
-                     font-family:'Courier New',monospace;font-size:10px;cursor:pointer;
-                     padding:2px 0;letter-spacing:0.1em;">
+              style="flex:1;">
         EXPORT
       </button>
       <button id="ctl-import"
-              style="flex:1;background:#111;color:#00ff70;border:1px solid #00ff70;
-                     font-family:'Courier New',monospace;font-size:10px;cursor:pointer;
-                     padding:2px 0;letter-spacing:0.1em;">
+              style="flex:1;">
         IMPORT
       </button>
       <input id="ctl-import-file" type="file" accept=".json" style="display:none">
+    </div>
+
+    <div id="midi-player-panel" style="border-top:1px solid #00ff7044;margin-top:6px;padding-top:6px;display:flex;flex-direction:column;gap:4px;">
+      <label style="font-size:10px;letter-spacing:0.1em;text-transform:uppercase;">MIDI player</label>
+
+      <label>SoundFont file
+        <input id="midi-soundfont-file" type="file" accept=".sf2,.sf3,.dls">
+      </label>
+
+      <label>MIDI file
+        <input id="midi-file" type="file" accept=".mid,.midi,.kar,.rmi">
+      </label>
+
+      <div style="display:flex;gap:6px;">
+        <button id="midi-play" type="button" style="flex:1;">PLAY</button>
+        <button id="midi-pause" type="button" style="flex:1;">PAUSE</button>
+        <button id="midi-stop" type="button" style="flex:1;">STOP</button>
+      </div>
+
+      <label>Seek
+        <span style="display:flex;align-items:center;gap:6px;">
+          <input id="midi-seek" type="range" min="0" max="1" step="0.01" value="0" disabled>
+          <span id="midi-time" style="min-width:82px;text-align:right;color:#7fffaa;">00:00 / 00:00</span>
+        </span>
+      </label>
+
+      <label>Volume
+        <input id="midi-volume" type="range" min="0" max="1" step="0.01" value="1">
+      </label>
+
+      <label><input id="midi-loop" type="checkbox"> Loop</label>
+
+      <div id="midi-status" style="color:#7fffaa;white-space:normal;line-height:1.5;">No SoundFont loaded</div>
     </div>
 
     <!-- CCP Mode easter egg sub-panel (hidden until xijinping sequence typed) -->
@@ -1502,8 +1537,12 @@
 <script type="module">
   import { initMatrixRain }  from './matrix-rain-webgpu.js';
   import { PRESETS }         from './matrix-rain-presets.js';
+  import { createSpessaMidiPlayer } from './spessasynth-player.js';
   import { OrbitControls }   from 'three/addons/controls/OrbitControls.js';
   import { Vector3 }         from 'three/webgpu';
+
+  const DEFAULT_MIDI_PATH = './data/clubbed-to-death.mid';
+  const DEFAULT_SOUNDFONT_PATH = './data/generalusergs.sf3';
 
   // ── Load defaults from def.json ───────────────────────────────────────
   const defaults = await fetch('./def.json').then(r => r.json()).catch(() => ({}));
@@ -1538,6 +1577,126 @@
     charSet:        defaults.charSet        ?? 'matrixcode',
     postProcessing: defaults.ppmode         ?? 'rain',
   });
+
+  const midiUi = {
+    soundFontInput: document.getElementById('midi-soundfont-file'),
+    midiInput: document.getElementById('midi-file'),
+    playButton: document.getElementById('midi-play'),
+    pauseButton: document.getElementById('midi-pause'),
+    stopButton: document.getElementById('midi-stop'),
+    seek: document.getElementById('midi-seek'),
+    volume: document.getElementById('midi-volume'),
+    loop: document.getElementById('midi-loop'),
+    status: document.getElementById('midi-status'),
+    time: document.getElementById('midi-time'),
+  };
+
+  let midiState = {
+    state: 'idle',
+    soundFontLoaded: false,
+    midiLoaded: false,
+    currentTime: 0,
+    duration: 0,
+  };
+  let midiSeekDragging = false;
+  let midiInitErrorText = '';
+
+  function formatPlayerTime(seconds) {
+    const whole = Math.max(0, Math.floor(seconds || 0));
+    const mins = Math.floor(whole / 60);
+    const secs = whole % 60;
+    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+  }
+
+  function midiStatusText(playerState) {
+    if (midiInitErrorText) return midiInitErrorText;
+    if (!playerState.soundFontLoaded && !playerState.midiLoaded) return 'Loading default SoundFont and MIDI...';
+    if (!playerState.soundFontLoaded && playerState.midiLoaded) return 'Default MIDI loaded; loading default SoundFont...';
+    if (playerState.soundFontLoaded && !playerState.midiLoaded) return 'No MIDI loaded';
+    switch (playerState.state) {
+      case 'playing': return 'Playing';
+      case 'paused': return 'Paused';
+      case 'stopped': return 'Stopped';
+      case 'ready': return 'Ready';
+      case 'error': return midiUi.status.textContent || 'Error';
+      default: return 'Ready';
+    }
+  }
+
+  function syncMidiUI() {
+    midiUi.status.textContent = midiStatusText(midiState);
+    midiUi.time.textContent =
+      `${formatPlayerTime(midiState.currentTime)} / ${formatPlayerTime(midiState.duration)}`;
+    midiUi.seek.max = String(Math.max(1, midiState.duration || 1));
+    midiUi.seek.disabled = !midiState.midiLoaded;
+    if (!midiSeekDragging) {
+      midiUi.seek.value = String(Math.min(midiState.currentTime || 0, midiState.duration || 0));
+    }
+
+    const canPlay = midiState.soundFontLoaded && midiState.midiLoaded && midiState.state !== 'playing';
+    midiUi.playButton.disabled = !canPlay;
+    midiUi.pauseButton.disabled = midiState.state !== 'playing';
+    midiUi.stopButton.disabled = !(midiState.soundFontLoaded && midiState.midiLoaded);
+  }
+
+  let midiPlayer = null;
+  try {
+    midiPlayer = await createSpessaMidiPlayer({
+      onStateChange(nextState) {
+        midiState = { ...midiState, ...nextState };
+        syncMidiUI();
+      },
+      onTimeChange({ currentTime, duration }) {
+        midiState = { ...midiState, currentTime, duration };
+        syncMidiUI();
+      },
+      onError(error) {
+        midiInitErrorText = `Error: ${error.message}`;
+        midiState = { ...midiState, state: 'error' };
+        syncMidiUI();
+        console.error(error);
+      },
+    });
+    midiPlayer.setVolume(parseFloat(midiUi.volume.value));
+    midiPlayer.setLoop(midiUi.loop.checked);
+  } catch (error) {
+    midiInitErrorText = `Error: ${error.message}`;
+    midiState = { ...midiState, state: 'error' };
+    midiUi.playButton.disabled = true;
+    midiUi.pauseButton.disabled = true;
+    midiUi.stopButton.disabled = true;
+    midiUi.seek.disabled = true;
+    midiUi.volume.disabled = true;
+    midiUi.loop.disabled = true;
+    console.error(error);
+  }
+  syncMidiUI();
+
+  if (midiPlayer) {
+    (async () => {
+      try {
+        const soundFontResponse = await fetch(DEFAULT_SOUNDFONT_PATH);
+        if (!soundFontResponse.ok) {
+          throw new Error(`Failed to load default SoundFont: ${soundFontResponse.status}`);
+        }
+        await midiPlayer.loadSoundFont(await soundFontResponse.arrayBuffer());
+
+        const midiResponse = await fetch(DEFAULT_MIDI_PATH);
+        if (!midiResponse.ok) {
+          throw new Error(`Failed to load default MIDI: ${midiResponse.status}`);
+        }
+        await midiPlayer.loadMidi(await midiResponse.arrayBuffer());
+
+        midiInitErrorText = '';
+        syncMidiUI();
+      } catch (error) {
+        midiInitErrorText = `Error: ${error.message}`;
+        midiState = { ...midiState, state: 'error' };
+        syncMidiUI();
+        console.error(error);
+      }
+    })();
+  }
 
   // ── Orbit controls ────────────────────────────────────────────────────
   let controls = null;
@@ -1655,6 +1814,71 @@
     const evName = el.type === 'checkbox' ? 'change' : 'input';
     el.addEventListener(evName, () => fn(el.type === 'checkbox' ? el.checked : parseFloat(el.value)));
   }
+
+  midiUi.soundFontInput.addEventListener('change', async e => {
+    if (!midiPlayer) return;
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      midiInitErrorText = '';
+      await midiPlayer.loadSoundFont(file);
+    } catch {}
+  });
+
+  midiUi.midiInput.addEventListener('change', async e => {
+    if (!midiPlayer) return;
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      midiInitErrorText = '';
+      await midiPlayer.loadMidi(file);
+    } catch {}
+  });
+
+  midiUi.playButton.addEventListener('click', async () => {
+    if (!midiPlayer) return;
+    _stopAllCCPAudio();
+    _stopMossadAudio();
+    try {
+      await midiPlayer.play();
+    } catch {}
+  });
+
+  midiUi.pauseButton.addEventListener('click', () => {
+    if (!midiPlayer) return;
+    midiPlayer.pause();
+  });
+
+  midiUi.stopButton.addEventListener('click', () => {
+    if (!midiPlayer) return;
+    midiPlayer.stop();
+  });
+
+  midiUi.seek.addEventListener('pointerdown', () => {
+    midiSeekDragging = true;
+  });
+  midiUi.seek.addEventListener('pointerup', () => {
+    midiSeekDragging = false;
+    syncMidiUI();
+  });
+  midiUi.seek.addEventListener('input', e => {
+    if (!midiPlayer) return;
+    midiPlayer.seek(parseFloat(e.target.value));
+  });
+
+  midiUi.volume.addEventListener('input', e => {
+    if (!midiPlayer) return;
+    midiPlayer.setVolume(parseFloat(e.target.value));
+  });
+
+  midiUi.loop.addEventListener('change', e => {
+    if (!midiPlayer) return;
+    midiPlayer.setLoop(e.target.checked);
+  });
+
+  window.addEventListener('beforeunload', () => {
+    midiPlayer?.destroy();
+  });
 
   document.getElementById('ctl-color').addEventListener('input', () =>
     rain.setColor(document.getElementById('ctl-color').value)
@@ -1886,13 +2110,6 @@
   linkSlider('ctl-cluster-r-jitter', 'ctl-cluster-r-jitter-num', () => {
     debounceRebuild(() => rain.setClusterRJitter(parseFloat(document.getElementById('ctl-cluster-r-jitter').value)));
   });
-  bind('ctl-sector-strength', on => rain.setSectorStrength(on ? 1 : 0));
-  linkSlider('ctl-sector-center', 'ctl-sector-center-num', () => {
-    rain.setSectorCenter(parseFloat(document.getElementById('ctl-sector-center').value));
-  });
-  linkSlider('ctl-sector-width', 'ctl-sector-width-num', () => {
-    rain.setSectorWidth(parseFloat(document.getElementById('ctl-sector-width').value));
-  });
   linkSlider('ctl-height-fade', 'ctl-height-fade-num', () => {
     rain.setHeightFade(parseFloat(document.getElementById('ctl-height-fade').value));
   });
@@ -2076,306 +2293,518 @@
     const fv = id => parseFloat(document.getElementById(id).value);
     const cb = id => document.getElementById(id).checked;
     const sv = id => document.getElementById(id).value;
+    const cam = rain.camera;
     return {
-      ppmode:           sv('ctl-ppmode'),
-      charSet:          sv('ctl-charset'),
-      crtShader:        sv('ctl-crt-shader'),
-      color:            sv('ctl-color'),
-      color2:           sv('ctl-color2'),
-      opacity:          fv('ctl-opacity'),
-      depth:            fv('ctl-depth'),
-      normalStrength:   fv('ctl-normal'),
-      sway:             fv('ctl-sway'),
-      soften:           fv('ctl-soften'),
-      heat:             fv('ctl-heat'),
-      streaks:          fv('ctl-streaks'),
-      speed:            fv('ctl-speed'),
-      bloomStrength:    fv('ctl-bloom'),
-      bloomThreshold:   fv('ctl-bloom-thr'),
-      phosphorDecay:    fv('ctl-phosphor'),
-      facingJitter:     fv('ctl-jitter'),
+      ppmode: sv('ctl-ppmode'),
+      charSet: sv('ctl-charset'),
+      crtShader: sv('ctl-crt-shader'),
+      color: sv('ctl-color'),
+      color2: sv('ctl-color2'),
+      opacity: fv('ctl-opacity'),
+      depth: fv('ctl-depth'),
+      normalStrength: fv('ctl-normal'),
+      sway: fv('ctl-sway'),
+      soften: fv('ctl-soften'),
+      heat: fv('ctl-heat'),
+      streaks: fv('ctl-streaks'),
+      speed: fv('ctl-speed'),
+      bloomStrength: fv('ctl-bloom'),
+      bloomThreshold: fv('ctl-bloom-thr'),
+      phosphorDecay: fv('ctl-phosphor'),
+      facingJitter: fv('ctl-jitter'),
       glyphChromaScale: fv('ctl-chroma-scale'),
-      burstBloom:       cb('ctl-burst'),
-      flatZ:            cb('ctl-flatz'),
-      maxYaw:           fv('ctl-yaw'),
-      vignette:         fv('ctl-vignette'),
-      scanlines:        fv('ctl-scanlines'),
-      holoAberration:   fv('ctl-holo-aber'),
+      burstBloom: cb('ctl-burst'),
+      flatZ: cb('ctl-flatz'),
+      maxYaw: fv('ctl-yaw'),
+      vignette: fv('ctl-vignette'),
+      scanlines: fv('ctl-scanlines'),
+      holoAberration: fv('ctl-holo-aber'),
+      interlace: fv('interlace'),
+      radialChroma: fv('radialChroma'),
+      fogAmt: fv('fogAmt'),
+      fogColor: sv('fogColor'),
+      dust: fv('dust'),
+      bloomBreath: cb('bloomBreath'),
+      bloomBreathRate: fv('bloomBreathRate'),
+      bloomBreathAmp: fv('bloomBreathAmp'),
       godRays: {
-        enabled:  cb('ctl-godrays'),
-        lightX:   fv('ctl-gr-lx'),
-        lightY:   fv('ctl-gr-ly'),
-        density:  fv('ctl-gr-density'),
-        decay:    fv('ctl-gr-decay'),
-        weight:   fv('ctl-gr-weight'),
+        enabled: cb('ctl-godrays'),
+        lightX: fv('ctl-gr-lx'),
+        lightY: fv('ctl-gr-ly'),
+        density: fv('ctl-gr-density'),
+        decay: fv('ctl-gr-decay'),
+        weight: fv('ctl-gr-weight'),
         exposure: fv('ctl-gr-exposure'),
       },
-      brightness:     fv('ctl-brightness'),
-      cellW:          fv('ctl-cellw'),
-      cellH:          fv('ctl-cellh'),
-      breathAmt:      fv('ctl-breath-amt'),
-      waveSpeed:      fv('ctl-wave-speed'),
-      waveAmt:        fv('ctl-wave-amt'),
-      waveCrests:     fv('ctl-wave-crests'),
+      msgText: sv('ctl-msg-text'),
+      msgBandSuppress: cb('ctl-msg-band-suppress'),
+      msgSettle: fv('ctl-msg-settle'),
+      msgBoost: fv('ctl-msg-boost'),
+      msgSpawn: fv('ctl-msg-spawn'),
+      msgTolMultMin: fv('ctl-msg-tolmult-min'),
+      msgTolMultMax: fv('ctl-msg-tolmult-max'),
+      msgTolScale: fv('ctl-msg-tolscale'),
+      msgReveal: fv('ctl-msg-reveal'),
+      msgHold: fv('ctl-msg-hold'),
+      msgFade: fv('ctl-msg-fade'),
+      brightness: fv('ctl-brightness'),
+      cellW: fv('ctl-cellw'),
+      cellH: fv('ctl-cellh'),
+      breathAmt: fv('ctl-breath-amt'),
+      waveEnabled: cb('ctl-wave-enabled'),
+      waveSpeed: fv('ctl-wave-speed'),
+      waveAmt: fv('ctl-wave-amt'),
+      waveCrests: fv('ctl-wave-crests'),
       weightedGlyphs: cb('ctl-weighted'),
-      reverseChance:  fv('ctl-reverse'),
-      spdMin:      fv('ctl-spd-min'),
-      spdMax:      fv('ctl-spd-max'),
-      trlMin:      fv('ctl-trl-min'),
-      trlMax:      fv('ctl-trl-max'),
-      density3d:   fv('ctl-density-3d'),
+      reverseChance: fv('ctl-reverse'),
+      spdMin: fv('ctl-spd-min'),
+      spdMax: fv('ctl-spd-max'),
+      trlMin: fv('ctl-trl-min'),
+      trlMax: fv('ctl-trl-max'),
+      density3d: fv('ctl-density-3d'),
       zoneSpeedIn: fv('ctl-zone-spd-in'),
-      zoneSpeedOut:fv('ctl-zone-spd-out'),
-      zoneBrIn:    fv('ctl-zone-br-in'),
-      zoneBrOut:   fv('ctl-zone-br-out'),
-      topology:      sv('ctl-topology'),
+      zoneSpeedOut: fv('ctl-zone-spd-out'),
+      zoneBrIn: fv('ctl-zone-br-in'),
+      zoneBrOut: fv('ctl-zone-br-out'),
+      topology: sv('ctl-topology'),
       forwardFacing: cb('ctl-forward-facing'),
-      nCols:         fv('ctl-ncols'),
-      shellIn:       fv('ctl-shell-in'),
-      shellOut:      fv('ctl-shell-out'),
-      rectW:         fv('ctl-rect-w'),
-      rectH:         fv('ctl-rect-h'),
-      clusters:      fv('ctl-clusters'),
+      nCols: fv('ctl-ncols'),
+      shellIn: fv('ctl-shell-in'),
+      shellOut: fv('ctl-shell-out'),
+      rectW: fv('ctl-rect-w'),
+      rectH: fv('ctl-rect-h'),
+      clusters: fv('ctl-clusters'),
       clusterSpread: fv('ctl-cluster-spread'),
-      radialBias:    fv('ctl-radial-bias'),
-      densityIn:     fv('ctl-density-in'),
-      densityOut:    fv('ctl-density-out'),
-      clusterUniform:      fv('ctl-cluster-uniform'),
-      clusterHueRange:     fv('ctl-cluster-hue'),
-      clusterBrightRange:  fv('ctl-cluster-bright'),
-      clusterSpeedRange:   fv('ctl-cluster-speed'),
-      clusterSpeedJitter:  fv('ctl-cluster-speed-jitter'),
-      clusterYSpread:      fv('ctl-cluster-y-spread'),
-      clusterRJitter:      fv('ctl-cluster-r-jitter'),
-      sectorStrength:  cb('ctl-sector-strength'),
-      sectorCenter:    fv('ctl-sector-center'),
-      sectorWidth:     fv('ctl-sector-width'),
-      heightFade:      fv('ctl-height-fade'),
-      // Glyph FX
-      drip:           fv('ctl-drip'),
-      edgeGlow:       fv('ctl-edge-glow'),
-      zRot:           fv('ctl-zrot'),
-      filmGrain:      fv('ctl-grain'),
-      depthTint:      fv('ctl-depth-tint'),
-      boot:           cb('ctl-boot'),
-      stability:      fv('ctl-stability'),
-      holdMult:       fv('ctl-hold-mult'),
+      radialBias: fv('ctl-radial-bias'),
+      densityIn: fv('ctl-density-in'),
+      densityOut: fv('ctl-density-out'),
+      clusterUniform: fv('ctl-cluster-uniform'),
+      clusterHueRange: fv('ctl-cluster-hue'),
+      clusterBrightRange: fv('ctl-cluster-bright'),
+      clusterSpeedRange: fv('ctl-cluster-speed'),
+      clusterSpeedJitter: fv('ctl-cluster-speed-jitter'),
+      clusterYSpread: fv('ctl-cluster-y-spread'),
+      clusterRJitter: fv('ctl-cluster-r-jitter'),
+      contagion: fv('ctl-contagion'),
+      squadCoherence: fv('ctl-squad-coherence'),
+      squadSize: fv('ctl-squad-size'),
+      trailCohesion: fv('ctl-trail-cohesion'),
+      heightFade: fv('ctl-height-fade'),
+      entrainAmt: fv('ctl-entrain-amt'),
+      entrainSpeed: fv('ctl-entrain-speed'),
+      entrainCrests: fv('ctl-entrain-crests'),
+      spawnFront: fv('ctl-spawn-front'),
+      scanSpeed: fv('ctl-scan-speed'),
+      scanDissolve: fv('ctl-scan-dissolve'),
+      scanSync: fv('ctl-scan-sync'),
+      scanPhase: fv('ctl-scan-phase'),
+      drip: fv('ctl-drip'),
+      edgeGlow: fv('ctl-edge-glow'),
+      zRot: fv('ctl-zrot'),
+      filmGrain: fv('ctl-grain'),
+      depthTint: fv('ctl-depth-tint'),
+      boot: cb('ctl-boot'),
+      stability: fv('ctl-stability'),
+      deepTrailDark: fv('ctl-deep-trail-dark'),
+      holdMult: fv('ctl-hold-mult'),
       burstGlyphRate: fv('ctl-burst-rate'),
-      pomSteps:       fv('ctl-pom-steps'),
-      hueRange:       fv('ctl-hue-range'),
-      burstProb:      fv('ctl-burst-prob'),
-      eolFlash:       fv('ctl-eol-flash'),
+      pomSteps: fv('ctl-pom-steps'),
+      hueRange: fv('ctl-hue-range'),
+      burstProb: fv('ctl-burst-prob'),
+      eolFlash: fv('ctl-eol-flash'),
       eolFreezeStart: fv('ctl-eol-freeze'),
-      eolFadeStart:   fv('ctl-eol-fade'),
+      eolFadeStart: fv('ctl-eol-fade'),
+      shimmerAmt: fv('sl-shimmer-amt'),
+      shimmerFreq: fv('sl-shimmer-freq'),
+      inversionChance: fv('sl-inversion-chance'),
+      glyphSpinAmt: fv('sl-glyph-spin-amt'),
+      glyphSpinSpeed: fv('sl-glyph-spin-speed'),
+      hueDriftRate: fv('sl-hue-drift-rate'),
+      hueDriftAmt: fv('sl-hue-drift-amt'),
+      headOvershoot: fv('sl-head-overshoot'),
+      gravityStrength: fv('sl-gravity-strength'),
+      gravityRate: fv('sl-gravity-rate'),
+      perspectiveStrength: fv('sl-persp-strength'),
+      perspectiveCx: fv('sl-persp-cx'),
+      morseAmt: fv('sl-morse-amt'),
+      morseRate: fv('sl-morse-rate'),
+      spiralAmt: fv('sl-spiral-amt'),
+      spiralRate: fv('sl-spiral-rate'),
+      spiralPitch: fv('sl-spiral-pitch'),
+      fov: fv('ctl-fov'),
+      orbit: cb('ctl-orbit'),
+      orbitSpeed: fv('ctl-orbit-speed'),
+      orbitElev: fv('ctl-orbit-elev'),
+      flythrough: cb('ctl-flythrough'),
+      flySpeed: fv('ctl-fly-speed'),
+      columnFollow: cb('ctl-column-follow'),
+      frozen: cb('ctl-frozen'),
+      reducedMotion: cb('ctl-reduced-motion'),
+      glitchIntensity: fv('ctl-glitch-int'),
+      glitchDuration: fv('ctl-glitch-dur'),
+      rampMult: fv('ctl-ramp-mult'),
+      rampDur: fv('ctl-ramp-dur'),
+      cameraState: {
+        position: { x: cam.position.x, y: cam.position.y, z: cam.position.z },
+        quaternion: { x: cam.quaternion.x, y: cam.quaternion.y, z: cam.quaternion.z, w: cam.quaternion.w },
+        target: controls ? { x: controls.target.x, y: controls.target.y, z: controls.target.z } : null,
+      },
     };
   }
 
   function applySettings(s) {
-    const el  = id => document.getElementById(id);
-    // set() syncs both the range/select value and the companion number input (if present)
+    const el = id => document.getElementById(id);
     const set = (id, v) => {
       if (v === undefined) return;
-      el(id).value = v;
-      const numEl = document.getElementById(id + '-num');
+      const node = el(id);
+      if (!node) return;
+      node.value = v;
+      const numEl = document.getElementById(id + '-num') ?? document.getElementById(id + 'Num');
       if (numEl) numEl.value = v;
     };
-    const chk = (id, v) => { if (v !== undefined) el(id).checked = v; };
+    const chk = (id, v) => {
+      const node = el(id);
+      if (v !== undefined && node) node.checked = v;
+    };
 
     const prevMode = ppmodeEl.value;
 
-    // ── Sync UI ──────────────────────────────────────────────────────────
-    set('ctl-ppmode',        s.ppmode);
-    set('ctl-charset',       s.charSet);
-    set('ctl-crt-shader',    s.crtShader);
-    set('ctl-color',         s.color);
-    set('ctl-color2',        s.color2);
-    set('ctl-opacity',       s.opacity);
-    set('ctl-depth',         s.depth);
-    set('ctl-normal',        s.normalStrength);
-    set('ctl-sway',          s.sway);
-    set('ctl-soften',        s.soften);
-    set('ctl-heat',          s.heat);
-    set('ctl-streaks',       s.streaks);
-    set('ctl-speed',         s.speed);
-    set('ctl-bloom',         s.bloomStrength);
-    set('ctl-bloom-thr',     s.bloomThreshold);
-    set('ctl-phosphor',      s.phosphorDecay);
-    set('ctl-jitter',        s.facingJitter);
-    set('ctl-chroma-scale',  s.glyphChromaScale);
-    chk('ctl-burst',         s.burstBloom);
-    chk('ctl-flatz',         s.flatZ);
-    set('ctl-yaw',           s.maxYaw);
-    set('ctl-vignette',      s.vignette);
-    set('ctl-scanlines',     s.scanlines);
-    set('ctl-holo-aber',     s.holoAberration);
+    set('ctl-ppmode', s.ppmode);
+    set('ctl-charset', s.charSet);
+    set('ctl-crt-shader', s.crtShader);
+    set('ctl-color', s.color);
+    set('ctl-color2', s.color2);
+    set('ctl-opacity', s.opacity);
+    set('ctl-depth', s.depth);
+    set('ctl-normal', s.normalStrength);
+    set('ctl-sway', s.sway);
+    set('ctl-soften', s.soften);
+    set('ctl-heat', s.heat);
+    set('ctl-streaks', s.streaks);
+    set('ctl-speed', s.speed);
+    set('ctl-bloom', s.bloomStrength);
+    set('ctl-bloom-thr', s.bloomThreshold);
+    set('ctl-phosphor', s.phosphorDecay);
+    set('ctl-jitter', s.facingJitter);
+    set('ctl-chroma-scale', s.glyphChromaScale);
+    chk('ctl-burst', s.burstBloom);
+    chk('ctl-flatz', s.flatZ);
+    set('ctl-yaw', s.maxYaw);
+    set('ctl-vignette', s.vignette);
+    set('ctl-scanlines', s.scanlines);
+    set('ctl-holo-aber', s.holoAberration);
+    set('interlace', s.interlace);
+    set('radialChroma', s.radialChroma);
+    set('fogAmt', s.fogAmt);
+    if (s.fogColor !== undefined) el('fogColor').value = s.fogColor;
+    set('dust', s.dust);
+    chk('bloomBreath', s.bloomBreath);
+    set('bloomBreathRate', s.bloomBreathRate);
+    set('bloomBreathAmp', s.bloomBreathAmp);
     if (s.godRays) {
-      const g = s.godRays;
-      chk('ctl-godrays',    g.enabled);
-      set('ctl-gr-lx',      g.lightX);
-      set('ctl-gr-ly',      g.lightY);
-      set('ctl-gr-density', g.density);
-      set('ctl-gr-decay',   g.decay);
-      set('ctl-gr-weight',  g.weight);
-      set('ctl-gr-exposure',g.exposure);
+      chk('ctl-godrays', s.godRays.enabled);
+      set('ctl-gr-lx', s.godRays.lightX);
+      set('ctl-gr-ly', s.godRays.lightY);
+      set('ctl-gr-density', s.godRays.density);
+      set('ctl-gr-decay', s.godRays.decay);
+      set('ctl-gr-weight', s.godRays.weight);
+      set('ctl-gr-exposure', s.godRays.exposure);
     }
-    set('ctl-brightness',  s.brightness);
-    set('ctl-cellw',       s.cellW);
-    set('ctl-cellh',       s.cellH);
-    set('ctl-breath-amt',  s.breathAmt);
-    set('ctl-wave-speed',  s.waveSpeed);
-    set('ctl-wave-amt',    s.waveAmt);
+    if (s.msgText !== undefined) el('ctl-msg-text').value = s.msgText;
+    chk('ctl-msg-band-suppress', s.msgBandSuppress);
+    set('ctl-msg-settle', s.msgSettle);
+    set('ctl-msg-boost', s.msgBoost);
+    set('ctl-msg-spawn', s.msgSpawn);
+    set('ctl-msg-tolmult-min', s.msgTolMultMin);
+    set('ctl-msg-tolmult-max', s.msgTolMultMax);
+    set('ctl-msg-tolscale', s.msgTolScale);
+    set('ctl-msg-reveal', s.msgReveal);
+    set('ctl-msg-hold', s.msgHold);
+    set('ctl-msg-fade', s.msgFade);
+    set('ctl-brightness', s.brightness);
+    set('ctl-cellw', s.cellW);
+    set('ctl-cellh', s.cellH);
+    set('ctl-breath-amt', s.breathAmt);
+    chk('ctl-wave-enabled', s.waveEnabled);
+    set('ctl-wave-speed', s.waveSpeed);
+    set('ctl-wave-amt', s.waveAmt);
     set('ctl-wave-crests', s.waveCrests);
-    chk('ctl-weighted',    s.weightedGlyphs);
-    set('ctl-reverse',     s.reverseChance);
-    // Glyph FX
-    set('ctl-drip',        s.drip);
-    set('ctl-edge-glow',   s.edgeGlow);
-    set('ctl-zrot',        s.zRot);
-    set('ctl-grain',       s.filmGrain);
-    set('ctl-depth-tint',  s.depthTint);
-    chk('ctl-boot',        s.boot);
-    set('ctl-stability',   s.stability);
-    set('ctl-hold-mult',   s.holdMult);
-    set('ctl-burst-rate',  s.burstGlyphRate);
-    set('ctl-pom-steps',   s.pomSteps);
-    set('ctl-hue-range',   s.hueRange);
-    set('ctl-burst-prob',  s.burstProb);
-    set('ctl-eol-flash',   s.eolFlash);
-    set('ctl-eol-freeze',  s.eolFreezeStart);
-    set('ctl-eol-fade',    s.eolFadeStart);
+    chk('ctl-weighted', s.weightedGlyphs);
+    set('ctl-reverse', s.reverseChance);
+    set('ctl-drip', s.drip);
+    set('ctl-edge-glow', s.edgeGlow);
+    set('ctl-zrot', s.zRot);
+    set('ctl-grain', s.filmGrain);
+    set('ctl-depth-tint', s.depthTint);
+    chk('ctl-boot', s.boot);
+    set('ctl-stability', s.stability);
+    set('ctl-deep-trail-dark', s.deepTrailDark);
+    set('ctl-hold-mult', s.holdMult);
+    set('ctl-burst-rate', s.burstGlyphRate);
+    set('ctl-pom-steps', s.pomSteps);
+    set('ctl-hue-range', s.hueRange);
+    set('ctl-burst-prob', s.burstProb);
+    set('ctl-eol-flash', s.eolFlash);
+    set('ctl-eol-freeze', s.eolFreezeStart);
+    set('ctl-eol-fade', s.eolFadeStart);
+    set('ctl-spd-min', s.spdMin);
+    set('ctl-spd-max', s.spdMax);
+    set('ctl-trl-min', s.trlMin);
+    set('ctl-trl-max', s.trlMax);
+    set('ctl-density-3d', s.density3d);
+    set('ctl-zone-spd-in', s.zoneSpeedIn);
+    set('ctl-zone-spd-out', s.zoneSpeedOut);
+    set('ctl-zone-br-in', s.zoneBrIn);
+    set('ctl-zone-br-out', s.zoneBrOut);
+    set('ctl-topology', s.topology);
+    chk('ctl-forward-facing', s.forwardFacing);
+    set('ctl-ncols', s.nCols);
+    set('ctl-shell-in', s.shellIn);
+    set('ctl-shell-out', s.shellOut);
+    set('ctl-rect-w', s.rectW);
+    set('ctl-rect-h', s.rectH);
+    set('ctl-clusters', s.clusters);
+    set('ctl-cluster-spread', s.clusterSpread);
+    set('ctl-radial-bias', s.radialBias);
+    set('ctl-density-in', s.densityIn);
+    set('ctl-density-out', s.densityOut);
+    set('ctl-cluster-uniform', s.clusterUniform);
+    set('ctl-cluster-hue', s.clusterHueRange);
+    set('ctl-cluster-bright', s.clusterBrightRange);
+    set('ctl-cluster-speed', s.clusterSpeedRange);
+    set('ctl-cluster-speed-jitter', s.clusterSpeedJitter);
+    set('ctl-cluster-y-spread', s.clusterYSpread);
+    set('ctl-cluster-r-jitter', s.clusterRJitter);
+    set('ctl-contagion', s.contagion);
+    set('ctl-squad-coherence', s.squadCoherence);
+    set('ctl-squad-size', s.squadSize);
+    set('ctl-trail-cohesion', s.trailCohesion);
+    set('ctl-height-fade', s.heightFade);
+    set('ctl-entrain-amt', s.entrainAmt);
+    set('ctl-entrain-speed', s.entrainSpeed);
+    set('ctl-entrain-crests', s.entrainCrests);
+    set('ctl-spawn-front', s.spawnFront);
+    set('ctl-scan-speed', s.scanSpeed);
+    set('ctl-scan-dissolve', s.scanDissolve);
+    set('ctl-scan-sync', s.scanSync);
+    set('ctl-scan-phase', s.scanPhase);
+    set('sl-shimmer-amt', s.shimmerAmt);
+    set('sl-shimmer-freq', s.shimmerFreq);
+    set('sl-inversion-chance', s.inversionChance);
+    set('sl-glyph-spin-amt', s.glyphSpinAmt);
+    set('sl-glyph-spin-speed', s.glyphSpinSpeed);
+    set('sl-hue-drift-rate', s.hueDriftRate);
+    set('sl-hue-drift-amt', s.hueDriftAmt);
+    set('sl-head-overshoot', s.headOvershoot);
+    set('sl-gravity-strength', s.gravityStrength);
+    set('sl-gravity-rate', s.gravityRate);
+    set('sl-persp-strength', s.perspectiveStrength);
+    set('sl-persp-cx', s.perspectiveCx);
+    set('sl-morse-amt', s.morseAmt);
+    set('sl-morse-rate', s.morseRate);
+    set('sl-spiral-amt', s.spiralAmt);
+    set('sl-spiral-rate', s.spiralRate);
+    set('sl-spiral-pitch', s.spiralPitch);
+    set('ctl-fov', s.fov);
+    chk('ctl-orbit', s.orbit);
+    set('ctl-orbit-speed', s.orbitSpeed);
+    set('ctl-orbit-elev', s.orbitElev);
+    chk('ctl-flythrough', s.flythrough);
+    set('ctl-fly-speed', s.flySpeed);
+    chk('ctl-column-follow', s.columnFollow);
+    chk('ctl-frozen', s.frozen);
+    chk('ctl-reduced-motion', s.reducedMotion);
+    set('ctl-glitch-int', s.glitchIntensity);
+    set('ctl-glitch-dur', s.glitchDuration);
+    set('ctl-ramp-mult', s.rampMult);
+    set('ctl-ramp-dur', s.rampDur);
 
-    // ── Rebuild if ppmode changed ────────────────────────────────────────
     if (s.ppmode !== undefined && s.ppmode !== prevMode) {
       rain.destroy();
       registerBadge();
       rain = initMatrixRain(host, {
-        charSet:        s.charSet ?? el('ctl-charset').value,
+        charSet: s.charSet ?? el('ctl-charset').value,
         postProcessing: s.ppmode,
       });
+      makeControls(rain);
+      window._rain = rain;
       updateCrtPanelVisibility(s.ppmode);
     }
 
-    // ── Push to live rain handle ─────────────────────────────────────────
-    if (s.color          !== undefined) rain.setColor(s.color);
-    if (s.color2         !== undefined) rain.setColor2(s.color2);
-    if (s.opacity        !== undefined) rain.setOpacity(s.opacity);
-    if (s.depth          !== undefined) rain.setDepth(s.depth);
+    if (s.color !== undefined) rain.setColor(s.color);
+    if (s.color2 !== undefined) rain.setColor2(s.color2);
+    if (s.opacity !== undefined) rain.setOpacity(s.opacity);
+    if (s.depth !== undefined) rain.setDepth(s.depth);
     if (s.normalStrength !== undefined) rain.setNormalStrength(s.normalStrength);
-    if (s.sway           !== undefined) rain.setSway(s.sway);
-    if (s.soften         !== undefined) rain.setSoften(s.soften > 0, s.soften);
-    if (s.heat           !== undefined) rain.setHeat(s.heat > 0, s.heat);
-    if (s.streaks        !== undefined) rain.setStreaks(s.streaks > 0, s.streaks);
-    if (s.speed          !== undefined) rain.setSpeed(s.speed);
-    if (s.bloomStrength  !== undefined) rain.setBloomStrength(s.bloomStrength);
+    if (s.sway !== undefined) rain.setSway(s.sway);
+    if (s.soften !== undefined) rain.setSoften(s.soften > 0, s.soften);
+    if (s.heat !== undefined) rain.setHeat(s.heat > 0, s.heat);
+    if (s.streaks !== undefined) rain.setStreaks(s.streaks > 0, s.streaks);
+    if (s.speed !== undefined) rain.setSpeed(s.speed);
+    if (s.bloomStrength !== undefined) rain.setBloomStrength(s.bloomStrength);
     if (s.bloomThreshold !== undefined) rain.setBloomThreshold(s.bloomThreshold);
-    if (s.phosphorDecay  !== undefined) rain.setPhosphorDecay(s.phosphorDecay);
-    if (s.facingJitter   !== undefined) rain.setFacingJitter(s.facingJitter);
+    if (s.phosphorDecay !== undefined) rain.setPhosphorDecay(s.phosphorDecay);
+    if (s.facingJitter !== undefined) rain.setFacingJitter(s.facingJitter);
     if (s.glyphChromaScale !== undefined) rain.setGlyphChroma(s.glyphChromaScale > 0, s.glyphChromaScale);
-    if (s.burstBloom     !== undefined) rain.setBurstBloom(s.burstBloom);
-    if (s.flatZ          !== undefined) rain.setFlatZ(s.flatZ);
-    if (s.maxYaw         !== undefined) rain.setMaxYaw(s.maxYaw);
-    if (s.vignette       !== undefined) rain.setVignette(s.vignette);
-    if (s.scanlines      !== undefined) rain.setScanlines(s.scanlines);
+    if (s.burstBloom !== undefined) rain.setBurstBloom(s.burstBloom);
+    if (s.flatZ !== undefined) rain.setFlatZ(s.flatZ);
+    if (s.maxYaw !== undefined) rain.setMaxYaw(s.maxYaw);
+    if (s.vignette !== undefined) rain.setVignette(s.vignette);
+    if (s.scanlines !== undefined) rain.setScanlines(s.scanlines);
     if (s.holoAberration !== undefined) rain.setHoloAberration(s.holoAberration);
-    if (s.charSet        !== undefined) rain.setCharSet(s.charSet);
-    if (s.godRays)                      godRaysFromUI();
-    if (s.crtShader      !== undefined) rain.crt?.setShader(s.crtShader);
-    if (s.brightness     !== undefined) rain.setBrightness(s.brightness);
-    if (s.cellW          !== undefined || s.cellH !== undefined) rain.setCellSize(
-      s.cellW ?? parseFloat(document.getElementById('ctl-cellw').value),
-      s.cellH ?? parseFloat(document.getElementById('ctl-cellh').value),
-    );
-    if (s.breathAmt      !== undefined) rain.setBreathAmt(s.breathAmt);
-    if (s.waveSpeed      !== undefined) rain.setWaveSpeed(s.waveSpeed);
-    if (s.waveAmt        !== undefined) rain.setWaveAmt(s.waveAmt);
-    if (s.waveCrests     !== undefined) rain.setWaveCrests(s.waveCrests);
+    if (s.interlace !== undefined) rain.setInterlace(s.interlace);
+    if (s.radialChroma !== undefined) rain.setRadialChroma(s.radialChroma);
+    if (s.fogAmt !== undefined || s.fogColor !== undefined) {
+      rain.setAtmosphericFog(
+        s.fogAmt ?? parseFloat(document.getElementById('fogAmt').value),
+        s.fogColor ?? document.getElementById('fogColor').value,
+      );
+    }
+    if (s.dust !== undefined) rain.setDust(s.dust);
+    if (s.bloomBreath !== undefined || s.bloomBreathRate !== undefined || s.bloomBreathAmp !== undefined) {
+      rain.setBloomBreath(
+        s.bloomBreath ?? document.getElementById('bloomBreath').checked,
+        s.bloomBreathRate ?? parseFloat(document.getElementById('bloomBreathRate').value),
+        s.bloomBreathAmp ?? parseFloat(document.getElementById('bloomBreathAmp').value),
+      );
+    }
+    if (s.charSet !== undefined) rain.setCharSet(s.charSet);
+    if (s.godRays) godRaysFromUI();
+    if (s.crtShader !== undefined) rain.crt?.setShader(s.crtShader);
+    if (s.msgBandSuppress !== undefined) rain.setMsgBandSuppress(s.msgBandSuppress);
+    if (s.msgSettle !== undefined) rain.setMsgSettleSharpness(s.msgSettle);
+    if (s.brightness !== undefined) rain.setBrightness(s.brightness);
+    if (s.cellW !== undefined || s.cellH !== undefined) {
+      rain.setCellSize(
+        s.cellW ?? parseFloat(document.getElementById('ctl-cellw').value),
+        s.cellH ?? parseFloat(document.getElementById('ctl-cellh').value),
+      );
+    }
+    if (s.breathAmt !== undefined) rain.setBreathAmt(s.breathAmt);
+    if (s.waveEnabled === false) {
+      rain.setWaveAmt(0);
+    } else {
+      if (s.waveSpeed !== undefined) rain.setWaveSpeed(s.waveSpeed);
+      if (s.waveAmt !== undefined) rain.setWaveAmt(s.waveAmt);
+      if (s.waveCrests !== undefined) rain.setWaveCrests(s.waveCrests);
+    }
     if (s.weightedGlyphs !== undefined) rain.setWeightedGlyphs(s.weightedGlyphs ? 1.0 : 0.0);
-    if (s.reverseChance  !== undefined) rain.setReverseChance(s.reverseChance);
-    // Glyph FX
-    if (s.drip           !== undefined) rain.setDrip(s.drip);
-    if (s.edgeGlow       !== undefined) rain.setEdgeGlow(s.edgeGlow);
-    if (s.zRot           !== undefined) rain.setZRotation(s.zRot);
-    if (s.filmGrain      !== undefined) rain.setFilmGrain(s.filmGrain);
-    if (s.depthTint      !== undefined) rain.setDepthTint(s.depthTint);
-    if (s.boot           !== undefined) rain.setStartupCascade(s.boot);
-    if (s.stability      !== undefined) rain.setStability(s.stability);
-    if (s.holdMult       !== undefined) rain.setHoldMult(s.holdMult);
+    if (s.reverseChance !== undefined) rain.setReverseChance(s.reverseChance);
+    if (s.drip !== undefined) rain.setDrip(s.drip);
+    if (s.edgeGlow !== undefined) rain.setEdgeGlow(s.edgeGlow);
+    if (s.zRot !== undefined) rain.setZRotation(s.zRot);
+    if (s.filmGrain !== undefined) rain.setFilmGrain(s.filmGrain);
+    if (s.depthTint !== undefined) rain.setDepthTint(s.depthTint);
+    if (s.boot !== undefined) rain.setStartupCascade(s.boot);
+    if (s.stability !== undefined) rain.setStability(s.stability);
+    if (s.deepTrailDark !== undefined) rain.setDeepTrailDark(s.deepTrailDark);
+    if (s.holdMult !== undefined) rain.setHoldMult(s.holdMult);
     if (s.burstGlyphRate !== undefined) rain.setBurstGlyphRate(s.burstGlyphRate);
-    if (s.pomSteps       !== undefined) rain.setPomSteps(s.pomSteps);
-    if (s.hueRange       !== undefined) rain.setColorBlend(s.hueRange);
-    if (s.burstProb      !== undefined) rain.setBurstProb(s.burstProb);
-    if (s.eolFlash       !== undefined) rain.setEolFlash(s.eolFlash);
+    if (s.pomSteps !== undefined) rain.setPomSteps(s.pomSteps);
+    if (s.hueRange !== undefined) rain.setColorBlend(s.hueRange);
+    if (s.burstProb !== undefined) rain.setBurstProb(s.burstProb);
+    if (s.eolFlash !== undefined) rain.setEolFlash(s.eolFlash);
     if (s.eolFreezeStart !== undefined) rain.setEolFreezeStart(s.eolFreezeStart);
-    if (s.eolFadeStart   !== undefined) rain.setEolFadeStart(s.eolFadeStart);
-
-    set('ctl-spd-min',      s.spdMin);
-    set('ctl-spd-max',      s.spdMax);
-    set('ctl-trl-min',      s.trlMin);
-    set('ctl-trl-max',      s.trlMax);
-    set('ctl-density-3d',   s.density3d);
-    set('ctl-zone-spd-in',  s.zoneSpeedIn);
-    set('ctl-zone-spd-out', s.zoneSpeedOut);
-    set('ctl-zone-br-in',   s.zoneBrIn);
-    set('ctl-zone-br-out',  s.zoneBrOut);
-    if (s.spdMin   !== undefined || s.spdMax   !== undefined) pushSpeedRange();
-    if (s.trlMin   !== undefined || s.trlMax   !== undefined) pushTrailRange();
+    if (s.eolFadeStart !== undefined) rain.setEolFadeStart(s.eolFadeStart);
+    if (s.shimmerAmt !== undefined) rain.setShimmerAmt(s.shimmerAmt);
+    if (s.shimmerFreq !== undefined) rain.setShimmerFreq(s.shimmerFreq);
+    if (s.inversionChance !== undefined) rain.setInversionChance(s.inversionChance);
+    if (s.glyphSpinAmt !== undefined) rain.setGlyphSpinAmt(s.glyphSpinAmt);
+    if (s.glyphSpinSpeed !== undefined) rain.setGlyphSpinSpeed(s.glyphSpinSpeed);
+    if (s.hueDriftRate !== undefined) rain.setHueDriftRate(s.hueDriftRate);
+    if (s.hueDriftAmt !== undefined) rain.setHueDriftAmt(s.hueDriftAmt);
+    if (s.headOvershoot !== undefined) rain.setHeadOvershootAmt(s.headOvershoot);
+    if (s.gravityStrength !== undefined) rain.setGravityStrength(s.gravityStrength);
+    if (s.gravityRate !== undefined) rain.setGravityRate(s.gravityRate);
+    if (s.perspectiveStrength !== undefined || s.perspectiveCx !== undefined) {
+      rain.setPerspective(
+        s.perspectiveStrength ?? parseFloat(document.getElementById('sl-persp-strength').value),
+        s.perspectiveCx ?? parseFloat(document.getElementById('sl-persp-cx').value),
+      );
+    }
+    if (s.morseAmt !== undefined) rain.setMorseAmt(s.morseAmt);
+    if (s.morseRate !== undefined) rain.setMorseRate(s.morseRate);
+    if (s.spiralAmt !== undefined || s.spiralRate !== undefined || s.spiralPitch !== undefined) {
+      rain.setSpiral(
+        s.spiralAmt ?? parseFloat(document.getElementById('sl-spiral-amt').value),
+        s.spiralRate ?? parseFloat(document.getElementById('sl-spiral-rate').value),
+        s.spiralPitch ?? parseFloat(document.getElementById('sl-spiral-pitch').value),
+      );
+    }
+    if (s.spdMin !== undefined || s.spdMax !== undefined) pushSpeedRange();
+    if (s.trlMin !== undefined || s.trlMax !== undefined) pushTrailRange();
     if (s.density3d !== undefined) rain.setDensity(s.density3d);
     if (s.zoneSpeedIn !== undefined || s.zoneSpeedOut !== undefined) pushZoneSpeed();
-    if (s.zoneBrIn    !== undefined || s.zoneBrOut    !== undefined) pushZoneBright();
-    set('ctl-topology',       s.topology);
-    chk('ctl-forward-facing', s.forwardFacing);
-    set('ctl-ncols',          s.nCols);
-    set('ctl-shell-in',       s.shellIn);
-    set('ctl-shell-out',      s.shellOut);
-    set('ctl-rect-w',         s.rectW);
-    set('ctl-rect-h',         s.rectH);
-    set('ctl-clusters',       s.clusters);
-    set('ctl-cluster-spread', s.clusterSpread);
-    set('ctl-radial-bias',    s.radialBias);
-    set('ctl-density-in',     s.densityIn);
-    set('ctl-density-out',    s.densityOut);
-    set('ctl-cluster-uniform',     s.clusterUniform);
-    set('ctl-cluster-hue',         s.clusterHueRange);
-    set('ctl-cluster-bright',      s.clusterBrightRange);
-    set('ctl-cluster-speed',       s.clusterSpeedRange);
-    set('ctl-cluster-speed-jitter', s.clusterSpeedJitter);
-    set('ctl-cluster-y-spread',    s.clusterYSpread);
-    set('ctl-cluster-r-jitter',    s.clusterRJitter);
-    chk('ctl-sector-strength',  s.sectorStrength);
-    set('ctl-sector-center',    s.sectorCenter);
-    set('ctl-sector-width',     s.sectorWidth);
-    set('ctl-height-fade',      s.heightFade);
-    if (s.topology      !== undefined) { rain.setTopology(s.topology); updateDistControls(s.topology); }
+    if (s.zoneBrIn !== undefined || s.zoneBrOut !== undefined) pushZoneBright();
+    if (s.topology !== undefined) { rain.setTopology(s.topology); updateDistControls(s.topology); }
     if (s.forwardFacing !== undefined) rain.setForwardFacing(s.forwardFacing);
-    if (s.nCols         !== undefined) rain.setColumnCount(s.nCols);
-    if (s.shellIn       !== undefined || s.shellOut       !== undefined) rain.setShellRadii(
-      s.shellIn  ?? parseFloat(document.getElementById('ctl-shell-in').value),
-      s.shellOut ?? parseFloat(document.getElementById('ctl-shell-out').value),
-    );
-    if (s.rectW         !== undefined || s.rectH         !== undefined) rain.setRectExtent(
-      s.rectW ?? parseFloat(document.getElementById('ctl-rect-w').value),
-      s.rectH ?? parseFloat(document.getElementById('ctl-rect-h').value),
-    );
-    if (s.clusters      !== undefined || s.clusterSpread  !== undefined) rain.setClusterParams(
-      s.clusters      ?? parseFloat(document.getElementById('ctl-clusters').value),
-      s.clusterSpread ?? parseFloat(document.getElementById('ctl-cluster-spread').value),
-    );
-    if (s.radialBias      !== undefined) rain.setRadialBias(s.radialBias);
-    if (s.clusterUniform     !== undefined) rain.setClusterUniform(s.clusterUniform);
-    if (s.clusterHueRange    !== undefined) rain.setClusterHueRange(s.clusterHueRange);
+    if (s.nCols !== undefined) rain.setColumnCount(s.nCols);
+    if (s.shellIn !== undefined || s.shellOut !== undefined) {
+      rain.setShellRadii(
+        s.shellIn ?? parseFloat(document.getElementById('ctl-shell-in').value),
+        s.shellOut ?? parseFloat(document.getElementById('ctl-shell-out').value),
+      );
+    }
+    if (s.rectW !== undefined || s.rectH !== undefined) {
+      rain.setRectExtent(
+        s.rectW ?? parseFloat(document.getElementById('ctl-rect-w').value),
+        s.rectH ?? parseFloat(document.getElementById('ctl-rect-h').value),
+      );
+    }
+    if (s.clusters !== undefined || s.clusterSpread !== undefined) {
+      rain.setClusterParams(
+        s.clusters ?? parseFloat(document.getElementById('ctl-clusters').value),
+        s.clusterSpread ?? parseFloat(document.getElementById('ctl-cluster-spread').value),
+      );
+    }
+    if (s.radialBias !== undefined) rain.setRadialBias(s.radialBias);
+    if (s.clusterUniform !== undefined) rain.setClusterUniform(s.clusterUniform);
+    if (s.clusterHueRange !== undefined) rain.setClusterHueRange(s.clusterHueRange);
     if (s.clusterBrightRange !== undefined) rain.setClusterBrightRange(s.clusterBrightRange);
-    if (s.clusterSpeedRange  !== undefined) rain.setClusterSpeedRange(s.clusterSpeedRange);
+    if (s.clusterSpeedRange !== undefined) rain.setClusterSpeedRange(s.clusterSpeedRange);
     if (s.clusterSpeedJitter !== undefined) rain.setClusterSpeedJitter(s.clusterSpeedJitter);
-    if (s.clusterYSpread     !== undefined) rain.setClusterYSpread(s.clusterYSpread);
-    if (s.clusterRJitter     !== undefined) rain.setClusterRJitter(s.clusterRJitter);
-    if (s.densityIn     !== undefined || s.densityOut     !== undefined) rain.setRadialDensityTaper(
-      s.densityIn  ?? parseFloat(document.getElementById('ctl-density-in').value),
-      s.densityOut ?? parseFloat(document.getElementById('ctl-density-out').value),
-    );
-    if (s.sectorStrength !== undefined) rain.setSectorStrength(s.sectorStrength ? 1 : 0);
-    if (s.sectorCenter   !== undefined) rain.setSectorCenter(s.sectorCenter);
-    if (s.sectorWidth    !== undefined) rain.setSectorWidth(s.sectorWidth);
-    if (s.heightFade     !== undefined) rain.setHeightFade(s.heightFade);
+    if (s.clusterYSpread !== undefined) rain.setClusterYSpread(s.clusterYSpread);
+    if (s.clusterRJitter !== undefined) rain.setClusterRJitter(s.clusterRJitter);
+    if (s.contagion !== undefined) rain.setContagion(s.contagion);
+    if (s.squadCoherence !== undefined) rain.setSquadCoherence(s.squadCoherence);
+    if (s.squadSize !== undefined) debounceRebuild(() => rain.setSquadSize(s.squadSize));
+    if (s.trailCohesion !== undefined) debounceRebuild(() => rain.setTrailCohesion(s.trailCohesion));
+    if (s.densityIn !== undefined || s.densityOut !== undefined) {
+      rain.setRadialDensityTaper(
+        s.densityIn ?? parseFloat(document.getElementById('ctl-density-in').value),
+        s.densityOut ?? parseFloat(document.getElementById('ctl-density-out').value),
+      );
+    }
+    if (s.heightFade !== undefined) rain.setHeightFade(s.heightFade);
+    if (s.entrainAmt !== undefined) rain.setEntrainment(s.entrainAmt);
+    if (s.entrainSpeed !== undefined) rain.setEntrainSpeed(s.entrainSpeed);
+    if (s.entrainCrests !== undefined) rain.setEntrainCrests(s.entrainCrests);
+    if (s.spawnFront !== undefined) rain.setSpawnWaveFront(s.spawnFront);
+    if (s.scanSync !== undefined) rain.setScanlineSync(s.scanSync);
+    if (s.scanPhase !== undefined) rain.setScanlinePhase(s.scanPhase);
+    if (s.fov !== undefined) rain.setFov(s.fov);
+    if (s.orbitElev !== undefined) rain.setOrbitElevation(s.orbitElev);
+    if (s.orbit !== undefined) rain.setAutoOrbit(s.orbit, s.orbitSpeed ?? parseFloat(document.getElementById('ctl-orbit-speed').value));
+    if (s.flythrough !== undefined) rain.setFlythrough(s.flythrough, s.flySpeed ?? parseFloat(document.getElementById('ctl-fly-speed').value));
+    if (s.columnFollow !== undefined) rain.setColumnFollow(s.columnFollow);
+    if (s.frozen !== undefined) rain.setFrozen(s.frozen);
+    if (s.reducedMotion !== undefined) rain.setReducedMotion(s.reducedMotion);
+    if (s.cameraState?.position) {
+      rain.camera.position.set(s.cameraState.position.x, s.cameraState.position.y, s.cameraState.position.z);
+      if (s.cameraState.target && controls) {
+        controls.target.set(s.cameraState.target.x, s.cameraState.target.y, s.cameraState.target.z);
+        controls.update();
+      } else if (s.cameraState.quaternion) {
+        rain.camera.quaternion.set(
+          s.cameraState.quaternion.x,
+          s.cameraState.quaternion.y,
+          s.cameraState.quaternion.z,
+          s.cameraState.quaternion.w,
+        );
+      }
+      rain.camera.updateProjectionMatrix();
+      rain.camera.updateMatrixWorld();
+    }
   }
 
   document.getElementById('ctl-export').addEventListener('click', () => {
@@ -2410,45 +2839,50 @@
   document.getElementById('ctl-preset').addEventListener('change', e => {
     const name = e.target.value;
     if (!name) return;
-    rain.applyPreset(name);
-    // Sync UI controls to the applied preset values
     const p = PRESETS[name];
     if (!p) return;
-    if (p.color           !== undefined) document.getElementById('ctl-color').value        = p.color;
-    if (p.opacity         !== undefined) document.getElementById('ctl-opacity').value      = p.opacity;
-    if (p.depth           !== undefined) document.getElementById('ctl-depth').value        = p.depth;
-    if (p.normalStrength  !== undefined) document.getElementById('ctl-normal').value       = p.normalStrength;
-    if (p.speed           !== undefined) document.getElementById('ctl-speed').value        = p.speed;
-    if (p.bloomStrength   !== undefined) document.getElementById('ctl-bloom').value        = p.bloomStrength;
-    if (p.bloomThreshold  !== undefined) document.getElementById('ctl-bloom-thr').value    = p.bloomThreshold;
-    if (p.phosphorDecay   !== undefined) document.getElementById('ctl-phosphor').value     = p.phosphorDecay;
-    if (p.heat            !== undefined) document.getElementById('ctl-heat').value         = p.heat;
-    if (p.soften          !== undefined) document.getElementById('ctl-soften').value       = p.soften;
-    if (p.streaks         !== undefined) document.getElementById('ctl-streaks').value      = p.streaks;
-    if (p.burstBloom      !== undefined) document.getElementById('ctl-burst').checked      = p.burstBloom;
-    if (p.vignette        !== undefined) document.getElementById('ctl-vignette').value     = p.vignette;
-    if (p.scanlines       !== undefined) document.getElementById('ctl-scanlines').value    = p.scanlines;
-    if (p.holoAberration  !== undefined) document.getElementById('ctl-holo-aber').value    = p.holoAberration;
-    if (p.glyphChromaScale !== undefined) document.getElementById('ctl-chroma-scale').value = p.glyphChromaScale;
-    if (p.charSet         !== undefined) document.getElementById('ctl-charset').value      = p.charSet;
-    if (p.godRays) {
-      const g = p.godRays;
-      document.getElementById('ctl-godrays').checked  = g.enabled;
-      if (g.lightX    !== undefined) document.getElementById('ctl-gr-lx').value      = g.lightX;
-      if (g.lightY    !== undefined) document.getElementById('ctl-gr-ly').value      = g.lightY;
-      if (g.density   !== undefined) document.getElementById('ctl-gr-density').value = g.density;
-      if (g.decay     !== undefined) document.getElementById('ctl-gr-decay').value   = g.decay;
-      if (g.weight    !== undefined) document.getElementById('ctl-gr-weight').value  = g.weight;
-      if (g.exposure  !== undefined) document.getElementById('ctl-gr-exposure').value = g.exposure;
-    }
+    applySettings(p);
   });
 
   // ── Saved preset save/load/delete ────────────────────────────────────
+  const SAVED_PRESET_PREFIX = 'matrix-rain-preset-';
+
+  function _listSavedPresetNames() {
+    const names = [];
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith(SAVED_PRESET_PREFIX)) names.push(key.slice(SAVED_PRESET_PREFIX.length));
+      }
+    } catch {}
+    return names.sort();
+  }
+
+  function _saveUiPreset(name) {
+    try {
+      localStorage.setItem(`${SAVED_PRESET_PREFIX}${name}`, JSON.stringify(collectSettings()));
+    } catch {}
+  }
+
+  function _loadUiPreset(name) {
+    try {
+      const raw = localStorage.getItem(`${SAVED_PRESET_PREFIX}${name}`);
+      if (!raw) return;
+      applySettings(JSON.parse(raw));
+    } catch {}
+  }
+
+  function _deleteUiPreset(name) {
+    try {
+      localStorage.removeItem(`${SAVED_PRESET_PREFIX}${name}`);
+    } catch {}
+  }
+
   function _refreshSavedPresetSelect() {
     const sel = document.getElementById('ctl-preset-load');
     const current = sel.value;
     sel.innerHTML = '<option value="">— none —</option>';
-    for (const name of rain.listSavedPresets()) {
+    for (const name of _listSavedPresetNames()) {
       const opt = document.createElement('option');
       opt.value = name;
       opt.textContent = name;
@@ -2460,7 +2894,7 @@
   document.getElementById('ctl-preset-save-btn').addEventListener('click', () => {
     const name = document.getElementById('ctl-preset-save-name').value.trim();
     if (!name) return;
-    rain.savePreset(name);
+    _saveUiPreset(name);
     _refreshSavedPresetSelect();
     document.getElementById('ctl-preset-load').value = name;
   });
@@ -2468,13 +2902,13 @@
   document.getElementById('ctl-preset-load-btn').addEventListener('click', () => {
     const name = document.getElementById('ctl-preset-load').value;
     if (!name) return;
-    rain.loadPreset(name);
+    _loadUiPreset(name);
   });
 
   document.getElementById('ctl-preset-delete-btn').addEventListener('click', () => {
     const name = document.getElementById('ctl-preset-load').value;
     if (!name) return;
-    rain.deleteSavedPreset(name);
+    _deleteUiPreset(name);
     _refreshSavedPresetSelect();
   });
 
