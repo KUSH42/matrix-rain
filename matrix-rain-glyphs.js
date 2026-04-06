@@ -68,6 +68,7 @@ export const CHAR_SETS = {
   datatype:   makeAtlasDescriptor(assetURL('./data/datatype_msdf.png'),   36, 8,  8,  { atlasWidth: 512, atlasHeight: 512 }),
   gsanscode:  makeAtlasDescriptor(assetURL('./data/gsanscode_msdf.png'),  95, 10, 10, { atlasWidth: 640, atlasHeight: 640 }),
   hebrew:     makeAtlasDescriptor(assetURL('./data/hebrew_msdf.png'),     29, 8,  8,  { atlasWidth: 512, atlasHeight: 512 }),
+  arabic:     makeAtlasDescriptor(assetURL('./data/arabic_msdf.png'),     38, 8,  8,  { atlasWidth: 512, atlasHeight: 512 }),
 };
 
 export function atlasFieldModeToValue(fieldMode) {
@@ -148,6 +149,7 @@ export const GLYPH_WEIGHTS = {
   datatype:   null,
   gsanscode:  null,
   hebrew:     null,
+  arabic:     null,
 };
 
 /**
@@ -222,6 +224,16 @@ export function charToGlyphIdx(char, charSet) {
       if (fi >= 0) return 22 + fi;
       if (char === '$')  return 27;
       if (char === '✡') return 28;
+      return -1;
+    }
+    case 'arabic': {
+      const ARABIC_BASE   = 'ابتثجحخدذرزسشصضطظعغفقكلمنهوي';
+      const ARABIC_DIGITS = '٠١٢٣٤٥٦٧٨٩';
+      const bi = ARABIC_BASE.indexOf(char);
+      if (bi >= 0) return bi;
+      const di = ARABIC_DIGITS.indexOf(char);
+      if (di >= 0) return 28 + di;
+      if (code >= 48 && code <= 57) return 28 + (code - 48);
       return -1;
     }
     case 'matrixcode':

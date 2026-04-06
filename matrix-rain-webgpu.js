@@ -197,8 +197,37 @@ export function initMatrixRain(element, opts = {}) {
     antialias: false,
     alpha: true,
   });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-  renderer.setSize(element.clientWidth || 1, element.clientHeight || 1);
+  let uAspect = null;
+  let uInterlaceResY = null;
+  let _renderPixelRatio = 1;
+
+  function getRenderPixelBudget() {
+    switch (postProcessing) {
+      case 'crt':  return 1_250_000;
+      case 'rain': return 1_750_000;
+      default:     return 3_000_000;
+    }
+  }
+
+  function getRenderPixelRatio(width, height) {
+    const cssW = Math.max(1, width || 1);
+    const cssH = Math.max(1, height || 1);
+    const deviceRatio = Math.min(window.devicePixelRatio || 1, 2);
+    const budgetRatio = Math.sqrt(getRenderPixelBudget() / (cssW * cssH));
+    return Math.max(0.5, Math.min(deviceRatio, budgetRatio));
+  }
+
+  function applyRendererResolution(width, height) {
+    const cssW = Math.max(1, width || 1);
+    const cssH = Math.max(1, height || 1);
+    _renderPixelRatio = getRenderPixelRatio(cssW, cssH);
+    renderer.setPixelRatio(_renderPixelRatio);
+    renderer.setSize(cssW, cssH);
+    if (uAspect) uAspect.value = cssW / cssH;
+    if (uInterlaceResY) uInterlaceResY.value = cssH * _renderPixelRatio;
+  }
+
+  applyRendererResolution(element.clientWidth || 1, element.clientHeight || 1);
 
   // ── Scene ─────────────────────────────────────────────────────────────
   const scene  = new THREE.Scene();
@@ -268,8 +297,8 @@ export function initMatrixRain(element, opts = {}) {
   }
 
   // ── Aspect uniform shared between streak pass and resize ──────────────
-  const uAspect        = uniform((element.clientWidth || 1) / (element.clientHeight || 1));
-  const uInterlaceResY = uniform(element.clientHeight || 720);
+  uAspect        = uniform((element.clientWidth || 1) / (element.clientHeight || 1));
+  uInterlaceResY = uniform((element.clientHeight || 720) * _renderPixelRatio);
 
   // Track factory result so resize path can dispose all RTTNodes (not just phosphor RT)
   let currentRainNodes = null;
@@ -1237,11 +1266,9 @@ export function initMatrixRain(element, opts = {}) {
       resizePending = false;
       const w = element.clientWidth  || 1;
       const h = element.clientHeight || 1;
-      renderer.setSize(w, h);
+      applyRendererResolution(w, h);
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
-      uAspect.value        = w / h;
-      uInterlaceResY.value = h * Math.min(window.devicePixelRatio, 2);
       // PostProcessing RTT resize is handled in the render loop
     });
   });
@@ -1841,10 +1868,17 @@ export function initMatrixRain(element, opts = {}) {
     _ccpSloganTimer = setTimeout(showNext, 2500);
   }
 
+  function _normalizeMessageLineForDisplay(line) {
+    if (_activeCharSet !== 'hebrew' && _activeCharSet !== 'arabic') return line;
+    if (!/[\u0590-\u05FF\u0600-\u06FF]/.test(line)) return line;
+    return [...line].reverse().join('');
+  }
+
   // C2: Inner closure for showMessage — accessible from tick/_clearAllLocks.
   // (showMessage handle method is a thin wrapper so C2's queueMessage can call this directly.)
   function _doShowMessage(text, opts = {}) {
     if (typeof text === 'string') text = [text];
+    text = text.map(_normalizeMessageLineForDisplay);
     const {
       yFrac                = 0.5,
       lineSpacing          = 0.12,
@@ -2954,8 +2988,7 @@ export function initMatrixRain(element, opts = {}) {
      * @param {number} h  new height in pixels
      */
     onResize(w, h) {
-      uAspect.value        = w / h;
-      uInterlaceResY.value = h * Math.min(window.devicePixelRatio, 2);
+      applyRendererResolution(w, h);
     },
 
     // ── Camera controls ───────────────────────────────────────────────────
