@@ -23,10 +23,10 @@ This hierarchy produces six emergent behaviours without any per-frame JS work:
 |---|---|---|
 | Spatial clustering | Cluster | Gaussian θ jitter around stratified center |
 | Visual identity | Cluster | Per-cluster hue/brightness/speed bias baked into attributes |
-| Synchronised bursts | Cluster | Shared `aClusterBurstSeed` → periodic window + contagion |
+| Synchronised bursts | Cluster | Shared `aClusterBurstSeed` → periodic window + cluster burst participation |
 | Phase lock | Squad | Shared `aSquadPhase` → same cyclePos at low `uSquadCoherence` |
 | Trail cohesion | Squad | Biased trail length baked per squad in `biasedTrailBuf` |
-| Speed wave | All topologies | `entrainWave` = `sin(θ × crests + t × speed)` multiplied into `speedMul` |
+| Speed entrainment | All topologies | `entrainWave` = `sin(θ × crests + t × speed)` multiplied into `speedMul` |
 
 ---
 
@@ -158,7 +158,7 @@ col2 = hueRotateRGB(col2, clusterHueDeg * DEG_TO_RAD);
 
 Range uniforms (`uClusterHueRange`, `uClusterBrightRange`, `uClusterSpeedRange`) are runtime uniforms — adjusting them takes effect in the next frame with **no geometry rebuild**.
 
-### Cluster burst contagion
+### Cluster burst participation
 
 Each cluster fires a burst window every 4 seconds at an offset determined by `aClusterBurstSeed`:
 
@@ -167,7 +167,8 @@ clusterBurstPhase = fract(uTime / 4.0 + aClusterBurstSeed);
 clusterIsBursting = step(clusterBurstPhase, 0.08);         // 8 % of 4 s = ~320 ms window
 ```
 
-Individual columns then independently decide whether to join via a per-column random threshold:
+Individual columns then independently decide whether to join via a per-column
+random threshold:
 
 ```glsl
 colContagionRand = h2(vec2(aColIdx * 0.53, 0.13));         // stable per-column rand
@@ -175,7 +176,9 @@ contagionBurst   = clusterIsBursting * step(colContagionRand, uContagionStrength
 burstActive      = clamp(burstIndiv + contagionBurst, 0.0, 1.0);
 ```
 
-Setting `uContagionStrength = 0` disables contagion entirely; individual bursts (`burstIndiv`) still fire at the normal 0.5 % per-cycle rate.
+Setting `uContagionStrength = 0` disables cluster burst participation entirely;
+individual bursts (`burstIndiv`) still fire at the normal 0.5 % per-cycle
+rate.
 
 ### Speed entrainment wave
 
@@ -191,7 +194,7 @@ speedMul    *= (1.0 + entrainWave);
 
 At defaults (`uEntrainAmt = 0.15`, `uEntrainCrests = 3`, `uEntrainSpeed = 0.25 rad/s`) the wave creates three visible speed bands rotating around the shell at ~25 s/revolution, making speed variations appear to "travel" visually.
 
-### Squad phase coherence
+### Squad phase lock
 
 ```glsl
 phaseSeed = mix(aSquadPhase, aSeed, uSquadCoherence);
@@ -225,11 +228,11 @@ cyclePos  = mod(uTime * effectiveSpeed * speedMul + phaseSeed * cycleH, cycleH);
 | `setClusterHueRange(v)` | `uClusterHueRange` | 18° | Max hue rotation per cluster |
 | `setClusterBrightRange(v)` | `uClusterBrightRange` | 0.35 | Brightness bias magnitude |
 | `setClusterSpeedRange(v)` | `uClusterSpeedRange` | 0.30 | Speed bias magnitude |
-| `setContagion(v)` | `uContagionStrength` | 0.35 | Cluster burst join probability |
+| `setContagion(v)` | `uContagionStrength` | 0.35 | Cluster burst participation strength |
 | `setSquadCoherence(v)` | `uSquadCoherence` | 0.30 | 0 = phase-locked squads, 1 = independent |
 | `setEntrainment(amt, speed?, crests?)` | `uEntrainAmt/Speed/Crests` | 0.15, 0.25, 3 | Speed entrainment wave |
-| `setEntrainSpeed(v)` | `uEntrainSpeed` | 0.25 rad/s | Entrainment wave sweep rate |
-| `setEntrainCrests(n)` | `uEntrainCrests` | 3 | Number of speed bands around shell |
+| `setEntrainSpeed(v)` | `uEntrainSpeed` | 0.25 rad/s | Speed entrainment sweep rate |
+| `setEntrainCrests(n)` | `uEntrainCrests` | 3 | Number of speed-entrainment bands around shell |
 
 ---
 
@@ -239,7 +242,7 @@ cyclePos  = mod(uTime * effectiveSpeed * speedMul + phaseSeed * cycleH, cycleH);
 Cluster
  ├── hue/brightness/speed bias  ─── baked to attributes → never changes at runtime without rebuild
  │                                  (range is a uniform → setClusterHueRange etc. work at runtime)
- ├── burstSeed ─────────────────── deterministic burst window; contagion gates individual join
+ ├── burstSeed ─────────────────── deterministic burst window; cluster burst participation gates individual join
  │                                  (aClusterBurstSeed also reused as gravity oscillation phase desync)
  ├── aClusterCenter ─────────────── centroid of non-reserve columns → gravity pass only
  │                                  (gravDir = column XZ − centroid XZ; normalised to unit vector)
@@ -250,7 +253,7 @@ Squad (within cluster)
  └── biasedTrailBuf ─────────────── pre-baked trail fraction; setTrailRange() rescales in-place
 
 aSpawnTheta (per-column, not per-cluster)
- ├── entrainment wave ───────────── thetaEntrain = aSpawnTheta * 2π − π → sin wave speed mod
+ ├── speed entrainment ─────────── thetaEntrain = aSpawnTheta * 2π − π → sin wave speed mod
  ├── spawn wave gate ────────────── columns with aSpawnTheta < uSpawnWaveFront are active
  └── spiral formation ───────────── spiralA = uTime * uSpiralRate + aSpawnTheta * uSpiralPitch
 
@@ -534,8 +537,8 @@ describe('cluster geometry invariants', () => {
 
 | Subsystem | Why it cannot be Node-tested |
 |---|---|
-| Contagion burst timing | Needs `uTime` advancing → shader execution → visual output |
-| Entrainment wave visual | Speed modulation only visible in rendered column movement |
+| Cluster burst participation timing | Needs `uTime` advancing → shader execution → visual output |
+| Speed entrainment visual | Speed modulation only visible in rendered column movement |
 | Squad phase lock visual | Phase coherence only observable via rendered head positions |
 | Gravity well displacement | Shader-side oscillation of `gravDir` (derived from `aClusterCenter`) — centroid baking itself is Node-testable (see tests above) |
 
@@ -554,7 +557,7 @@ Uniform random placement allows cluster bunching (a gap of ~93° is likely with 
 **Why bake attributes instead of computing per-frame in JS?**
 Attribute reads are per-vertex (parallelised on GPU). Computing cluster identity per-frame in JS would require 600 × 120 = 72,000 attribute writes per frame — prohibitive. The per-cluster bias values change only on geometry rebuild.
 
-**Why use `aSpawnTheta` instead of `atan2(wz, wx)` in the entrainment wave?**
+**Why use `aSpawnTheta` instead of `atan2(wz, wx)` in speed entrainment?**
 For curtain and rectangle topologies `wz ≈ 0` or `wz` is random, making `atan2` degenerate or spatially incoherent. `aSpawnTheta` is baked as a well-distributed `[0,1]` scan position regardless of topology.
 
 **Why reuse `aClusterBurstSeed` as a gravity phase desync?**

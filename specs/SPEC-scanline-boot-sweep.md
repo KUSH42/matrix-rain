@@ -115,7 +115,7 @@ to dissolve.
 | `setStartupCascade` | Independent — `vBootFade` computed before `cyclePos`; scanline affects head position, cascade affects alpha |
 | `spawnWave` | Independent — spawn gate operates on `aSpawnTheta`, not `cyclePos` |
 | `setDensity` / density cull | Independent — density cull operates before the column placement block |
-| Message reveal (`isLocked`) | Safe — locked columns override `headY` via `aLockStateAttr.x` downstream of `cyclePos`; scanline sync is bypassed for them automatically |
+| Message reveal (`isLocked`) | Safe — locked columns override `headY` via `aLockStateAttr.x` downstream of `cyclePos`; scan phase lock is bypassed for them automatically |
 | `setReverseChance` | Partial — `revCyclePos = select(isRev, cycleH − cyclePos, cyclePos)` still applies after the mix; reversed columns sweep upward during sync, consistent with the 2D reverse analogue |
 | `setBreathAmt` / `setEntrainment` | Suppressed during sweep — both modify the natural `cyclePos` branch which has weight 0 when `uScanSyncAmt = 1`; intentional |
 
@@ -260,7 +260,7 @@ triggerScanlineSweep({ speed = 4.0, dissolveTime = 1.5 } = {}) {
 },
 
 /**
- * Set scanline sync amount manually [0=off, 1=full sync]. Cancels any animation.
+ * Set scanline phase lock manually [0=off, 1=full sync]. Cancels any animation.
  * Call setScanlineSync(0) to return to full IDLE (sync off, animation stopped).
  */
 setScanlineSync(v) {

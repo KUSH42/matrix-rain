@@ -190,11 +190,11 @@ Returns a control handle with methods below.
 | `setSectorWidth(deg)` | Half-angle of active sector 1–180° (default 180 = widest arc) |
 | `setSectorStrength(v)` | Fraction masked outside sector 0–1 (0 = off, default) |
 | `setHeightFade(v)` | Sine density fade at vertical poles 0–1 (0 = off) |
-| `setContagion(v)` | Cluster burst contagion strength 0–1 (0 = off, default) |
-| `setEntrainment(amt, speed?, crests?)` | Speed entrainment wave: amplitude 0–0.8, angular speed rad/s, crest count 1–12 |
-| `setEntrainSpeed(v)` | Entrainment wave angular speed rad/s (default 0.25) |
-| `setEntrainCrests(n)` | Entrainment crest count 1–12 (default 3) |
-| `setSquadCoherence(v)` | Squad phase lock 0–1 (0 = full squad lock, 1 = individual random, default) |
+| `setContagion(v)` | Cluster burst participation strength 0–1 (0 = off, default). Legacy name; behavior is cluster burst join probability, not true propagation. |
+| `setEntrainment(amt, speed?, crests?)` | Speed entrainment: amplitude 0–0.8, angular speed rad/s, crest count 1–12 |
+| `setEntrainSpeed(v)` | Speed entrainment sweep rate in rad/s (default 0.25) |
+| `setEntrainCrests(n)` | Number of speed-entrainment bands 1–12 (default 3) |
+| `setSquadCoherence(v)` | Squad phase lock 0–1 (0 = full squad lock, 1 = individual random). Visible UI may refer to this as squad independence. |
 | `setSquadSize(n)` | Squad size 2–20 — triggers geometry rebuild |
 | `setTrailCohesion(v)` | Trail-length bias within squads 0–1 — triggers geometry rebuild |
 | `spawnWave({duration?, easing?, startAngle?})` | Animate rain sweep-in from `startAngle` [0,1] over `duration` seconds |
@@ -273,13 +273,13 @@ Tears down the instance registered on `element`.
 | Streak `uStreakAmt` | `0.055` | |
 | God rays `uExposure` | `0.45` | |
 | `uMsgBoost` | `2.0` | Brightness multiplier in message region (was 3.0 before message-reveal rework) |
-| `uContagionStrength` | `0.35` | Cluster burst contagion 0–1; 0 = off |
+| `uContagionStrength` | `0.35` | Cluster burst participation 0–1; 0 = off. Legacy name preserves API compatibility. |
 | `uClusterHueRange` | `18.0` | Max hue rotation per cluster in degrees; 0 = monochrome |
 | `uClusterBrightRange` | `0.35` | Brightness bias magnitude; 0 = uniform brightness |
 | `uClusterSpeedRange` | `0.30` | Speed bias magnitude; 0 = uniform speed |
-| `uEntrainAmt` | `0.15` | Speed entrainment wave amplitude 0–0.8; 0 = off |
-| `uEntrainSpeed` | `0.25` | Entrainment wave angular speed rad/s |
-| `uEntrainCrests` | `3.0` | Entrainment crests around shell 1–12 |
+| `uEntrainAmt` | `0.15` | Speed entrainment amplitude 0–0.8; 0 = off |
+| `uEntrainSpeed` | `0.25` | Speed entrainment sweep rate in rad/s |
+| `uEntrainCrests` | `3.0` | Number of speed-entrainment bands around the shell 1–12 |
 | `uSquadCoherence` | `0.3` | 0 = full squad phase lock, 1 = individual random |
 | `uSpawnWaveFront` | `2.0` | Spawn wave gate; 2.0 = all active, < 0 = all suppressed |
 | `uMsgCascadeMode` | `0.0` | 0=wave, 1=radial, 2=column |

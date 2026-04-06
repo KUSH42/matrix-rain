@@ -70,11 +70,12 @@ const squadPhases = Array.from({length: nSquads}, () => Math.random())
 
 ---
 
-### 2B. Cluster Burst Contagion ★★★ (recommended)
+### 2B. Cluster Burst Participation ★★★ (recommended)
 
 **Concept.** Currently each column bursts independently with probability `uBurstProb`.
-With contagion, when one column in a cluster bursts, its neighbors are more likely to burst
-within ~0.3 s, creating a "pulse wave" through the cluster.
+With cluster burst participation, when a cluster enters its burst window, more of its
+members are likely to burst within ~0.3 s, creating a rhythmic "pulse wave" through the
+cluster.
 
 **Implementation (GPU-only, no CPU reads).**
 
@@ -87,14 +88,14 @@ const clusterPeriod = 4.0   // seconds between cluster bursts (matches existing 
 const clusterBurstPhase = frac( uTime / clusterPeriod + aClusterBurstSeed )
 const clusterBurstWindow = 0.08   // 8% of the cycle = ~0.32 s
 const clusterIsBursting = step(clusterBurstPhase, clusterBurstWindow)
-// Per-column: burst if cluster is bursting AND column's own random seed < contagionStrength
+// Per-column: burst if cluster is bursting AND column's own random seed < participationStrength
 const contagionBurst = clusterIsBursting * step( aRandSeed, uContagionStrength )
 ```
 
 `uContagionStrength` (0–1) controls how many cluster members pick up the burst — 0 = no
-contagion, 1 = whole cluster bursts simultaneously.
+cluster burst participation, 1 = whole cluster bursts simultaneously.
 
-Existing per-column burst logic still fires independently. Contagion is additive.
+Existing per-column burst logic still fires independently. Cluster burst participation is additive.
 
 **Trade-offs.**
 - No CPU writes needed; fully GPU.
@@ -108,7 +109,7 @@ Existing per-column burst logic still fires independently. Contagion is additive
 
 ---
 
-### 2C. Speed Entrainment Wave ★★ (interesting, heavier)
+### 2C. Speed Entrainment ★★ (interesting, heavier)
 
 **Concept.** A slow "attractor wave" sweeps through the column field; columns whose angular
 position aligns with the wave crest temporarily accelerate (or decelerate), producing a
@@ -321,7 +322,7 @@ so callers can compose their own activation patterns without reimplementing the 
 | Feature | Depends on | Conflicts with | Amplifies |
 |---------|-----------|----------------|-----------|
 | 2A Squad Phase | buildGeometry rebuild | none | 2D Trail Cohesion |
-| 2B Cluster Contagion | new attribute + uniform | uBurstProb (overlap) | 2A (same squad) |
+| 2B Cluster Burst Participation | new attribute + uniform | uBurstProb (overlap) | 2A (same squad) |
 | 2C Speed Entrainment | new uniforms only | uBreathAmt (cumulative) | wave system |
 | 2D Trail Cohesion | 2A squads | none | 2A |
 | 2E Droplets | 2A squads + geom rebuild | clusterSpread (competes) | density |
@@ -335,8 +336,8 @@ so callers can compose their own activation patterns without reimplementing the 
 ## 5 — Recommended Implementation Order
 
 **Phase 1 — Low-risk, high-value (no geometry rebuild API change):**
-1. **2B Cluster Contagion** — new attribute + 1 uniform; pure shader addition; impressive visual.
-2. **2C Speed Entrainment Wave** — uniforms only; zero attribute change; reuses wave system.
+1. **2B Cluster Burst Participation** — new attribute + 1 uniform; pure shader addition; impressive visual.
+2. **2C Speed Entrainment** — uniforms only; zero attribute change; reuses wave system.
 3. **3A Spawn Reserve Pool** — JS-side; fixes message reveal fallback; no new shader code.
 
 **Phase 2 — Geometry rebuild (requires `setSquadSize` / `setDroplets` controls):**
@@ -364,6 +365,6 @@ so callers can compose their own activation patterns without reimplementing the 
    sector. A spawn wave that operates in the same angular space may feel redundant unless
    the wave is time-animated (sector mask is static). Ensure API is clearly differentiated.
 
-4. **Contagion and burst probability interaction.** At `uBurstProb = 1.0` and
+4. **Cluster burst participation and burst probability interaction.** At `uBurstProb = 1.0` and
    `uContagionStrength = 1.0`, every column is always bursting. Probably want soft clamping
    or make them mutually exclusive modes.

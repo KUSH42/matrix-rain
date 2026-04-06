@@ -11,13 +11,13 @@
 The column system currently has no inter-column coupling beyond static spatial clustering.
 Each column bursts, speeds, and cycles completely independently. This spec adds:
 
-1. **Cluster Burst Contagion** — when a cluster's periodic burst fires, neighbouring
+1. **Cluster Burst Participation** — when a cluster's periodic burst fires, neighbouring
    columns in the same cluster are pulled along, creating rhythmic group pulses.
-2. **Speed Entrainment Wave** — a second angular wave (independent of the existing
+2. **Speed Entrainment** — a second angular wave (independent of the existing
    position wave) modulates `speedMul` across the shell, producing visible tidal sweeps.
 3. **Spawn Reserve Pool** — a pre-allocated set of columns that can be teleported to any
    world position at runtime, eliminating the 75%-fallback problem in message reveal.
-4. **Squad Phase Coherence + Trail Cohesion** — columns within a squad share a cycle-phase
+4. **Squad Phase Lock + Trail Cohesion** — columns within a squad share a cycle-phase
    seed so their heads arrive at similar elevations simultaneously; squads also share a
    trail-length bias for visual identity.
 5. **Spawn Wave** — a wave front sweeps around the shell activating columns in sequence,
@@ -47,7 +47,7 @@ Each column bursts, speeds, and cycles completely independently. This spec adds:
 
 ---
 
-## Change 1 — Cluster Burst Contagion
+## Change 1 — Cluster Burst Participation
 
 ### Problem
 
@@ -59,7 +59,7 @@ identity — visually they are a spatial clustering only, with no temporal coher
 Add a float attribute `aClusterBurstSeed` per column (same value for all rows of a column;
 same value for all columns in the same cluster). In the shader, each cluster has a periodic
 burst window (4 s cycle, matching the existing `burstCycle`). When the cluster's window is
-open, columns within it fire a "contagion burst" with probability `uContagionStrength`.
+open, columns within it join the cluster burst with probability `uContagionStrength`.
 
 ### Implementation
 
@@ -129,7 +129,7 @@ Replace `const burstActive = ...` line with:
 
 ```js
 const burstIndiv  = step(float(1).sub(uBurstProb), burstH);
-// Cluster contagion: all columns in a cluster fire when its periodic window is open
+// Cluster burst participation: columns in a cluster join when its periodic window is open
 const clusterBurstPhase  = fract(uTime.div(burstCycle).add(aClusterBurstSeedAttr));
 const clusterIsBursting  = step(clusterBurstPhase, float(0.08));
 const colContagionRand   = h2(vec2(aColIdxAttr.mul(0.53), float(0.13)));
@@ -156,11 +156,11 @@ setContagion(v) {
 |---|---|
 | `matrix-rain-webgpu.js` | `clusterBurstSeeds` array; `clusterBurstSeedBuf`; column loop assignment; attribute registration |
 | `matrix-rain-tsl.js` | `uContagionStrength` in `makeUniforms()`; attribute read; replace `burstActive` line |
-| `matrix-3d.html` | "Contagion strength" slider (0–1, step 0.01, default 0) under Clusters panel |
+| `matrix-3d.html` | "Cluster burst participation" slider (0–1, step 0.01, default 0) under Clusters panel |
 
 ---
 
-## Change 2 — Speed Entrainment Wave
+## Change 2 — Speed Entrainment
 
 ### Problem
 
@@ -632,7 +632,7 @@ setTrailCohesion(v) {
 |---|---|
 | `matrix-rain-webgpu.js` | `squadSize` + `trailCohesion` params; squad struct arrays + counter; `colSquadPhase` / `colTrailBias` per column; biased trail bake; `squadPhaseBuf` + attribute; `_geomParams` fields; 3 handle methods |
 | `matrix-rain-tsl.js` | `uSquadCoherence` uniform; attribute read; replace `cyclePos` line |
-| `matrix-3d.html` | "Squad coherence" slider (0–1, step 0.01, default 1.0); "Trail cohesion" slider (0–1, step 0.01, default 0.5) under Clusters panel |
+| `matrix-3d.html` | "Squad independence" or explicitly documented "Squad coherence" slider (0–1, step 0.01, default 1.0); "Trail cohesion" slider (0–1, step 0.01, default 0.5) under Clusters panel |
 
 ---
 
@@ -826,7 +826,7 @@ Internal only (no public API):
 ## Interaction Notes
 
 - **Change 1 + 4**: If squads share speed bias (via `aClusterBias`) AND share burst timing
-  (`aClusterBurstSeed`), contagion fires across the squad simultaneously. This is the
+  (`aClusterBurstSeed`), cluster burst participation fires across the squad simultaneously. This is the
   intended "pulse" effect. They amplify each other.
 
 - **Change 2 + existing `uBreathAmt`**: Both are multiplicative on `speedMul`. At
@@ -855,7 +855,7 @@ Internal only (no public API):
 These changes are independent; implement in this order to keep changesets minimal:
 
 1. **Change 2** (Speed Entrainment) — uniforms only, zero attribute impact, easiest test.
-2. **Change 1** (Burst Contagion) — new attribute; integrates into existing burst code.
+2. **Change 1** (Cluster Burst Participation) — new attribute; integrates into existing burst code.
 3. **Change 3** (Spawn Reserve Pool) — JS only; fixes message reveal immediately.
 4. **Change 4** (Squad Phase + Trail) — new attribute; requires geometry rebuild path.
 5. **Change 5** (Spawn Wave) — new attribute; add last since it modifies the density gate.
@@ -870,7 +870,7 @@ These changes are independent; implement in this order to keep changesets minima
    demo slider. Verify at `uEntrainAmt = 0.5`: visible tidal speed variation sweeping the
    shell. Verify at `uEntrainAmt = 0`: identical to pre-spec.
 
-2. **Change 1 — Contagion attribute**: Add `clusterBurstSeeds` + `clusterBurstSeedBuf` +
+2. **Change 1 — Cluster burst participation attribute**: Add `clusterBurstSeeds` + `clusterBurstSeedBuf` +
    `colBurstSeed` assignment + inner-row write + attribute registration in
    `buildGeometry()`. Add `uContagionStrength` uniform; replace `burstActive` line. Add
    `setContagion` handle method. Verify at `uContagionStrength = 1`: visible cluster-wide
@@ -913,7 +913,7 @@ These changes are independent; implement in this order to keep changesets minima
 | Check | Pass condition |
 |---|---|
 | `uContagionStrength = 0` | No visual change vs pre-spec |
-| `uContagionStrength = 1` | Visible cluster-wide burst pulses, ~12 clusters staggered |
+| `uContagionStrength = 1` | Visible cluster-wide burst participation pulses, ~12 clusters staggered |
 | `uEntrainAmt = 0` | No visual change vs pre-spec |
 | `uEntrainAmt = 0.5` | Visible tidal sweep through rain (some columns fast, others slow) |
 | `uSquadCoherence = 1.0` | No visual change vs pre-spec |

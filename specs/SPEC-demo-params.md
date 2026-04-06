@@ -8,7 +8,7 @@
 
 ## Motivation
 
-`demo-2d.html` exposes several organic animation controls — brightness, breathing, wave
+`demo-2d.html` exposes several organic animation controls — brightness, breathing, head-wave
 speed/amount, phase correlation, weighted glyphs — that have direct 3D analogues but are
 currently hardcoded constants in `matrix-rain-tsl.js`. Exposing them as uniforms + handle
 methods allows real-time tuning in `demo.html` and is a low-overhead change (no geometry
@@ -24,8 +24,8 @@ rebuild, no shader recompile).
 | Speed | ✅ already (setSpeed → uSpeedMul) | — |
 | Brightness | ❌ no 3D equivalent | **Add uBrightness uniform + handle method** |
 | Cell width / height | ✅ `uCellW`/`uCellH` exist but not exposed | **Expose via setCellSize(w, h)** |
-| Wave speed | ❌ hardcoded 0.15 rad/s | **Add uWaveSpeed uniform** |
-| Wave amount | ❌ hardcoded ±4 world units | **Add uWaveAmt uniform** |
+| Head wave speed | ❌ hardcoded 0.15 rad/s | **Add uWaveSpeed uniform** |
+| Head wave amount | ❌ hardcoded ±4 world units | **Add uWaveAmt uniform** |
 | Speed oscillation | ❌ hardcoded 0.15 amplitude | **Add uBreathAmt uniform** |
 | Weighted glyphs | ❌ LUT always active, no toggle | **Add uWeightedGlyphs uniform** |
 | Freeze | ✅ already in demo.html | — |
@@ -79,7 +79,7 @@ const breathMul = float(1).add(
 );
 ```
 
-### Wave speed and amplitude
+### Head-wave speed and amplitude
 
 Current (line ~223–224):
 ```js
@@ -194,7 +194,7 @@ Add a new collapsible section after the Animation sub-panel (before CRT):
     <input id="ctl-breath-amt" type="range" min="0" max="1" step="0.05" value="1.0">
   </label>
 
-  <label>Wave speed
+  <label>Head wave speed
     <input id="ctl-wave-speed" type="range" min="0" max="0.5" step="0.01" value="0.15">
   </label>
 
@@ -300,7 +300,7 @@ No changes to `matrix-rain-passes-tsl.js`, `matrix-rain-presets.js`, or `demo-2d
 1. **Brightness**: sliding to 2.0 doubles glyph luminance; at 0.2 the rain dims noticeably.
 2. **Breath amount**: at 0 the speed is constant — no per-column oscillation visible over 10 s.
    At 1.0 you can see individual columns subtly speed up and slow down.
-3. **Wave speed**: at 0 the wave crest is frozen (no drift). At 0.5 the 3-crest pattern rotates
+3. **Head wave speed**: at 0 the wave crest is frozen (no drift). At 0.5 the 3-crest pattern rotates
    visibly around the shell over ~12 s (2π / (0.5 × 3) ≈ 4 s per crest).
 4. **Wave amount**: at 0 all columns advance independently (no phase clustering). At 1 the
    arc-shaped wave pattern is visible (same as before this spec).
