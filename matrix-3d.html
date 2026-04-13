@@ -240,12 +240,12 @@
   <script type="importmap">
   {
     "imports": {
-      "three":          "./node_modules/three/build/three.webgpu.js",
-      "three/webgpu":   "./node_modules/three/build/three.webgpu.js",
-      "three/tsl":      "./node_modules/three/build/three.tsl.js",
-      "three/addons/":  "./node_modules/three/examples/jsm/",
-      "spessasynth_lib": "./node_modules/spessasynth_lib/dist/index.js",
-      "spessasynth_core": "./node_modules/spessasynth_core/dist/index.js"
+      "three":          "https://cdn.jsdelivr.net/npm/three@0.183.2/build/three.webgpu.js",
+      "three/webgpu":   "https://cdn.jsdelivr.net/npm/three@0.183.2/build/three.webgpu.js",
+      "three/tsl":      "https://cdn.jsdelivr.net/npm/three@0.183.2/build/three.tsl.js",
+      "three/addons/":  "https://cdn.jsdelivr.net/npm/three@0.183.2/examples/jsm/",
+      "spessasynth_lib": "https://cdn.jsdelivr.net/npm/spessasynth_lib@4.1.0/dist/index.js",
+      "spessasynth_core": "https://cdn.jsdelivr.net/npm/spessasynth_core@4.2.8/dist/index.js"
     }
   }
   </script>
@@ -1217,6 +1217,9 @@
       <label style="color:#7fffaa;font-size:9px;letter-spacing:0.08em;margin-top:2px;">
         — Runtime (no rebuild) —
       </label>
+      <label style="color:#5f9a6f;font-size:9px;letter-spacing:0.08em;">
+        Ordinary motion
+      </label>
 
       <label id="lbl-density-in">Density inner
         <span style="display:flex;align-items:center;gap:4px;">
@@ -1239,28 +1242,32 @@
         </span>
       </label>
 
-      <label title="Modulates column speed in traveling spatial bands.">Speed entrainment
+      <label title="Speed-only macro motion. Supports head wave instead of competing with it.">Speed entrainment
         <span style="display:flex;align-items:center;gap:4px;">
           <input id="ctl-entrain-amt"     type="range"  min="0" max="0.8" step="0.01" value="0.15">
           <input id="ctl-entrain-amt-num" type="number" min="0" max="0.8" step="0.01" value="0.15">
         </span>
       </label>
 
-      <label title="Modulates column speed in traveling spatial bands.">Speed entrain rate
+      <label title="Speed-only macro motion. Supports head wave instead of competing with it.">Speed entrain rate
         <span style="display:flex;align-items:center;gap:4px;">
           <input id="ctl-entrain-speed"     type="range"  min="0" max="2" step="0.01" value="0.25">
           <input id="ctl-entrain-speed-num" type="number" min="0" max="2" step="0.01" value="0.25">
         </span>
       </label>
 
-      <label title="Modulates column speed in traveling spatial bands.">Speed entrain crests
+      <label title="Speed-only macro motion. Supports head wave instead of competing with it.">Speed entrain crests
         <span style="display:flex;align-items:center;gap:4px;">
           <input id="ctl-entrain-crests"     type="range"  min="1" max="12" step="1" value="3">
           <input id="ctl-entrain-crests-num" type="number" min="1" max="12" step="1" value="3">
         </span>
       </label>
 
-      <label>Spawn wave front
+      <label style="color:#5f9a6f;font-size:9px;letter-spacing:0.08em;margin-top:4px;">
+        Special modes
+      </label>
+
+      <label title="Activation gate only. Does not redefine the underlying motion stack.">Spawn wave front
         <span style="display:flex;align-items:center;gap:4px;">
           <input id="ctl-spawn-front"     type="range"  min="-0.1" max="1.1" step="0.01" value="2">
           <input id="ctl-spawn-front-num" type="number" min="-0.1" max="1.1" step="0.01" value="2">
@@ -1272,13 +1279,13 @@
         <button id="ctl-spawn-out" style="padding:2px 8px;cursor:pointer;">Out</button>
       </label>
 
-      <label>Scan speed
+      <label title="Boot-sweep trigger speed for the temporary scanline override.">Scan speed
         <span style="display:flex;align-items:center;gap:4px;">
           <input id="ctl-scan-speed"     type="range"  min="1" max="12" step="0.5" value="4">
           <input id="ctl-scan-speed-num" type="number" min="1" max="12" step="0.5" value="4">
         </span>
       </label>
-      <label>Scan dissolve (s)
+      <label title="How long the temporary scanline override takes to dissolve back to natural motion.">Scan dissolve (s)
         <span style="display:flex;align-items:center;gap:4px;">
           <input id="ctl-scan-dissolve"     type="range"  min="0.5" max="4" step="0.1" value="1.5">
           <input id="ctl-scan-dissolve-num" type="number" min="0.5" max="4" step="0.1" value="1.5">
@@ -1287,13 +1294,13 @@
       <label style="flex-direction:row;gap:6px;align-items:center;">Scanline boot
         <button id="ctl-scan-trigger" style="padding:2px 8px;cursor:pointer;">Trigger</button>
       </label>
-      <label title="Blends natural per-column cycle motion toward one shared cycle position.">Scan phase lock
+      <label title="Temporary global cycle override. While active, shared cycle position owns the visible alignment.">Scan phase lock
         <span style="display:flex;align-items:center;gap:4px;">
           <input id="ctl-scan-sync"     type="range"  min="0" max="1" step="0.01" value="0">
           <input id="ctl-scan-sync-num" type="number" min="0" max="1" step="0.01" value="0">
         </span>
       </label>
-      <label title="The shared cyclePos used when scan phase lock is above 0.">Shared cycle position
+      <label title="The shared cycle position used by scan phase lock while the override is active.">Shared cycle position
         <span style="display:flex;align-items:center;gap:4px;">
           <input id="ctl-scan-phase"     type="range"  min="0" max="40" step="0.1" value="0">
           <input id="ctl-scan-phase-num" type="number" min="0" max="40" step="0.1" value="0">
